@@ -28,6 +28,7 @@ from .tools import (
     save_memory,
     get_memories,
     search_memories,
+    send_slack_message,
 )
 
 
@@ -286,6 +287,41 @@ async def list_tools() -> list[Tool]:
                 "required": ["query"],
             },
         ),
+        Tool(
+            name="send_slack_message",
+            description=(
+                "Send a message to Slack using an incoming webhook. "
+                "Useful for posting content, notifications, and updates to Slack channels. "
+                "The webhook URL can be provided or will use SLACK_WEBHOOK_URL from environment. "
+                "Supports custom usernames, emoji icons, and channel overrides."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "description": "The message text to send (supports Slack markdown formatting)",
+                    },
+                    "webhook_url": {
+                        "type": "string",
+                        "description": "Optional Slack webhook URL. If not provided, uses SLACK_WEBHOOK_URL from environment",
+                    },
+                    "username": {
+                        "type": "string",
+                        "description": "Optional custom username for the message",
+                    },
+                    "icon_emoji": {
+                        "type": "string",
+                        "description": "Optional emoji icon (e.g., 'robot_face', 'tada', ':rocket:')",
+                    },
+                    "channel": {
+                        "type": "string",
+                        "description": "Optional channel override (e.g., '#general', '@username')",
+                    },
+                },
+                "required": ["text"],
+            },
+        ),
     ]
 
 
@@ -462,6 +498,31 @@ async def call_tool(name: str, arguments: Any) -> Sequence[TextContent | ImageCo
             result = await search_memories(
                 query=query,
                 limit=arguments.get("limit", 10),
+            )
+
+            # Return as TextContent with JSON
+            import json
+            return [
+                TextContent(
+                    type="text",
+                    text=json.dumps(result, indent=2),
+                )
+            ]
+
+        elif name == "send_slack_message":
+            # Extract and validate arguments
+            text = arguments.get("text")
+
+            if not text:
+                raise ValueError("Missing required argument: text")
+
+            # Call the tool
+            result = await send_slack_message(
+                text=text,
+                webhook_url=arguments.get("webhook_url"),
+                username=arguments.get("username"),
+                icon_emoji=arguments.get("icon_emoji"),
+                channel=arguments.get("channel"),
             )
 
             # Return as TextContent with JSON

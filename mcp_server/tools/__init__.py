@@ -5,6 +5,7 @@ from .web_reader import fetch_web_content
 from .social_media import get_social_media_stats
 from .content_suggestions import suggest_content_topics
 from .memory import save_memory, get_memories, search_memories
+from .slack import send_slack_message
 
 __all__ = [
     "analyze_website",
@@ -14,4 +15,5 @@ __all__ = [
     "save_memory",
     "get_memories",
     "search_memories",
+    "send_slack_message",
 ]
