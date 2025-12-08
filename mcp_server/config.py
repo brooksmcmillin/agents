@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     token_storage_path: Path = Field(default=Path("./tokens"), description="Path to store OAuth tokens")
     token_encryption_key: Optional[str] = Field(default=None, description="Key for encrypting stored tokens")
 
+    # Slack Integration
+    slack_webhook_url: str | None = Field(default=None, description="Default Slack incoming webhook URL")
+
     # Logging
     log_level: str = Field(default="INFO", description="Logging level")
     log_file: str = Field(default="pr_agent.log", description="Log file path")
