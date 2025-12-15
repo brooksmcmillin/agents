@@ -4,10 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is an LLM-powered PR and content strategy assistant built with Claude (Anthropic SDK) and Model Context Protocol (MCP). The system consists of two independent components that communicate via MCP:
+This is a multi-agent system built with Claude (Anthropic SDK) and Model Context Protocol (MCP). The repository is structured to support multiple specialized agents that share common infrastructure:
 
-1. **MCP Server** (`mcp_server/`) - Provides tools for content analysis, social media analytics, and persistent memory
-2. **Agent Application** (`agent/`) - Orchestrates Claude to provide intelligent content strategy advice
+**Architecture:**
+1. **Agents** (`agents/`) - Individual agent implementations, each in its own subdirectory
+   - `pr_agent/` - PR and content strategy assistant
+   - *(More agents can be added as subdirectories)*
+2. **MCP Server** (`mcp_server/`) - Shared tools for content analysis, social media analytics, and persistent memory
+3. **Shared Utilities** (`shared/`) - Common code reusable across all agents
 
 ## Development Setup
 
@@ -17,8 +21,8 @@ This project uses `uv` for dependency management:
 # Install dependencies
 uv sync
 
-# Run the agent
-uv run python -m agent.main
+# Run the PR agent
+uv run python -m agents.pr_agent.main
 
 # Run the MCP server standalone (for testing)
 uv run python -m mcp_server.server
@@ -35,12 +39,21 @@ uv run python demo.py
 
 ### Component Communication Flow
 
+**Local Setup (Default):**
 ```
-User Input → Agent (agent/main.py) → Claude API (Sonnet 4.5) → MCP Client (agent/mcp_client.py)
+User Input → Agent (agents/*/main.py) → Claude API (Sonnet 4.5) → agent-framework (MCP Client)
                 ↑                                                          ↓
                 │                                                  MCP Server (stdio)
                 │                                                          ↓
                 └─────────────── Tool Results ←───────────────── Tools (mcp_server/tools/)
+```
+
+**Remote Setup (Optional):**
+```
+User Input → Agent → Claude API → RemoteMCPClient (HTTP/SSE) → Remote MCP Server (HTTP)
+                ↑                                                      ↓
+                │                                                 Tools (remote)
+                └─────────────────── Tool Results ←──────────────────────┘
 ```
 
 **Critical Design Pattern: Hot Reload via Reconnection**
@@ -49,9 +62,14 @@ User Input → Agent (agent/main.py) → Claude API (Sonnet 4.5) → MCP Client 
 - When tool code is modified, changes are picked up on the next tool call
 - Type `reload` in the agent to force reconnection and discover updated tools
 
+**Remote MCP Option:**
+- MCP servers can be hosted remotely via HTTP/SSE transport
+- Multiple agents can share one remote MCP server
+- See [REMOTE_MCP.md](REMOTE_MCP.md) for setup guide
+
 ### Agentic Loop Pattern
 
-The agent implements a multi-turn conversation loop in `agent/main.py`:
+Each agent extends the `Agent` class from `agent-framework` which implements a multi-turn conversation loop:
 
 ```python
 while not done:
@@ -225,13 +243,19 @@ This creates a feedback loop where the agent helps improve itself based on real-
 
 ## Key Files and Responsibilities
 
-**Agent Application:**
-- `agent/main.py` - Main orchestrator, agentic loop, token usage tracking
-- `agent/mcp_client.py` - MCP connection handler (reconnects per tool call)
-- `agent/prompts.py` - System prompt defining agent behavior and memory usage
+**Agents:**
+- `agents/pr_agent/main.py` - PR agent implementation extending agent-framework
+- `agents/pr_agent/prompts.py` - System prompt defining agent behavior and memory usage
+- `agents/*/` - Additional agents can be added as siblings to pr_agent
 
-**MCP Server:**
-- `mcp_server/server.py` - MCP server, tool registry, error handling
+**Shared Infrastructure:**
+- `shared/` - Common utilities and base classes for all agents
+- `shared/remote_mcp_client.py` - Client for connecting to remote MCP servers via HTTP/SSE
+- `agent-framework` - External package providing base Agent class and MCP client
+
+**MCP Server (Shared Tools):**
+- `mcp_server/server.py` - MCP server (stdio transport) for local use
+- `mcp_server/server_http.py` - MCP server (HTTP/SSE transport) for remote use
 - `mcp_server/tools/` - Tool implementations (all async functions)
 - `mcp_server/memory_store.py` - Persistent memory storage
 - `mcp_server/auth/` - OAuth handler and token storage
@@ -241,7 +265,7 @@ This creates a feedback loop where the agent helps improve itself based on real-
 
 **Editing Tools Without Restarting:**
 
-1. Start agent: `uv run python -m agent.main`
+1. Start agent: `uv run python -m agents.pr_agent.main`
 2. Edit tool code in `mcp_server/tools/*.py`
 3. Save changes
 4. Next tool call automatically picks up changes
@@ -302,6 +326,61 @@ print(asyncio.run(analyze_website('https://example.com', 'tone')))
 - No multi-user support - add user_id to memory/auth
 - Stdio transport - consider HTTP/SSE for remote deployment
 
+## Adding New Agents
+
+To create a new agent:
+
+1. **Create agent directory:**
+   ```bash
+   mkdir -p agents/your_agent
+   ```
+
+2. **Create main.py extending Agent:**
+   ```python
+   # agents/your_agent/main.py
+   import asyncio
+   from agent_framework import Agent
+   from dotenv import load_dotenv
+   from .prompts import SYSTEM_PROMPT, USER_GREETING_PROMPT
+
+   load_dotenv()
+
+   class YourAgent(Agent):
+       def get_system_prompt(self) -> str:
+           return SYSTEM_PROMPT
+
+       def get_greeting(self) -> str:
+           return USER_GREETING_PROMPT
+
+   async def main():
+       agent = YourAgent()
+       await agent.start()
+
+   if __name__ == "__main__":
+       asyncio.run(main())
+   ```
+
+3. **Create prompts.py:**
+   ```python
+   # agents/your_agent/prompts.py
+   SYSTEM_PROMPT = """Your agent's system prompt..."""
+   USER_GREETING_PROMPT = """Your agent's greeting..."""
+   ```
+
+4. **Create __init__.py:**
+   ```python
+   # agents/your_agent/__init__.py
+   """Your agent description."""
+   __version__ = "0.1.0"
+   ```
+
+5. **Run your new agent:**
+   ```bash
+   uv run python -m agents.your_agent.main
+   ```
+
+All agents automatically have access to the shared MCP tools. You can add agent-specific tools to the MCP server as needed.
+
 ## Common Tasks
 
 **Read and analyze web content:**
@@ -329,8 +408,9 @@ async with httpx.AsyncClient() as client:
 
 **Change Claude model:**
 ```python
-# In agent/main.py PRAgent.__init__()
-model: str = "claude-opus-4-5-20251101"  # or any other model
+# In agents/pr_agent/main.py PRAgent class
+# Pass model parameter to agent-framework's Agent.__init__()
+# See agent-framework documentation for details
 ```
 
 **Migrate memory to PostgreSQL:**
