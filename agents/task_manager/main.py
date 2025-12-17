@@ -58,8 +58,14 @@ class TaskManagerAgent(Agent):
         """Return the greeting message for this agent."""
         return USER_GREETING_PROMPT
 
-    async def _get_mcp_tools(self):
-        """Get available tools from the remote MCP server.
+    async def _get_available_tools(self) -> list[str]:
+        """Get list of available tool names from the remote MCP server."""
+        async with RemoteMCPClient(self.mcp_url) as mcp:
+            mcp_tools = await mcp.list_tools()
+            return [tool["name"] for tool in mcp_tools]
+
+    async def _convert_mcp_tools_to_anthropic(self) -> list[dict]:
+        """Get available tools from the remote MCP server in Anthropic format.
 
         Returns:
             List of tool definitions in Anthropic format
@@ -78,18 +84,20 @@ class TaskManagerAgent(Agent):
             ]
             return tools
 
-    async def _execute_tool(self, tool_name: str, tool_args: dict) -> dict:
+    async def _call_mcp_tool_with_reconnect(
+        self, tool_name: str, arguments: dict
+    ) -> dict:
         """Execute a tool via the remote MCP server.
 
         Args:
             tool_name: Name of the tool to execute
-            tool_args: Arguments to pass to the tool
+            arguments: Arguments to pass to the tool
 
         Returns:
             Tool execution result
         """
         async with RemoteMCPClient(self.mcp_url) as mcp:
-            result = await mcp.call_tool(tool_name, tool_args)
+            result = await mcp.call_tool(tool_name, arguments)
 
             # Handle result - could be string or dict
             if isinstance(result, str):

@@ -203,6 +203,11 @@ class RemoteMCPClient:
             logger.debug("Initializing session...")
             await self._session.__aenter__()
 
+            # Send MCP initialize request (required by protocol)
+            logger.debug("Sending MCP initialize request...")
+            await self._session.initialize()
+            logger.debug("MCP session initialized successfully")
+
             logger.info(f"✅ Connected to remote MCP server at {self.base_url}")
 
             return self

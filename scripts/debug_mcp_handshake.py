@@ -61,6 +61,9 @@ async def main():
             session = ClientSession(read_stream, write_stream)
 
             async with session:
+                print("📋 Initializing MCP session...")
+                await session.initialize()
+
                 print("📋 Listing tools...")
                 result = await session.list_tools()
                 print(f"✅ Got {len(result.tools)} tools!")
