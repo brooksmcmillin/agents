@@ -5,14 +5,12 @@ get_tasks, create_task, update_task, etc.
 """
 
 import asyncio
-import json
 import logging
 import os
 
 from agent_framework import Agent
 from dotenv import load_dotenv
 
-from shared.remote_mcp_client import RemoteMCPClient
 from .prompts import SYSTEM_PROMPT, USER_GREETING_PROMPT
 
 # Load environment variables
@@ -33,22 +31,7 @@ class TaskManagerAgent(Agent):
     This agent connects to a remote MCP server to manage tasks, including
     rescheduling overdue tasks, pre-researching upcoming tasks, and
     prioritizing tasks based on various criteria.
-
-    Note: This agent extends the base Agent class but overrides MCP connection
-    to use RemoteMCPClient for connecting to a remote MCP server via HTTP/SSE.
     """
-
-    def __init__(self, mcp_url: str = "https://mcp.brooksmcmillin.com/mcp"):
-        """Initialize the task manager agent.
-
-        Args:
-            mcp_url: URL of the remote MCP server
-        """
-        # Store mcp_url before calling super().__init__()
-        self.mcp_url = mcp_url
-
-        # Initialize the base Agent class
-        super().__init__()
 
     def get_system_prompt(self) -> str:
         """Return the system prompt for this agent."""
@@ -58,86 +41,6 @@ class TaskManagerAgent(Agent):
         """Return the greeting message for this agent."""
         return USER_GREETING_PROMPT
 
-    async def _get_available_tools(self) -> list[str]:
-        """Get list of available tool names from the remote MCP server."""
-        async with RemoteMCPClient(self.mcp_url) as mcp:
-            mcp_tools = await mcp.list_tools()
-            return [tool["name"] for tool in mcp_tools]
-
-    async def _convert_mcp_tools_to_anthropic(self) -> list[dict]:
-        """Get available tools from the remote MCP server in Anthropic format.
-
-        Returns:
-            List of tool definitions in Anthropic format
-        """
-        async with RemoteMCPClient(self.mcp_url) as mcp:
-            mcp_tools = await mcp.list_tools()
-
-            # Convert MCP tools to Anthropic format
-            tools = [
-                {
-                    "name": tool["name"],
-                    "description": tool["description"],
-                    "input_schema": tool["input_schema"],
-                }
-                for tool in mcp_tools
-            ]
-            return tools
-
-    async def _call_mcp_tool_with_reconnect(
-        self, tool_name: str, arguments: dict
-    ) -> dict:
-        """Execute a tool via the remote MCP server.
-
-        Args:
-            tool_name: Name of the tool to execute
-            arguments: Arguments to pass to the tool
-
-        Returns:
-            Tool execution result
-        """
-        async with RemoteMCPClient(self.mcp_url) as mcp:
-            result = await mcp.call_tool(tool_name, arguments)
-
-            # Handle result - could be string or dict
-            if isinstance(result, str):
-                try:
-                    # Try to parse as JSON
-                    result_dict = json.loads(result)
-                    return result_dict
-                except json.JSONDecodeError:
-                    return {"result": result}
-            else:
-                return result
-
-    async def start(self):
-        """Start the interactive agent session with remote MCP connection test."""
-        # Test remote MCP connection before starting
-        try:
-            print("🔌 Connecting to remote MCP server...", flush=True)
-            async with RemoteMCPClient(self.mcp_url) as mcp:
-                tools = await asyncio.wait_for(mcp.list_tools(), timeout=10.0)
-                logger.info(f"Connected to MCP server with {len(tools)} tools")
-                print(f"✅ Connected to {self.mcp_url}")
-                print(f"✅ Found {len(tools)} tools\n", flush=True)
-        except asyncio.TimeoutError:
-            print(f"❌ Timeout while connecting to MCP server at {self.mcp_url}")
-            print("The connection was established but listing tools timed out.")
-            return
-        except Exception as e:
-            print(f"❌ Failed to connect to MCP server at {self.mcp_url}")
-            print(f"Error: {e}")
-            print("\nPlease ensure:")
-            print("1. The MCP server is running")
-            print("2. The URL is correct")
-            print("3. The server is accessible")
-            return
-
-        # Call the parent class's start method to begin the agent loop
-        await super().start()
-
-
-
 async def main():
     """Main entry point for the task manager agent."""
     try:
@@ -145,7 +48,7 @@ async def main():
         mcp_url = os.getenv("MCP_SERVER_URL", "https://mcp.brooksmcmillin.com/mcp")
 
         # Create and start the agent
-        agent = TaskManagerAgent(mcp_url=mcp_url)
+        agent = TaskManagerAgent(mcp_urls=[mcp_url])
         await agent.start()
 
     except ValueError as e:
