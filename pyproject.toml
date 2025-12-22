@@ -26,4 +26,4 @@ dependencies = [
 packages = ["agents.pr_agent", "mcp_server", "shared"]
 
 [tool.uv.sources]
-agent-framework = { git = "https://github.com/brooksmcmillin/agent-framework.git" }
+agent-framework = { path = "../agent-framework", editable = true }
