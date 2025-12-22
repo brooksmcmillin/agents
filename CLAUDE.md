@@ -9,7 +9,8 @@ This is a multi-agent system built with Claude (Anthropic SDK) and Model Context
 **Architecture:**
 1. **Agents** (`agents/`) - Individual agent implementations, each in its own subdirectory
    - `pr_agent/` - PR and content strategy assistant
-   - *(More agents can be added as subdirectories)*
+   - `task_manager/` - Interactive task management agent
+   - `notifier/` - Lightweight task notification script (Slack)
 2. **MCP Server** (`mcp_server/`) - Shared tools for content analysis, social media analytics, and persistent memory
 3. **Shared Utilities** (`shared/`) - Common code reusable across all agents
 
@@ -23,6 +24,12 @@ uv sync
 
 # Run the PR agent
 uv run python -m agents.pr_agent.main
+
+# Run the task manager agent (requires remote MCP server)
+uv run python -m agents.task_manager.main
+
+# Send Slack notification about open tasks
+uv run python -m agents.notifier.main
 
 # Run the MCP server standalone (for testing)
 uv run python -m mcp_server.server
