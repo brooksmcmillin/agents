@@ -412,19 +412,11 @@ async def test_connection():
         return False
 
     try:
-        # Import RemoteMCPClient
-        import sys
-        from pathlib import Path
-
-        # Add parent directory to path for imports
-        parent_dir = Path(__file__).parent.parent
-        if str(parent_dir) not in sys.path:
-            sys.path.insert(0, str(parent_dir))
-
-        from shared.remote_mcp_client import RemoteMCPClient
+        # Import RemoteMCPClient from agent-framework
+        from agent_framework.core.remote_mcp_client import RemoteMCPClient
 
         # Try to connect and list tools
-        async with RemoteMCPClient(MCP_SERVER_BASE, auth_token=token) as client:
+        async with RemoteMCPClient(MCP_SERVER_BASE, auth_token=token, enable_oauth=False) as client:
             tools = await client.list_tools()
 
             print("✅ Connection successful!")
@@ -435,6 +427,11 @@ async def test_connection():
                 if len(tools) > 3:
                     print(f"   ... and {len(tools) - 3} more")
             return True
+
+    except ValueError as e:
+        # Handle the nice error message from our improved client
+        print(f"❌ Connection test failed: {e}")
+        return False
 
     except Exception as e:
         print(f"❌ Connection test failed: {e}")
