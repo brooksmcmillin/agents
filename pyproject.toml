@@ -1,7 +1,7 @@
 [project]
-name = "pr-agent"
+name = "agents"
 version = "0.1.0"
-description = "LLM-powered PR and content strategy assistant"
+description = "Multi-agent system built with Claude and Model Context Protocol (MCP)"
 requires-python = ">=3.11"
 dependencies = [
     "anthropic>=0.39.0",
@@ -23,7 +23,7 @@ dependencies = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["agents.pr_agent", "mcp_server", "shared"]
+packages = ["agents", "mcp_server", "shared", "examples", "scripts"]
 
 [tool.uv.sources]
 agent-framework = { path = "../agent-framework", editable = true }
