@@ -1,18 +1,29 @@
 """Main notification script.
 
 Fetches open tasks from remote MCP server and sends Slack notifications.
+
+Uses shared token storage (~/.claude-code/tokens/) so you can authenticate
+once via an interactive agent and the notifier will reuse those tokens.
 """
 
 import asyncio
 import json
 import logging
 import os
+import sys
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import httpx
 from dotenv import load_dotenv
 
 from agent_framework.core.remote_mcp_client import RemoteMCPClient
+
+# Add shared module to path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from shared.oauth_config import OAuthConfig, discover_oauth_config
+from shared.oauth_flow import OAuthFlowHandler
+from shared.oauth_tokens import TokenSet, TokenStorage
 
 # Load environment variables
 load_dotenv()
@@ -183,6 +194,66 @@ async def fetch_tasks(client: RemoteMCPClient) -> tuple[list[dict], list[dict], 
     return overdue_tasks, today_tasks, upcoming_tasks
 
 
+async def get_valid_token(mcp_url: str) -> str | None:
+    """Get a valid access token from storage, refreshing if needed.
+
+    Args:
+        mcp_url: The MCP server URL
+
+    Returns:
+        Valid access token string, or None if unavailable
+    """
+    token_storage = TokenStorage()
+
+    # Normalize URL like RemoteMCPClient does
+    if not mcp_url.endswith("/"):
+        mcp_url = mcp_url + "/"
+
+    # Try to load saved token
+    token = token_storage.load_token(mcp_url)
+    if not token:
+        logger.warning(f"No saved token found for {mcp_url}")
+        return None
+
+    # Check if token is valid (not expired)
+    if not token.is_expired():
+        logger.info("Using valid token from storage")
+        return token.access_token
+
+    # Token expired - try to refresh
+    logger.info("Token expired, attempting refresh...")
+
+    if not token.refresh_token:
+        logger.warning("No refresh token available")
+        return None
+
+    if not token.client_id:
+        logger.warning("No client_id stored with token - cannot refresh")
+        return None
+
+    try:
+        # Discover OAuth config for refresh endpoint
+        oauth_config = await discover_oauth_config(mcp_url)
+        oauth_flow = OAuthFlowHandler(oauth_config)
+
+        # Refresh the token using stored client credentials
+        new_token = await oauth_flow.refresh_token(
+            token.refresh_token,
+            client_id=token.client_id,
+            client_secret=token.client_secret,
+        )
+
+        # Save the refreshed token
+        token_storage.save_token(mcp_url, new_token)
+        logger.info("Token refreshed successfully")
+
+        return new_token.access_token
+
+    except Exception as e:
+        logger.error(f"Failed to refresh token: {e}")
+        return None
+
+
 async def send_slack_notification(message: str, webhook_url: str) -> bool:
     """Send notification to Slack via webhook.
 
@@ -222,7 +293,6 @@ async def main():
         # Get configuration from environment
         mcp_url = os.getenv("MCP_SERVER_URL", "https://mcp.brooksmcmillin.com/mcp")
         webhook_url = os.getenv("SLACK_WEBHOOK_URL")
-        auth_token = os.getenv("MCP_AUTH_TOKEN")
 
         if not webhook_url:
             logger.error("SLACK_WEBHOOK_URL not set in environment")
@@ -231,15 +301,21 @@ async def main():
             print("SLACK_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/WEBHOOK/URL")
             return
 
+        # Get token from shared storage (with automatic refresh)
+        auth_token = await get_valid_token(mcp_url)
+
         if not auth_token:
-            logger.error("MCP_AUTH_TOKEN not set in environment")
-            print("\nError: MCP_AUTH_TOKEN not set")
-            print("Please add it to your .env file or set it as an environment variable")
+            logger.error("No valid token available")
+            print("\nError: No valid authentication token found")
+            print("\nTo authenticate, run an interactive agent first:")
+            print("  uv run python -m agents.pr_agent.main")
+            print("  uv run python -m agents.task_manager.main")
+            print("\nThis will open a browser for OAuth login. Once authenticated,")
+            print("the notifier will automatically use and refresh those tokens.")
             return
 
-        # Connect to remote MCP server with explicit auth token
+        # Connect to remote MCP server with token from storage
         logger.info(f"Connecting to MCP server at {mcp_url}...")
-        logger.debug(f"Using auth token: {auth_token[:10]}...")
         async with RemoteMCPClient(mcp_url, auth_token=auth_token, enable_oauth=False) as client:
             logger.info("Connected successfully")
 
