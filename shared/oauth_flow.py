@@ -250,7 +250,7 @@ class OAuthFlowHandler:
             code_verifier: PKCE code verifier
 
         Returns:
-            TokenSet with access token
+            TokenSet with access token (includes client credentials for refresh)
 
         Raises:
             ValueError: If token exchange fails
@@ -277,35 +277,51 @@ class OAuthFlowHandler:
                 response.raise_for_status()
                 token_response = response.json()
 
-                return TokenSet.from_oauth_response(token_response)
+                # Include client credentials in TokenSet for future refresh
+                return TokenSet.from_oauth_response(
+                    token_response,
+                    client_id=self.client_id,
+                    client_secret=self.client_secret,
+                )
 
             except httpx.HTTPError as e:
                 raise ValueError(f"Failed to exchange code for token: {e}") from e
 
-    async def refresh_token(self, refresh_token: str) -> TokenSet:
+    async def refresh_token(
+        self,
+        refresh_token: str,
+        client_id: str | None = None,
+        client_secret: str | None = None,
+    ) -> TokenSet:
         """Refresh an access token using a refresh token.
 
         Args:
             refresh_token: Refresh token
+            client_id: OAuth client ID (uses self.client_id if not provided)
+            client_secret: OAuth client secret (uses self.client_secret if not provided)
 
         Returns:
-            New TokenSet with refreshed access token
+            New TokenSet with refreshed access token (includes client credentials)
 
         Raises:
             ValueError: If refresh fails
         """
-        if not self.client_id:
-            raise ValueError("Client not registered")
+        # Use provided credentials or fall back to instance credentials
+        effective_client_id = client_id or self.client_id
+        effective_client_secret = client_secret or self.client_secret
+
+        if not effective_client_id:
+            raise ValueError("Client not registered and no client_id provided")
 
         refresh_data = {
             "grant_type": "refresh_token",
             "refresh_token": refresh_token,
-            "client_id": self.client_id,
+            "client_id": effective_client_id,
         }
 
         # Add client secret if we have one
-        if self.client_secret:
-            refresh_data["client_secret"] = self.client_secret
+        if effective_client_secret:
+            refresh_data["client_secret"] = effective_client_secret
 
         async with httpx.AsyncClient() as client:
             try:
@@ -317,7 +333,12 @@ class OAuthFlowHandler:
                 response.raise_for_status()
                 token_response = response.json()
 
-                return TokenSet.from_oauth_response(token_response)
+                # Include client credentials in TokenSet for future refresh
+                return TokenSet.from_oauth_response(
+                    token_response,
+                    client_id=effective_client_id,
+                    client_secret=effective_client_secret,
+                )
 
             except httpx.HTTPError as e:
                 raise ValueError(f"Failed to refresh token: {e}") from e

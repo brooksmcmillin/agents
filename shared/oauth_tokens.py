@@ -28,6 +28,10 @@ class TokenSet:
     # Computed fields
     issued_at: float | None = None  # Unix timestamp
 
+    # Client credentials (needed for token refresh in subsequent sessions)
+    client_id: str | None = None
+    client_secret: str | None = None
+
     def is_expired(self, buffer_seconds: int = 60) -> bool:
         """Check if token is expired or will expire soon.
 
@@ -54,11 +58,18 @@ class TokenSet:
         return cls(**data)
 
     @classmethod
-    def from_oauth_response(cls, response_data: dict[str, Any]) -> "TokenSet":
+    def from_oauth_response(
+        cls,
+        response_data: dict[str, Any],
+        client_id: str | None = None,
+        client_secret: str | None = None,
+    ) -> "TokenSet":
         """Create from OAuth token endpoint response.
 
         Args:
             response_data: JSON response from token endpoint
+            client_id: OAuth client ID (stored for token refresh)
+            client_secret: OAuth client secret (stored for token refresh)
 
         Returns:
             TokenSet with issued_at set to current time
@@ -70,6 +81,8 @@ class TokenSet:
             refresh_token=response_data.get("refresh_token"),
             scope=response_data.get("scope"),
             issued_at=time.time(),
+            client_id=client_id,
+            client_secret=client_secret,
         )
 
 

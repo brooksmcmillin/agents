@@ -142,8 +142,11 @@ class RemoteMCPClient:
             logger.info("Token expired, attempting refresh...")
             if self.current_token.refresh_token:
                 try:
+                    # Pass stored client credentials for refresh (needed in subsequent sessions)
                     self.current_token = await self.oauth_flow.refresh_token(
-                        self.current_token.refresh_token
+                        self.current_token.refresh_token,
+                        client_id=self.current_token.client_id,
+                        client_secret=self.current_token.client_secret,
                     )
                     self.token_storage.save_token(self.base_url, self.current_token)
                     logger.info("✅ Token refreshed successfully")
