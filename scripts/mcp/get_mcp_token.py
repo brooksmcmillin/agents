@@ -6,27 +6,21 @@ to obtain a valid access token from the MCP authorization server.
 """
 
 import asyncio
-import hashlib
+import sys
+from pathlib import Path
 import httpx
-import secrets
 import webbrowser
 from aiohttp import web
-from base64 import urlsafe_b64encode
 from urllib.parse import urlencode
+
+# Add shared module to path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from shared.oauth_flow import generate_pkce_pair
 
 # OAuth configuration
 AUTH_SERVER = "https://mcp-auth.brooksmcmillin.com"
 REDIRECT_URI = "http://localhost:8889/callback"
 SCOPES = "read"
-
-
-def generate_pkce_pair() -> tuple[str, str]:
-    """Generate PKCE code verifier and challenge."""
-    code_verifier = urlsafe_b64encode(secrets.token_bytes(32)).decode('utf-8').rstrip('=')
-    code_challenge = urlsafe_b64encode(
-        hashlib.sha256(code_verifier.encode('utf-8')).digest()
-    ).decode('utf-8').rstrip('=')
-    return code_verifier, code_challenge
 
 
 async def get_oauth_token() -> str | None:
@@ -45,7 +39,7 @@ async def get_oauth_token() -> str | None:
                 "token_endpoint_auth_method": "none",  # Public client
                 "grant_types": ["authorization_code", "refresh_token"],
                 "response_types": ["code"],
-            }
+            },
         )
 
         if registration_response.status_code != 201:
@@ -68,7 +62,7 @@ async def get_oauth_token() -> str | None:
     }
     auth_url = f"{AUTH_SERVER}/authorize?{urlencode(auth_params)}"
 
-    print(f"\n🌐 Opening browser for authentication...")
+    print("\n🌐 Opening browser for authentication...")
     print(f"If browser doesn't open, visit: {auth_url}\n")
 
     # Open browser
@@ -80,25 +74,24 @@ async def get_oauth_token() -> str | None:
 
     async def callback(request):
         nonlocal auth_code
-        auth_code = request.query.get('code')
+        auth_code = request.query.get("code")
         if auth_code:
             return web.Response(
                 text="✅ Authorization successful! You can close this window.",
-                content_type="text/html"
+                content_type="text/html",
             )
         else:
-            error = request.query.get('error', 'Unknown error')
+            error = request.query.get("error", "Unknown error")
             return web.Response(
-                text=f"❌ Authorization failed: {error}",
-                content_type="text/html"
+                text=f"❌ Authorization failed: {error}", content_type="text/html"
             )
 
-    app.router.add_get('/callback', callback)
+    app.router.add_get("/callback", callback)
 
     # Start server
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, 'localhost', 8889)
+    site = web.TCPSite(runner, "localhost", 8889)
     await site.start()
 
     print("⏳ Waiting for authorization callback...")
@@ -123,7 +116,7 @@ async def get_oauth_token() -> str | None:
                 "client_id": client_id,
                 "code_verifier": code_verifier,
             },
-            headers={"Content-Type": "application/x-www-form-urlencoded"}
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
 
         if token_response.status_code != 200:
@@ -155,6 +148,7 @@ async def main():
     except Exception as e:
         print(f"\n❌ Error: {e}")
         import traceback
+
         traceback.print_exc()
 
 

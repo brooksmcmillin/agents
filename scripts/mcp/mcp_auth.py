@@ -11,8 +11,6 @@ Usage:
 """
 
 import asyncio
-import base64
-import hashlib
 import os
 import secrets
 import sys
@@ -23,6 +21,10 @@ from urllib.parse import parse_qs, urlencode, urlparse
 import httpx
 from aiohttp import web
 from dotenv import load_dotenv, set_key
+
+# Add shared module to path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from shared.oauth_flow import generate_pkce_pair
 
 # Load environment variables
 load_dotenv()
@@ -39,6 +41,7 @@ def discover_oauth_endpoints() -> dict[str, str]:
     """
     # Try to get the base URL (remove /mcp, etc)
     from urllib.parse import urlparse
+
     parsed = urlparse(MCP_SERVER_BASE)
     base_url = f"{parsed.scheme}://{parsed.netloc}"
 
@@ -48,6 +51,7 @@ def discover_oauth_endpoints() -> dict[str, str]:
     ]
 
     import httpx
+
     for url in well_known_urls:
         try:
             with httpx.Client(timeout=5.0) as client:
@@ -60,11 +64,11 @@ def discover_oauth_endpoints() -> dict[str, str]:
                         "register_url": metadata.get("registration_endpoint"),
                         "scope": metadata.get("scopes_supported", ["mcp:access"])[0],
                     }
-        except Exception:
+        except Exception:  # nosec B112 - intentional fallback for discovery
             continue
 
     # Fallback to manual configuration
-    auth_base = MCP_SERVER_BASE.removesuffix('/mcp')
+    auth_base = MCP_SERVER_BASE.removesuffix("/mcp")
     return {
         "authorize_url": os.getenv("MCP_AUTHORIZE_URL", f"{auth_base}/authorize"),
         "token_url": os.getenv("MCP_TOKEN_URL", f"{auth_base}/token"),
@@ -83,22 +87,6 @@ MCP_OAUTH_CONFIG = {
     "redirect_uri": "http://localhost:8889/callback",
     "scope": _discovered["scope"],
 }
-
-
-def generate_pkce_pair() -> tuple[str, str]:
-    """Generate PKCE code_verifier and code_challenge.
-
-    Returns:
-        Tuple of (code_verifier, code_challenge)
-    """
-    # Generate random verifier (43-128 characters)
-    code_verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode('utf-8').rstrip('=')
-
-    # Create SHA256 challenge
-    challenge_bytes = hashlib.sha256(code_verifier.encode('utf-8')).digest()
-    code_challenge = base64.urlsafe_b64encode(challenge_bytes).decode('utf-8').rstrip('=')
-
-    return code_verifier, code_challenge
 
 
 class MCPAuth:
@@ -129,8 +117,7 @@ class MCPAuth:
         # Verify state to prevent CSRF
         if params.get("state", [""])[0] != self.state:
             return web.Response(
-                text="❌ Invalid state parameter. Possible CSRF attack.",
-                status=400
+                text="❌ Invalid state parameter. Possible CSRF attack.", status=400
             )
 
         # Get authorization code
@@ -163,7 +150,9 @@ class MCPAuth:
                 </body>
             </html>
             """
-            return web.Response(text=response_html, content_type="text/html", status=400)
+            return web.Response(
+                text=response_html, content_type="text/html", status=400
+            )
         else:
             return web.Response(text="❌ Missing authorization code", status=400)
 
@@ -222,7 +211,9 @@ class MCPAuth:
                         env_path = Path(".env")
                         if not env_path.exists():
                             env_path.touch()
-                        set_key(env_path, "MCP_CLIENT_ID", client_id, quote_mode='never')
+                        set_key(
+                            env_path, "MCP_CLIENT_ID", client_id, quote_mode="never"
+                        )
 
                         return client_id
                     else:
@@ -315,9 +306,9 @@ class MCPAuth:
 
             auth_url = f"{MCP_OAUTH_CONFIG['authorize_url']}?{urlencode(auth_params)}"
 
-            print(f"\n{'='*70}")
+            print(f"\n{'=' * 70}")
             print("MCP Server Authentication (PKCE Flow)")
-            print(f"{'='*70}\n")
+            print(f"{'=' * 70}\n")
             print(f"Server: {MCP_SERVER_BASE}")
             print(f"Client ID: {self.client_id}")
             print("Using PKCE: ✅ (No client secret needed)")
@@ -364,9 +355,11 @@ class MCPAuth:
                     env_path.touch()
 
                 # Use quote_mode='never' to avoid wrapping in quotes
-                set_key(env_path, "MCP_AUTH_TOKEN", access_token, quote_mode='never')
+                set_key(env_path, "MCP_AUTH_TOKEN", access_token, quote_mode="never")
                 if refresh_token:
-                    set_key(env_path, "MCP_REFRESH_TOKEN", refresh_token, quote_mode='never')
+                    set_key(
+                        env_path, "MCP_REFRESH_TOKEN", refresh_token, quote_mode="never"
+                    )
                     print("✅ Refresh token also saved!")
 
                 print("\n💾 Token saved to .env file as MCP_AUTH_TOKEN")
@@ -376,9 +369,9 @@ class MCPAuth:
                     expires_hours = token_data["expires_in"] / 3600
                     print(f"⏱️  Token expires in: {expires_hours:.1f} hours")
 
-                print(f"\n{'='*70}")
+                print(f"\n{'=' * 70}")
                 print("🎉 Authentication successful!")
-                print(f"{'='*70}")
+                print(f"{'=' * 70}")
                 print("\nYour agents can now connect to the MCP server.")
                 print("The token will be automatically used when connecting.")
 
@@ -393,6 +386,7 @@ class MCPAuth:
         except Exception as e:
             print(f"\n❌ Error during OAuth flow: {e}")
             import traceback
+
             traceback.print_exc()
             return False
         finally:
@@ -416,7 +410,9 @@ async def test_connection():
         from agent_framework.core.remote_mcp_client import RemoteMCPClient
 
         # Try to connect and list tools
-        async with RemoteMCPClient(MCP_SERVER_BASE, auth_token=token, enable_oauth=False) as client:
+        async with RemoteMCPClient(
+            MCP_SERVER_BASE, auth_token=token, enable_oauth=False
+        ) as client:
             tools = await client.list_tools()
 
             print("✅ Connection successful!")
@@ -436,6 +432,7 @@ async def test_connection():
     except Exception as e:
         print(f"❌ Connection test failed: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -447,7 +444,8 @@ def show_config():
 
     # Show if endpoints were discovered
     from urllib.parse import urlparse
-    auth_domain = urlparse(MCP_OAUTH_CONFIG['authorize_url']).netloc
+
+    auth_domain = urlparse(MCP_OAUTH_CONFIG["authorize_url"]).netloc
     mcp_domain = urlparse(MCP_SERVER_BASE).netloc
     if auth_domain != mcp_domain:
         print(f"  Auth Server: https://{auth_domain} (auto-discovered ✅)")
@@ -459,7 +457,9 @@ def show_config():
     print("  Auth Method: PKCE (no client secret needed)")
     print(f"  Redirect URI: {MCP_OAUTH_CONFIG['redirect_uri']}")
     print(f"  Scope: {MCP_OAUTH_CONFIG['scope']}")
-    print(f"  Current Token: {'✅ Set' if os.getenv('MCP_AUTH_TOKEN') else '❌ Not set'}")
+    print(
+        f"  Current Token: {'✅ Set' if os.getenv('MCP_AUTH_TOKEN') else '❌ Not set'}"
+    )
     print()
 
 
@@ -501,6 +501,7 @@ async def main():
     except Exception as e:
         print(f"\n❌ Unexpected error: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 
