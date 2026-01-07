@@ -88,7 +88,7 @@ class TokenSet:
 class TokenStorage:
     """File-based token storage for OAuth credentials.
 
-    Stores tokens in JSON files in a configured directory (~/.claude-code/tokens by default).
+    Stores tokens in JSON files in a configured directory (~/.agents/tokens by default).
     Each server gets its own file based on a hash of the server URL.
     """
 
@@ -96,10 +96,10 @@ class TokenStorage:
         """Initialize token storage.
 
         Args:
-            storage_dir: Directory to store token files (default: ~/.claude-code/tokens)
+            storage_dir: Directory to store token files (default: ~/.agents/tokens)
         """
         if storage_dir is None:
-            storage_dir = Path.home() / ".claude-code" / "tokens"
+            storage_dir = Path.home() / ".agents" / "tokens"
 
         self.storage_dir = Path(storage_dir)
         self.storage_dir.mkdir(parents=True, exist_ok=True)
