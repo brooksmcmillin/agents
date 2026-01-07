@@ -10,7 +10,9 @@ including:
 As you build more agents, extract common patterns here to avoid duplication.
 """
 
+from .agent_runner import run_agent
+from .logging_config import setup_logging
 from .remote_mcp_client import RemoteMCPClient
 
-__all__ = ["RemoteMCPClient"]
+__all__ = ["RemoteMCPClient", "run_agent", "setup_logging"]
 __version__ = "0.1.0"

@@ -10,6 +10,7 @@ automatic OAuth authentication including:
 
 import logging
 import os
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -89,7 +90,8 @@ class RemoteMCPClient:
         # OAuth components (initialized on connect)
         self.oauth_config: OAuthConfig | None = None
         self.oauth_flow: OAuthFlowHandler | None = None
-        self.token_storage = TokenStorage(token_storage_dir)
+        storage_path = Path(token_storage_dir) if token_storage_dir else None
+        self.token_storage = TokenStorage(storage_path)
         self.current_token: TokenSet | None = None
 
         # MCP session components
@@ -140,7 +142,7 @@ class RemoteMCPClient:
         # Check if token is expired and try to refresh
         if self.current_token and self.current_token.is_expired():
             logger.info("Token expired, attempting refresh...")
-            if self.current_token.refresh_token:
+            if self.current_token.refresh_token and self.oauth_flow:
                 try:
                     # Pass stored client credentials for refresh (needed in subsequent sessions)
                     self.current_token = await self.oauth_flow.refresh_token(
@@ -165,6 +167,8 @@ class RemoteMCPClient:
             print("Please complete the login process in your browser.")
             print("=" * 60 + "\n")
 
+            if self.oauth_flow is None:
+                raise RuntimeError("OAuth flow handler not initialized")
             self.current_token = await self.oauth_flow.authorize()
             self.token_storage.save_token(self.base_url, self.current_token)
             logger.info("✅ OAuth authentication successful, token saved")
@@ -192,9 +196,11 @@ class RemoteMCPClient:
 
             # Create streamable HTTP client connection with auth parameter
             self._streamable_context = streamablehttp_client(self.base_url, auth=auth)
-            self._read_stream, self._write_stream, self._get_session_id = (
-                await self._streamable_context.__aenter__()
-            )
+            (
+                self._read_stream,
+                self._write_stream,
+                self._get_session_id,
+            ) = await self._streamable_context.__aenter__()
 
             # Initialize MCP session
             from mcp import ClientSession
@@ -290,9 +296,9 @@ class RemoteMCPClient:
             # Return first content item (usually text or JSON)
             first_content = result.content[0]
             if hasattr(first_content, "text"):
-                return first_content.text
+                return getattr(first_content, "text")
             elif hasattr(first_content, "data"):
-                return first_content.data
+                return getattr(first_content, "data")
 
         return result
 
@@ -312,7 +318,9 @@ class RemoteMCPClient:
                 # Try root URL
                 base = self.base_url.rstrip("/")
                 response = await client.get(
-                    f"{base}/health" if not base.endswith("/mcp") else base.replace("/mcp", "/health"),
+                    f"{base}/health"
+                    if not base.endswith("/mcp")
+                    else base.replace("/mcp", "/health"),
                     headers=headers,
                     timeout=5.0,
                 )

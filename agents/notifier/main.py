@@ -8,32 +8,24 @@ once via an interactive agent and the notifier will reuse those tokens.
 
 import asyncio
 import json
-import logging
 import os
-import sys
 from datetime import datetime, timedelta
-from pathlib import Path
 
 import httpx
 from dotenv import load_dotenv
 
 from agent_framework.core.remote_mcp_client import RemoteMCPClient
 
-# Add shared module to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-from shared.oauth_config import OAuthConfig, discover_oauth_config
+from shared import setup_logging
+from shared.oauth_config import discover_oauth_config
 from shared.oauth_flow import OAuthFlowHandler
-from shared.oauth_tokens import TokenSet, TokenStorage
+from shared.oauth_tokens import TokenStorage
 
 # Load environment variables
 load_dotenv()
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
-logger = logging.getLogger(__name__)
+logger = setup_logging(__name__)
 
 
 def parse_priority(priority_value: str | int | None) -> int:
@@ -70,7 +62,9 @@ def parse_priority(priority_value: str | int | None) -> int:
     return 5  # Default
 
 
-def format_task_message(overdue: list[dict], today: list[dict], upcoming: list[dict]) -> str:
+def format_task_message(
+    overdue: list[dict], today: list[dict], upcoming: list[dict]
+) -> str:
     """Format task data into a Slack message.
 
     Args:
@@ -85,16 +79,22 @@ def format_task_message(overdue: list[dict], today: list[dict], upcoming: list[d
 
     # Header
     now = datetime.now()
-    message_parts.append(f"*Task Update - {now.strftime('%A, %B %d, %Y at %I:%M %p')}*\n")
+    message_parts.append(
+        f"*Task Update - {now.strftime('%A, %B %d, %Y at %I:%M %p')}*\n"
+    )
 
     # Overdue tasks
     if overdue:
-        message_parts.append(f"\n:warning: *{len(overdue)} Overdue Task{'s' if len(overdue) != 1 else ''}*")
+        message_parts.append(
+            f"\n:warning: *{len(overdue)} Overdue Task{'s' if len(overdue) != 1 else ''}*"
+        )
         for task in overdue[:5]:  # Limit to 5 to avoid spam
             title = task.get("title", "Untitled")
             due = task.get("due_date", "No due date")
             priority = parse_priority(task.get("priority"))
-            priority_emoji = ":exclamation:" if priority >= 8 else ":small_orange_diamond:"
+            priority_emoji = (
+                ":exclamation:" if priority >= 8 else ":small_orange_diamond:"
+            )
             message_parts.append(f"{priority_emoji} {title} (due: {due})")
 
         if len(overdue) > 5:
@@ -102,7 +102,9 @@ def format_task_message(overdue: list[dict], today: list[dict], upcoming: list[d
 
     # Today's tasks
     if today:
-        message_parts.append(f"\n:calendar: *{len(today)} Task{'s' if len(today) != 1 else ''} Due Today*")
+        message_parts.append(
+            f"\n:calendar: *{len(today)} Task{'s' if len(today) != 1 else ''} Due Today*"
+        )
         for task in today[:5]:
             title = task.get("title", "Untitled")
             priority = parse_priority(task.get("priority"))
@@ -114,7 +116,9 @@ def format_task_message(overdue: list[dict], today: list[dict], upcoming: list[d
 
     # Upcoming tasks (next 3 days)
     if upcoming:
-        message_parts.append(f"\n:crystal_ball: *{len(upcoming)} Upcoming Task{'s' if len(upcoming) != 1 else ''} (Next 3 Days)*")
+        message_parts.append(
+            f"\n:crystal_ball: *{len(upcoming)} Upcoming Task{'s' if len(upcoming) != 1 else ''} (Next 3 Days)*"
+        )
         for task in upcoming[:5]:
             title = task.get("title", "Untitled")
             due = task.get("due_date", "No due date")
@@ -126,14 +130,20 @@ def format_task_message(overdue: list[dict], today: list[dict], upcoming: list[d
     # Summary if nothing urgent
     if not overdue and not today:
         if not upcoming:
-            message_parts.append("\n:white_check_mark: *All caught up! No urgent tasks.*")
+            message_parts.append(
+                "\n:white_check_mark: *All caught up! No urgent tasks.*"
+            )
         else:
-            message_parts.append("\n:thumbsup: *No overdue or today tasks. You're on track!*")
+            message_parts.append(
+                "\n:thumbsup: *No overdue or today tasks. You're on track!*"
+            )
 
     return "\n".join(message_parts)
 
 
-async def fetch_tasks(client: RemoteMCPClient) -> tuple[list[dict], list[dict], list[dict]]:
+async def fetch_tasks(
+    client: RemoteMCPClient,
+) -> tuple[list[dict], list[dict], list[dict]]:
     """Fetch overdue, today, and upcoming tasks from MCP server.
 
     Args:
@@ -153,11 +163,15 @@ async def fetch_tasks(client: RemoteMCPClient) -> tuple[list[dict], list[dict], 
         {
             "status": "pending",  # Only pending/in_progress tasks
             "due_before": today_str,
-        }
+        },
     )
 
     # Parse result (it's JSON string)
-    overdue_data = json.loads(overdue_result) if isinstance(overdue_result, str) else overdue_result
+    overdue_data = (
+        json.loads(overdue_result)
+        if isinstance(overdue_result, str)
+        else overdue_result
+    )
     overdue_tasks = overdue_data.get("tasks", [])
 
     # Fetch tasks due today
@@ -168,10 +182,12 @@ async def fetch_tasks(client: RemoteMCPClient) -> tuple[list[dict], list[dict], 
             "status": "pending",
             "due_after": today_str,
             "due_before": today_str,
-        }
+        },
     )
 
-    today_data = json.loads(today_result) if isinstance(today_result, str) else today_result
+    today_data = (
+        json.loads(today_result) if isinstance(today_result, str) else today_result
+    )
     today_tasks = today_data.get("tasks", [])
 
     # Fetch upcoming tasks (next 3 days, excluding today)
@@ -183,13 +199,19 @@ async def fetch_tasks(client: RemoteMCPClient) -> tuple[list[dict], list[dict], 
             "status": "pending",
             "due_after": tomorrow,
             "due_before": upcoming_end,
-        }
+        },
     )
 
-    upcoming_data = json.loads(upcoming_result) if isinstance(upcoming_result, str) else upcoming_result
+    upcoming_data = (
+        json.loads(upcoming_result)
+        if isinstance(upcoming_result, str)
+        else upcoming_result
+    )
     upcoming_tasks = upcoming_data.get("tasks", [])
 
-    logger.info(f"Found {len(overdue_tasks)} overdue, {len(today_tasks)} today, {len(upcoming_tasks)} upcoming")
+    logger.info(
+        f"Found {len(overdue_tasks)} overdue, {len(today_tasks)} today, {len(upcoming_tasks)} upcoming"
+    )
 
     return overdue_tasks, today_tasks, upcoming_tasks
 
@@ -316,7 +338,9 @@ async def main():
 
         # Connect to remote MCP server with token from storage
         logger.info(f"Connecting to MCP server at {mcp_url}...")
-        async with RemoteMCPClient(mcp_url, auth_token=auth_token, enable_oauth=False) as client:
+        async with RemoteMCPClient(
+            mcp_url, auth_token=auth_token, enable_oauth=False
+        ) as client:
             logger.info("Connected successfully")
 
             # Fetch tasks

@@ -5,11 +5,12 @@ get_tasks, create_task, update_task, etc.
 """
 
 import asyncio
-import logging
 import os
 
 from agent_framework import Agent
 from dotenv import load_dotenv
+
+from shared import run_agent, setup_logging
 
 from .prompts import SYSTEM_PROMPT, USER_GREETING_PROMPT
 
@@ -17,11 +18,7 @@ from .prompts import SYSTEM_PROMPT, USER_GREETING_PROMPT
 load_dotenv()
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
-logger = logging.getLogger(__name__)
+logger = setup_logging(__name__)
 
 
 class TaskManagerAgent(Agent):
@@ -41,27 +38,11 @@ class TaskManagerAgent(Agent):
         """Return the greeting message for this agent."""
         return USER_GREETING_PROMPT
 
+
 async def main():
     """Main entry point for the task manager agent."""
-    try:
-        # Get MCP URL from environment or use default
-        mcp_url = os.getenv("MCP_SERVER_URL", "https://mcp.brooksmcmillin.com/mcp")
-
-        # Create and start the agent
-        agent = TaskManagerAgent(mcp_urls=[mcp_url])
-        await agent.start()
-
-    except ValueError as e:
-        print(f"\nConfiguration error: {e}")
-        print("\nPlease ensure:")
-        print("1. You have a .env file with ANTHROPIC_API_KEY set")
-        print("2. The API key is valid")
-        return
-
-    except Exception as e:
-        logger.exception(f"Fatal error: {e}")
-        print(f"\nFatal error: {e}")
-        return
+    mcp_url = os.getenv("MCP_SERVER_URL", "https://mcp.brooksmcmillin.com/mcp")
+    await run_agent(TaskManagerAgent, {"mcp_urls": [mcp_url]})
 
 
 if __name__ == "__main__":
