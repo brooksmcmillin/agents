@@ -22,14 +22,12 @@ dependencies = [
     "agent-framework",
 ]
 
-[tool.hatch.build.targets.wheel]
-packages = ["agents", "mcp_server", "shared", "examples", "scripts"]
-
 [tool.uv.sources]
 agent-framework = { path = "../agent-framework", editable = true }
 
 [dependency-groups]
 dev = [
     "pyright>=1.1.407",
+    "pytest>=9.0.2",
     "ruff>=0.14.10",
 ]
