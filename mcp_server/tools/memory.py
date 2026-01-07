@@ -68,7 +68,9 @@ async def save_memory(
 
         return {
             "status": "success",
-            "action": "updated" if memory.created_at != memory.updated_at else "created",
+            "action": "updated"
+            if memory.created_at != memory.updated_at
+            else "created",
             "memory": {
                 "key": memory.key,
                 "value": memory.value,
@@ -110,7 +112,9 @@ async def get_memories(
     Returns:
         List of matching memories, sorted by importance
     """
-    logger.info(f"Retrieving memories (category={category}, tags={tags}, min_importance={min_importance})")
+    logger.info(
+        f"Retrieving memories (category={category}, tags={tags}, min_importance={min_importance})"
+    )
 
     try:
         store = get_memory_store()

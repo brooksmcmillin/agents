@@ -28,7 +28,9 @@ def generate_pkce_pair() -> tuple[str, str]:
         Tuple of (code_verifier, code_challenge)
     """
     # Generate code verifier (43-128 characters)
-    code_verifier = urlsafe_b64encode(secrets.token_bytes(32)).decode("utf-8").rstrip("=")
+    code_verifier = (
+        urlsafe_b64encode(secrets.token_bytes(32)).decode("utf-8").rstrip("=")
+    )
 
     # Generate code challenge (SHA256 hash of verifier)
     code_challenge = (
@@ -140,7 +142,9 @@ class OAuthFlowHandler:
             "code_challenge": code_challenge,
             "code_challenge_method": "S256",
         }
-        auth_url = f"{self.oauth_config.authorization_endpoint}?{urlencode(auth_params)}"
+        auth_url = (
+            f"{self.oauth_config.authorization_endpoint}?{urlencode(auth_params)}"
+        )
 
         logger.info("Starting OAuth authorization flow...")
         logger.info(f"Opening browser to: {auth_url}")
@@ -221,7 +225,9 @@ class OAuthFlowHandler:
         site = web.TCPSite(runner, "localhost", self.redirect_port)
         await site.start()
 
-        logger.info(f"Callback server listening on http://localhost:{self.redirect_port}/callback")
+        logger.info(
+            f"Callback server listening on http://localhost:{self.redirect_port}/callback"
+        )
         logger.info("⏳ Waiting for authorization...")
 
         # Wait for callback (with timeout)

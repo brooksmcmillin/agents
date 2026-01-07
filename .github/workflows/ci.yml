@@ -11,7 +11,9 @@ jobs:
   ci:
     uses: brooksmcmillin/workflows/.github/workflows/python-ci.yml@main
     with:
-      package-name: agent_framework
-      python-versions: '["3.11", "3.12", "3.13"]'
+      package-name: agents
+      python-versions: '["3.12", "3.13"]'
+      pre-install-command: uv add agent-framework@git+https://github.com/brooksmcmillin/agent-framework
+      run-build: false
     secrets:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}

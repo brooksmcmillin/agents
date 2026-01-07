@@ -2,7 +2,7 @@
 name = "agents"
 version = "0.1.0"
 description = "Multi-agent system built with Claude and Model Context Protocol (MCP)"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "anthropic>=0.39.0",
     "mcp==1.10.1",
@@ -22,13 +22,17 @@ dependencies = [
     "agent-framework",
 ]
 
-[tool.hatch.build.targets.wheel]
-packages = ["agents", "mcp_server", "shared", "examples", "scripts"]
-
 [tool.uv.sources]
 agent-framework = { path = "../agent-framework", editable = true }
 
 [dependency-groups]
 dev = [
+    "pre-commit>=4.5.1",
     "pyright>=1.1.407",
+    "pytest>=9.0.2",
+    "pytest-cov>=7.0.0",
+    "ruff>=0.14.10",
 ]
+
+[tool.bandit]
+exclude_dirs = ["tests"]

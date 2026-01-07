@@ -10,7 +10,6 @@ Usage:
     uv run python scripts/install_notifier.py test      # Test notification
 """
 
-import os
 import socket
 import subprocess
 import sys
@@ -35,8 +34,7 @@ def get_cron_command() -> str:
 
     # Build command: cd to project, run with uv, redirect output
     command = (
-        f"cd {project_root} && "
-        f"uv run python -m agents.notifier.main >> {LOG_FILE} 2>&1"
+        f"cd {project_root} && uv run python -m agents.notifier.main >> {LOG_FILE} 2>&1"
     )
 
     return f"{CRON_SCHEDULE} {command} {CRON_IDENTIFIER}"
@@ -45,11 +43,7 @@ def get_cron_command() -> str:
 def is_crontab_available() -> bool:
     """Check if crontab command is available."""
     try:
-        subprocess.run(
-            ["crontab", "-l"],
-            capture_output=True,
-            check=False
-        )
+        subprocess.run(["crontab", "-l"], capture_output=True, check=False)
         return True
     except FileNotFoundError:
         return False
@@ -66,10 +60,7 @@ def get_current_crontab() -> list[str]:
 
     try:
         result = subprocess.run(
-            ["crontab", "-l"],
-            capture_output=True,
-            text=True,
-            check=True
+            ["crontab", "-l"], capture_output=True, text=True, check=True
         )
         return result.stdout.strip().split("\n") if result.stdout.strip() else []
     except subprocess.CalledProcessError as e:
@@ -138,7 +129,7 @@ def install() -> bool:
             missing_vars.append(var)
 
     if missing_vars:
-        print(f"❌ Missing required environment variables in .env:")
+        print("❌ Missing required environment variables in .env:")
         for var in missing_vars:
             print(f"   - {var}")
         return False
@@ -155,9 +146,9 @@ def install() -> bool:
         return False
 
     # Confirm installation
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("Ready to install cron job:")
-    print("="*60)
+    print("=" * 60)
     print(f"\n{get_cron_command()}\n")
 
     response = input("Install this cron job? (y/N): ")
@@ -173,11 +164,7 @@ def install() -> bool:
 
     # Write back to crontab
     try:
-        process = subprocess.Popen(
-            ["crontab", "-"],
-            stdin=subprocess.PIPE,
-            text=True
-        )
+        process = subprocess.Popen(["crontab", "-"], stdin=subprocess.PIPE, text=True)
         process.communicate("\n".join(new_crontab) + "\n")
 
         if process.returncode != 0:
@@ -185,7 +172,7 @@ def install() -> bool:
             return False
 
         print("\n✅ Successfully installed task notifier cron job!")
-        print(f"\nNotifications will be sent at:")
+        print("\nNotifications will be sent at:")
         print("  - 9:00 AM")
         print("  - 2:00 PM")
         print("  - 6:00 PM")
@@ -234,11 +221,7 @@ def uninstall() -> bool:
 
     # Write back to crontab
     try:
-        process = subprocess.Popen(
-            ["crontab", "-"],
-            stdin=subprocess.PIPE,
-            text=True
-        )
+        process = subprocess.Popen(["crontab", "-"], stdin=subprocess.PIPE, text=True)
         process.communicate("\n".join(new_crontab) + "\n")
 
         if process.returncode != 0:
@@ -259,7 +242,7 @@ def uninstall() -> bool:
 def status() -> None:
     """Show current installation status."""
     print("📊 Task Notifier Status\n")
-    print("="*60)
+    print("=" * 60)
 
     # Check if crontab is available
     crontab_available = is_crontab_available()
@@ -316,7 +299,7 @@ def status() -> None:
     else:
         print("\n✗ .env file not found")
 
-    print("="*60)
+    print("=" * 60)
 
     if not installed:
         print("\nTo install: uv run python scripts/install_notifier.py install")
@@ -348,7 +331,7 @@ def test() -> bool:
             cwd=project_root,
             capture_output=True,
             text=True,
-            timeout=60
+            timeout=60,
         )
 
         print(result.stdout)

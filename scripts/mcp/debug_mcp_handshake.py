@@ -18,7 +18,7 @@ class LoggingAuth(httpx.Auth):
         self.token = token
 
     def auth_flow(self, request):
-        logger.info(f"\n=== REQUEST ===")
+        logger.info("\n=== REQUEST ===")
         logger.info(f"Method: {request.method}")
         logger.info(f"URL: {request.url}")
         logger.info(f"Headers: {dict(request.headers)}")
@@ -29,14 +29,14 @@ class LoggingAuth(httpx.Auth):
 
         response = yield request
 
-        logger.info(f"\n=== RESPONSE ===")
+        logger.info("\n=== RESPONSE ===")
         logger.info(f"Status: {response.status_code}")
         logger.info(f"Headers: {dict(response.headers)}")
 
 
 async def main():
     storage = TokenStorage()
-    token_set = storage.load_token('https://mcp.brooksmcmillin.com/mcp/')
+    token_set = storage.load_token("https://mcp.brooksmcmillin.com/mcp/")
 
     if not token_set:
         print("No token found. Run the agent first to authenticate.")
@@ -49,14 +49,13 @@ async def main():
     try:
         print("\n🔌 Attempting MCP connection with logging...")
         async with streamablehttp_client(
-            "https://mcp.brooksmcmillin.com/mcp/",
-            auth=auth,
-            timeout=10
+            "https://mcp.brooksmcmillin.com/mcp/", auth=auth, timeout=10
         ) as (read_stream, write_stream, get_session_id):
             print(f"\n✅ Connected! Session ID: {get_session_id()}")
 
             # Try to create a session and list tools
             from mcp import ClientSession
+
             print("\n📋 Creating MCP session...")
             session = ClientSession(read_stream, write_stream)
 
@@ -73,6 +72,7 @@ async def main():
     except Exception as e:
         print(f"\n❌ Connection failed: {e}")
         import traceback
+
         traceback.print_exc()
 
 

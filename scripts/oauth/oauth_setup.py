@@ -54,7 +54,7 @@ class OAuthSetup:
             print("⚠️  No TOKEN_ENCRYPTION_KEY found in .env")
             print("Generating a new encryption key...")
             encryption_key = Fernet.generate_key().decode()
-            print(f"\n🔑 Add this to your .env file:")
+            print("\n🔑 Add this to your .env file:")
             print(f"TOKEN_ENCRYPTION_KEY={encryption_key}\n")
 
         self.token_store = TokenStore(storage_path, encryption_key)
@@ -84,8 +84,7 @@ class OAuthSetup:
         # Verify state to prevent CSRF
         if params.get("state", [""])[0] != self.state:
             return web.Response(
-                text="❌ Invalid state parameter. Possible CSRF attack.",
-                status=400
+                text="❌ Invalid state parameter. Possible CSRF attack.", status=400
             )
 
         # Get authorization code
@@ -115,7 +114,9 @@ class OAuthSetup:
                 </body>
             </html>
             """
-            return web.Response(text=response_html, content_type="text/html", status=400)
+            return web.Response(
+                text=response_html, content_type="text/html", status=400
+            )
         else:
             return web.Response(text="❌ Missing authorization code", status=400)
 
@@ -152,9 +153,9 @@ class OAuthSetup:
                 state=self.state,
             )
 
-            print(f"\n{'='*70}")
+            print(f"\n{'=' * 70}")
             print(f"Starting OAuth flow for {self.platform.upper()}")
-            print(f"{'='*70}\n")
+            print(f"{'=' * 70}\n")
             print("📋 Steps:")
             print("1. Your browser will open to authorize the application")
             print("2. Log in and grant the requested permissions")
@@ -192,7 +193,7 @@ class OAuthSetup:
 
             if token_data:
                 print("\n✅ Token obtained and saved successfully!")
-                print(f"\n📦 Token details:")
+                print("\n📦 Token details:")
                 print(f"   Token type: {token_data.token_type}")
                 print(f"   Has refresh token: {bool(token_data.refresh_token)}")
                 if token_data.expires_at:
@@ -215,6 +216,7 @@ class OAuthSetup:
         except Exception as e:
             print(f"\n❌ Error during OAuth flow: {e}")
             import traceback
+
             traceback.print_exc()
             return False
         finally:
@@ -237,14 +239,14 @@ async def main():
         success = await oauth_setup.run_oauth_flow()
 
         if success:
-            print("\n" + "="*70)
+            print("\n" + "=" * 70)
             print("🎉 OAuth setup complete!")
-            print("="*70)
+            print("=" * 70)
             print("\nYou can now use the MCP tools that require authentication.")
         else:
-            print("\n" + "="*70)
+            print("\n" + "=" * 70)
             print("❌ OAuth setup failed")
-            print("="*70)
+            print("=" * 70)
             sys.exit(1)
 
     except ValueError as e:
@@ -253,6 +255,7 @@ async def main():
     except Exception as e:
         print(f"\n❌ Unexpected error: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 

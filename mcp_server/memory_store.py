@@ -21,10 +21,19 @@ class Memory(BaseModel):
 
     key: str = Field(..., description="Unique identifier for this memory")
     value: str = Field(..., description="The memory content")
-    category: str | None = Field(None, description="Optional category (e.g., 'user_preference', 'fact', 'goal')")
-    tags: list[str] = Field(default_factory=list, description="Optional tags for filtering")
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="When this memory was created")
-    updated_at: datetime = Field(default_factory=datetime.utcnow, description="When this memory was last updated")
+    category: str | None = Field(
+        default=None,
+        description="Optional category (e.g., 'user_preference', 'fact', 'goal')",
+    )
+    tags: list[str] = Field(
+        default_factory=list, description="Optional tags for filtering"
+    )
+    created_at: datetime = Field(
+        default_factory=datetime.utcnow, description="When this memory was created"
+    )
+    updated_at: datetime = Field(
+        default_factory=datetime.utcnow, description="When this memory was last updated"
+    )
     importance: int = Field(default=5, description="Importance level 1-10")
 
     def to_dict(self) -> dict[str, Any]:
@@ -88,7 +97,9 @@ class MemoryStore:
                 data = json.load(f)
                 for key, mem_data in data.items():
                     self.memories[key] = Memory.from_dict(mem_data)
-            logger.debug(f"Loaded {len(self.memories)} memories from {self.memory_file}")
+            logger.debug(
+                f"Loaded {len(self.memories)} memories from {self.memory_file}"
+            )
         except Exception as e:
             logger.error(f"Failed to load memories: {e}")
 
@@ -208,7 +219,8 @@ class MemoryStore:
         """
         query_lower = query.lower()
         results = [
-            m for m in self.memories.values()
+            m
+            for m in self.memories.values()
             if query_lower in m.key.lower() or query_lower in m.value.lower()
         ]
 
@@ -245,12 +257,10 @@ class MemoryStore:
             "total_memories": len(self.memories),
             "categories": categories,
             "oldest_memory": min(
-                (m.created_at for m in self.memories.values()),
-                default=None
+                (m.created_at for m in self.memories.values()), default=None
             ),
             "newest_memory": max(
-                (m.created_at for m in self.memories.values()),
-                default=None
+                (m.created_at for m in self.memories.values()), default=None
             ),
         }
 

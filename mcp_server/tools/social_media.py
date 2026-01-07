@@ -74,9 +74,15 @@ async def get_social_media_stats(
                 "following": 892,
             },
             "content_metrics": {
-                "tweets_posted": random.randint(10, 40) if days >= 7 else random.randint(1, 10),
-                "impressions": random.randint(50_000, 200_000) if days >= 30 else random.randint(5000, 30000),
-                "engagements": random.randint(1_200, 5_000) if days >= 30 else random.randint(100, 800),
+                "tweets_posted": random.randint(10, 40)
+                if days >= 7
+                else random.randint(1, 10),
+                "impressions": random.randint(50_000, 200_000)
+                if days >= 30
+                else random.randint(5000, 30000),
+                "engagements": random.randint(1_200, 5_000)
+                if days >= 30
+                else random.randint(100, 800),
                 "engagement_rate": round(random.uniform(1.5, 4.5), 2),
                 "profile_visits": random.randint(800, 2_500),
             },
@@ -139,9 +145,15 @@ async def get_social_media_stats(
                 "connections": 2_456,
             },
             "content_metrics": {
-                "posts_published": random.randint(5, 20) if days >= 7 else random.randint(1, 5),
-                "impressions": random.randint(30_000, 150_000) if days >= 30 else random.randint(3000, 20000),
-                "engagements": random.randint(800, 3_000) if days >= 30 else random.randint(80, 500),
+                "posts_published": random.randint(5, 20)
+                if days >= 7
+                else random.randint(1, 5),
+                "impressions": random.randint(30_000, 150_000)
+                if days >= 30
+                else random.randint(3000, 20000),
+                "engagements": random.randint(800, 3_000)
+                if days >= 30
+                else random.randint(80, 500),
                 "engagement_rate": round(random.uniform(2.0, 5.0), 2),
                 "profile_views": random.randint(400, 1_500),
                 "search_appearances": random.randint(1_000, 4_000),

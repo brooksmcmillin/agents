@@ -8,7 +8,6 @@ Usage:
     uv run python scripts/clear_token_cache.py
 """
 
-import os
 from pathlib import Path
 
 
