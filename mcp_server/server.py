@@ -22,7 +22,7 @@ logging.basicConfig(
     level=getattr(logging, settings.log_level.upper()),
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
-        logging.FileHandler(settings.log_file),
+        logging.FileHandler(settings.get_log_file()),
         logging.StreamHandler(),
     ],
 )

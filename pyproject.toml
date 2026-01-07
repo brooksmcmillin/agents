@@ -27,3 +27,8 @@ packages = ["agents", "mcp_server", "shared", "examples", "scripts"]
 
 [tool.uv.sources]
 agent-framework = { path = "../agent-framework", editable = true }
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.407",
+]

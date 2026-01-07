@@ -32,7 +32,7 @@ def _extract_text_content(soup: BeautifulSoup) -> str:
 
 def _calculate_readability(text: str) -> dict[str, Any]:
     """Calculate readability metrics using Flesch Reading Ease approximation."""
-    sentences = re.split(r'[.!?]+', text)
+    sentences = re.split(r"[.!?]+", text)
     sentences = [s.strip() for s in sentences if s.strip()]
 
     words = text.split()
@@ -113,9 +113,33 @@ def _analyze_tone(text: str, readability: dict[str, Any]) -> dict[str, Any]:
         reading_level = "graduate"
 
     # Simple sentiment markers (count occurrences)
-    enthusiasm_words = ["great", "excellent", "amazing", "fantastic", "awesome", "love", "best"]
-    authority_words = ["research", "study", "data", "proven", "evidence", "expert", "professional"]
-    empathy_words = ["understand", "feel", "help", "support", "care", "listen", "together"]
+    enthusiasm_words = [
+        "great",
+        "excellent",
+        "amazing",
+        "fantastic",
+        "awesome",
+        "love",
+        "best",
+    ]
+    authority_words = [
+        "research",
+        "study",
+        "data",
+        "proven",
+        "evidence",
+        "expert",
+        "professional",
+    ]
+    empathy_words = [
+        "understand",
+        "feel",
+        "help",
+        "support",
+        "care",
+        "listen",
+        "together",
+    ]
 
     text_lower = text.lower()
     enthusiasm = sum(text_lower.count(word) for word in enthusiasm_words)
@@ -129,7 +153,11 @@ def _analyze_tone(text: str, readability: dict[str, Any]) -> dict[str, Any]:
         "formality_level": formality,
         "reading_level": reading_level,
         "avg_sentence_length": readability["avg_sentence_length"],
-        "vocabulary_complexity": "advanced" if avg_word_length > 5.5 else "intermediate" if avg_word_length > 4.5 else "simple",
+        "vocabulary_complexity": "advanced"
+        if avg_word_length > 5.5
+        else "intermediate"
+        if avg_word_length > 4.5
+        else "simple",
         "emotional_markers": {
             "enthusiasm": min(1.0, round(enthusiasm / max_markers, 2)),
             "authority": min(1.0, round(authority / max_markers, 2)),
@@ -146,7 +174,13 @@ def _analyze_seo(soup: BeautifulSoup, text: str) -> dict[str, Any]:
 
     # Extract meta description
     meta_desc_tag = soup.find("meta", attrs={"name": "description"})
-    meta_desc = meta_desc_tag.get("content", "").strip() if meta_desc_tag else ""
+    meta_desc = ""
+    if meta_desc_tag:
+        content = meta_desc_tag.get("content", "")
+        if isinstance(content, str):
+            meta_desc = content.strip()
+        elif isinstance(content, list) and content:
+            meta_desc = str(content[0]).strip()
 
     # Count headings
     h1_count = len(soup.find_all("h1"))
@@ -207,7 +241,9 @@ def _analyze_seo(soup: BeautifulSoup, text: str) -> dict[str, Any]:
             "present": bool(title),
         },
         "meta_description": {
-            "score": 100 if (120 <= len(meta_desc) <= 160) else (70 if meta_desc else 0),
+            "score": 100
+            if (120 <= len(meta_desc) <= 160)
+            else (70 if meta_desc else 0),
             "length": len(meta_desc),
             "present": bool(meta_desc),
         },
@@ -224,7 +260,9 @@ def _analyze_seo(soup: BeautifulSoup, text: str) -> dict[str, Any]:
     }
 
 
-def _analyze_engagement(soup: BeautifulSoup, text: str, readability: dict[str, Any]) -> dict[str, Any]:
+def _analyze_engagement(
+    soup: BeautifulSoup, text: str, readability: dict[str, Any]
+) -> dict[str, Any]:
     """Analyze engagement potential of the webpage."""
     # Count images
     images = soup.find_all("img")
@@ -232,10 +270,25 @@ def _analyze_engagement(soup: BeautifulSoup, text: str, readability: dict[str, A
 
     # Count videos
     videos = soup.find_all(["video", "iframe"])
-    video_count = len([v for v in videos if "youtube" in str(v) or "vimeo" in str(v) or v.name == "video"])
+    video_count = len(
+        [
+            v
+            for v in videos
+            if "youtube" in str(v) or "vimeo" in str(v) or v.name == "video"
+        ]
+    )
 
     # Check for CTAs (call-to-action)
-    cta_keywords = ["subscribe", "download", "buy", "get started", "sign up", "learn more", "click here", "contact"]
+    cta_keywords = [
+        "subscribe",
+        "download",
+        "buy",
+        "get started",
+        "sign up",
+        "learn more",
+        "click here",
+        "contact",
+    ]
     text_lower = text.lower()
     cta_count = sum(text_lower.count(keyword) for keyword in cta_keywords)
 
@@ -244,7 +297,9 @@ def _analyze_engagement(soup: BeautifulSoup, text: str, readability: dict[str, A
     has_numbered_lists = len(soup.find_all("ol")) > 0
 
     # Check for social sharing
-    has_share_buttons = any(keyword in text_lower for keyword in ["share", "tweet", "facebook", "linkedin"])
+    has_share_buttons = any(
+        keyword in text_lower for keyword in ["share", "tweet", "facebook", "linkedin"]
+    )
 
     # Calculate engagement score
     engagement_score = 0
@@ -288,7 +343,11 @@ def _analyze_engagement(soup: BeautifulSoup, text: str, readability: dict[str, A
         "readability": {
             "flesch_reading_ease": readability["flesch_reading_ease"],
             "avg_time_to_read": f"{max(1, len(text.split()) // 200)} minutes",
-            "difficulty_level": "easy" if flesch >= 70 else "moderate" if flesch >= 50 else "difficult",
+            "difficulty_level": "easy"
+            if flesch >= 70
+            else "moderate"
+            if flesch >= 50
+            else "difficult",
         },
         "engagement_elements": {
             "has_images": image_count > 0,
@@ -366,26 +425,38 @@ async def analyze_website(
             for p in paragraphs[:3]:
                 p_text = p.get_text().strip()
                 if len(p_text) > 50:
-                    sample_excerpts.append({
-                        "text": p_text[:150] + "..." if len(p_text) > 150 else p_text,
-                        "tone_label": tone_analysis["formality_level"],
-                    })
+                    sample_excerpts.append(
+                        {
+                            "text": p_text[:150] + "..."
+                            if len(p_text) > 150
+                            else p_text,
+                            "tone_label": tone_analysis["formality_level"],
+                        }
+                    )
 
             # Generate recommendations
             recommendations = []
             if readability["avg_sentence_length"] > 25:
-                recommendations.append("Consider shortening sentences for better readability")
+                recommendations.append(
+                    "Consider shortening sentences for better readability"
+                )
             if tone_analysis["emotional_markers"]["enthusiasm"] < 0.3:
-                recommendations.append("Add more engaging language to capture reader interest")
+                recommendations.append(
+                    "Add more engaging language to capture reader interest"
+                )
             if tone_analysis["emotional_markers"]["authority"] > 0.8:
-                recommendations.append("Balance authoritative tone with more accessible language")
+                recommendations.append(
+                    "Balance authoritative tone with more accessible language"
+                )
 
             result = {
                 "url": url,
                 "analysis_type": "tone",
                 "analyzed_at": datetime.utcnow().isoformat(),
                 "results": tone_analysis,
-                "recommendations": recommendations if recommendations else ["Content tone is well-balanced"],
+                "recommendations": recommendations
+                if recommendations
+                else ["Content tone is well-balanced"],
                 "sample_excerpts": sample_excerpts,
             }
 
@@ -395,7 +466,9 @@ async def analyze_website(
             # Generate recommendations
             recommendations = []
             if seo_analysis["title_optimization"]["length"] < 30:
-                recommendations.append("Lengthen page title to 30-60 characters for better SEO")
+                recommendations.append(
+                    "Lengthen page title to 30-60 characters for better SEO"
+                )
             elif seo_analysis["title_optimization"]["length"] > 60:
                 recommendations.append("Shorten page title to under 60 characters")
 
@@ -410,19 +483,27 @@ async def analyze_website(
                 recommendations.append("Use only one H1 heading per page")
 
             if seo_analysis["content_quality"]["word_count"] < 1000:
-                recommendations.append("Increase content length to 1000+ words for better ranking")
+                recommendations.append(
+                    "Increase content length to 1000+ words for better ranking"
+                )
 
             # Check for images with alt text
-            images_without_alt = len([img for img in soup.find_all("img") if not img.get("alt")])
+            images_without_alt = len(
+                [img for img in soup.find_all("img") if not img.get("alt")]
+            )
             if images_without_alt > 0:
-                recommendations.append(f"Add alt text to {images_without_alt} images for better SEO")
+                recommendations.append(
+                    f"Add alt text to {images_without_alt} images for better SEO"
+                )
 
             result = {
                 "url": url,
                 "analysis_type": "seo",
                 "analyzed_at": datetime.utcnow().isoformat(),
                 "results": seo_analysis,
-                "recommendations": recommendations if recommendations else ["SEO is well-optimized"],
+                "recommendations": recommendations
+                if recommendations
+                else ["SEO is well-optimized"],
             }
 
         elif analysis_type == "engagement":
@@ -431,13 +512,21 @@ async def analyze_website(
             # Generate recommendations
             recommendations = []
             if engagement_analysis["engagement_elements"]["image_count"] == 0:
-                recommendations.append("Add images to make content more visually appealing")
+                recommendations.append(
+                    "Add images to make content more visually appealing"
+                )
             if engagement_analysis["engagement_elements"]["video_count"] == 0:
-                recommendations.append("Consider adding video content to increase engagement")
+                recommendations.append(
+                    "Consider adding video content to increase engagement"
+                )
             if not engagement_analysis["content_structure"]["has_bullet_points"]:
-                recommendations.append("Use bullet points to break up text and improve scannability")
+                recommendations.append(
+                    "Use bullet points to break up text and improve scannability"
+                )
             if engagement_analysis["engagement_elements"]["cta_count"] < 2:
-                recommendations.append("Add clear calls-to-action throughout the content")
+                recommendations.append(
+                    "Add clear calls-to-action throughout the content"
+                )
             if readability["flesch_reading_ease"] < 50:
                 recommendations.append("Simplify language to improve readability")
 
@@ -446,7 +535,9 @@ async def analyze_website(
                 "analysis_type": "engagement",
                 "analyzed_at": datetime.utcnow().isoformat(),
                 "results": engagement_analysis,
-                "recommendations": recommendations if recommendations else ["Content is highly engaging"],
+                "recommendations": recommendations
+                if recommendations
+                else ["Content is highly engaging"],
             }
 
         else:
