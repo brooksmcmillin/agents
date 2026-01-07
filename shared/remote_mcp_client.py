@@ -72,7 +72,7 @@ class RemoteMCPClient:
             enable_oauth: Enable automatic OAuth authentication (default: True)
             oauth_redirect_port: Port for OAuth callback server (default: 8889)
             oauth_scopes: Space-separated OAuth scopes to request (default: server's default)
-            token_storage_dir: Directory for token storage (default: ~/.claude-code/tokens)
+            token_storage_dir: Directory for token storage (default: ~/.agents/tokens)
         """
         # Normalize URL - ensure trailing slash for Streamable HTTP transport
         if not base_url.endswith("/"):

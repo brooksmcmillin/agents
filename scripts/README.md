@@ -72,31 +72,6 @@ Legacy script for manual token retrieval. Use `mcp_auth.py` instead.
 
 Scripts for managing OAuth tokens for social media platforms (Twitter, LinkedIn).
 
-### `oauth_setup.py`
-
-Run the OAuth flow to authorize and store tokens.
-
-```bash
-# For Twitter
-uv run python scripts/oauth/oauth_setup.py twitter
-
-# For LinkedIn
-uv run python scripts/oauth/oauth_setup.py linkedin
-```
-
-**What happens:**
-1. A local web server starts on `http://localhost:8888`
-2. Your browser opens to the platform's authorization page
-3. You log in and grant permissions
-4. You're redirected back to the local server
-5. The authorization code is exchanged for an access token
-6. The token is encrypted and stored in `./tokens/`
-
-**Required .env variables:**
-- `TWITTER_CLIENT_ID` and `TWITTER_CLIENT_SECRET` (for Twitter)
-- `LINKEDIN_CLIENT_ID` and `LINKEDIN_CLIENT_SECRET` (for LinkedIn)
-- `TOKEN_ENCRYPTION_KEY` (optional but recommended)
-
 ### `manage_tokens.py`
 
 Manage stored OAuth tokens.
@@ -168,7 +143,7 @@ uv run python scripts/deployment/clear_token_cache.py
 - Switching between different MCP servers
 - OAuth tokens are stale or corrupted
 
-Clears tokens from `~/.claude-code/tokens/`
+Clears tokens from `~/.agents/tokens/`
 
 ## Common Workflows
 

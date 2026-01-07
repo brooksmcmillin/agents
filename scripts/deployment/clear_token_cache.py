@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Clear cached OAuth tokens.
 
-This is useful when you have a stale token cached in ~/.claude-code/tokens/
+This is useful when you have a stale token cached in ~/.agents/tokens/
 that's conflicting with your updated .env token.
 
 Usage:
@@ -13,7 +13,7 @@ from pathlib import Path
 
 def main():
     """Clear OAuth token cache."""
-    token_dir = Path.home() / ".claude-code" / "tokens"
+    token_dir = Path.home() / ".agents" / "tokens"
 
     if not token_dir.exists():
         print("✅ No token cache directory found - nothing to clear")

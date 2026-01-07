@@ -23,7 +23,7 @@ The notifier is a **lightweight script** (not a full agent) that:
 
 2. **Clear any cached tokens**:
    ```bash
-   rm -rf ~/.claude-code/tokens/*.json
+   rm -rf ~/.agents/tokens/*.json
    ```
 
 3. **Test the notifier**:
@@ -77,7 +77,7 @@ uv run python scripts/mcp/mcp_auth.py
 **4. Clear any stale tokens:**
 ```bash
 # Clear cached OAuth tokens that might conflict
-rm -rf ~/.claude-code/tokens/*.json
+rm -rf ~/.agents/tokens/*.json
 
 # Or use the helper script
 uv run python scripts/deployment/clear_token_cache.py
@@ -224,7 +224,7 @@ Use this checklist when deploying to a new server.
 - [ ] Verify `.env` is not committed to git: `git check-ignore .env` (should output `.env`)
 
 **Token Management:**
-- [ ] Clear any stale tokens: `rm -rf ~/.claude-code/tokens/*.json`
+- [ ] Clear any stale tokens: `rm -rf ~/.agents/tokens/*.json`
 - [ ] If needed, generate new token: `uv run python scripts/mcp/mcp_auth.py`
 
 **Testing:**
@@ -267,11 +267,11 @@ SLACK_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/WEBHOOK/URL
 
 **Problem:** Getting 401 Unauthorized even with a valid token in `.env`
 
-**Cause:** The RemoteMCPClient caches OAuth tokens in `~/.claude-code/tokens/` which can override your `.env` token
+**Cause:** The RemoteMCPClient caches OAuth tokens in `~/.agents/tokens/` which can override your `.env` token
 
 **Solution:** Clear the cached tokens:
 ```bash
-rm -rf ~/.claude-code/tokens/*.json
+rm -rf ~/.agents/tokens/*.json
 uv run python -m agents.notifier.main
 ```
 
@@ -300,7 +300,7 @@ sudo systemctl start cronie
 Your MCP token is stale. Get a new one:
 ```bash
 # Clear cache
-rm -rf ~/.claude-code/tokens/*.json
+rm -rf ~/.agents/tokens/*.json
 
 # Get new token
 uv run python scripts/mcp/mcp_auth.py
@@ -383,7 +383,7 @@ If something goes wrong:
 
 | Issue | Solution |
 |-------|----------|
-| 401 Unauthorized | Clear tokens, regenerate: `rm -rf ~/.claude-code/tokens/*.json && uv run python scripts/mcp/mcp_auth.py` |
+| 401 Unauthorized | Clear tokens, regenerate: `rm -rf ~/.agents/tokens/*.json && uv run python scripts/mcp/mcp_auth.py` |
 | Cron not running | Check service: `sudo systemctl status cron`, start: `sudo systemctl start cron` |
 | No notifications | Check logs: `tail -f /tmp/task-notifier.log` |
 | Wrong schedule | Edit `scripts/deployment/install_notifier.py`, then uninstall/reinstall |

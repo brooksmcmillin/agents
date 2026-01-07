@@ -2,7 +2,7 @@
 
 Fetches open tasks from remote MCP server and sends Slack notifications.
 
-Uses shared token storage (~/.claude-code/tokens/) so you can authenticate
+Uses shared token storage (~/.agents/tokens/) so you can authenticate
 once via an interactive agent and the notifier will reuse those tokens.
 """
 
