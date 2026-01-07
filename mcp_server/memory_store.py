@@ -22,7 +22,8 @@ class Memory(BaseModel):
     key: str = Field(..., description="Unique identifier for this memory")
     value: str = Field(..., description="The memory content")
     category: str | None = Field(
-        None, description="Optional category (e.g., 'user_preference', 'fact', 'goal')"
+        default=None,
+        description="Optional category (e.g., 'user_preference', 'fact', 'goal')",
     )
     tags: list[str] = Field(
         default_factory=list, description="Optional tags for filtering"
