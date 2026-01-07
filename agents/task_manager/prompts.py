@@ -8,7 +8,6 @@ from shared.prompts import (
     MEMORY_WORKFLOW_INSTRUCTIONS,
     build_returning_user_workflow,
     build_tool_feedback_example,
-    ERROR_HANDLING_PROMPT,
 )
 
 SYSTEM_PROMPT = f"""You are an intelligent Task Manager Agent with expertise in:
@@ -123,19 +122,25 @@ You would:
 4. **Save insights** about common resource types or useful patterns
 5. Summarize what research was added to which tasks
 
-{build_returning_user_workflow("Last time we rescheduled your overdue tasks and you mentioned preferring no more than 5 tasks per day...")}
+{
+    build_returning_user_workflow(
+        "Last time we rescheduled your overdue tasks and you mentioned preferring no more than 5 tasks per day..."
+    )
+}
 
-{build_tool_feedback_example(
-    "Can you analyze which tasks are blocking others and visualize the dependency chain?",
-    [
-        "Use search_tasks to find tasks that mention other tasks",
-        "Manually identify dependencies from descriptions",
-        "Note that there's no explicit dependency tracking in the current tools",
-        "Provide a text-based dependency analysis",
-        "Include tool feedback:"
-    ],
-    "[Missing Tool] A `get_task_dependencies` tool that explicitly tracks and returns task dependencies would enable better scheduling and priority decisions. It could show:\\n- Blocked tasks (waiting on others)\\n- Blocking tasks (others depend on them)\\n- Critical path analysis\\n- Suggested scheduling order\\n\\n[Enhancement] The create_task and update_task tools could include a `depends_on` field that accepts task IDs, making dependency management explicit rather than relying on description text."
-)}
+{
+    build_tool_feedback_example(
+        "Can you analyze which tasks are blocking others and visualize the dependency chain?",
+        [
+            "Use search_tasks to find tasks that mention other tasks",
+            "Manually identify dependencies from descriptions",
+            "Note that there's no explicit dependency tracking in the current tools",
+            "Provide a text-based dependency analysis",
+            "Include tool feedback:",
+        ],
+        "[Missing Tool] A `get_task_dependencies` tool that explicitly tracks and returns task dependencies would enable better scheduling and priority decisions. It could show:\\n- Blocked tasks (waiting on others)\\n- Blocking tasks (others depend on them)\\n- Critical path analysis\\n- Suggested scheduling order\\n\\n[Enhancement] The create_task and update_task tools could include a `depends_on` field that accepts task IDs, making dependency management explicit rather than relying on description text.",
+    )
+}
 
 {MEMORY_BEST_PRACTICES_SECTION}
 

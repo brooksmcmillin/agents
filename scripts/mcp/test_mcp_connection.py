@@ -9,7 +9,7 @@ from shared.oauth_tokens import TokenStorage
 
 async def main():
     storage = TokenStorage()
-    token_set = storage.load_token('https://mcp.brooksmcmillin.com/mcp/')
+    token_set = storage.load_token("https://mcp.brooksmcmillin.com/mcp/")
 
     if not token_set:
         print("No token found. Run the agent first to authenticate.")
@@ -32,26 +32,24 @@ async def main():
         "params": {
             "protocolVersion": "2024-11-05",
             "capabilities": {},
-            "clientInfo": {
-                "name": "test-client",
-                "version": "1.0.0"
-            }
-        }
+            "clientInfo": {"name": "test-client", "version": "1.0.0"},
+        },
     }
 
     async with httpx.AsyncClient() as client:
         print("\n📤 Sending initialize request...")
         response = await client.post(
-            'https://mcp.brooksmcmillin.com/mcp/',
+            "https://mcp.brooksmcmillin.com/mcp/",
             headers=headers,
             json=init_message,
-            timeout=10.0
+            timeout=10.0,
         )
 
         print(f"\n📥 Response status: {response.status_code}")
         print(f"Response headers: {dict(response.headers)}")
         print("\nResponse body:")
         print(response.text)
+
 
 if __name__ == "__main__":
     asyncio.run(main())

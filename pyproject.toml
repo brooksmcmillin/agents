@@ -2,7 +2,7 @@
 name = "agents"
 version = "0.1.0"
 description = "Multi-agent system built with Claude and Model Context Protocol (MCP)"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "anthropic>=0.39.0",
     "mcp==1.10.1",
@@ -31,4 +31,5 @@ agent-framework = { path = "../agent-framework", editable = true }
 [dependency-groups]
 dev = [
     "pyright>=1.1.407",
+    "ruff>=0.14.10",
 ]

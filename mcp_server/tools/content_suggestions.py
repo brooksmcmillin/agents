@@ -92,66 +92,97 @@ async def suggest_content_topics(
     suggestions = []
 
     if content_type == "blog":
-        topics = random.sample(TRENDING_TOPICS["blog"], min(count, len(TRENDING_TOPICS["blog"])))
+        topics = random.sample(
+            TRENDING_TOPICS["blog"], min(count, len(TRENDING_TOPICS["blog"]))
+        )
 
         for i, topic in enumerate(topics):
-            suggestions.append({
-                "id": f"blog_{i+1}",
-                "topic": topic,
-                "suggested_title": _generate_blog_title(topic),
-                "target_audience": _get_target_audience(topic),
-                "estimated_word_count": random.randint(1500, 3000),
-                "difficulty": random.choice(["beginner", "intermediate", "advanced"]),
-                "keywords": _generate_keywords(topic),
-                "reasoning": _generate_reasoning(topic, "blog"),
-                "content_outline": _generate_outline(topic),
-                "related_topics": random.sample(
-                    [t for t in TRENDING_TOPICS["blog"] if t != topic],
-                    3
-                ),
-                "estimated_time_to_write": f"{random.randint(3, 8)} hours",
-                "seo_potential": random.choice(["high", "medium", "very high"]),
-            })
+            suggestions.append(
+                {
+                    "id": f"blog_{i + 1}",
+                    "topic": topic,
+                    "suggested_title": _generate_blog_title(topic),
+                    "target_audience": _get_target_audience(topic),
+                    "estimated_word_count": random.randint(1500, 3000),
+                    "difficulty": random.choice(
+                        ["beginner", "intermediate", "advanced"]
+                    ),
+                    "keywords": _generate_keywords(topic),
+                    "reasoning": _generate_reasoning(topic, "blog"),
+                    "content_outline": _generate_outline(topic),
+                    "related_topics": random.sample(
+                        [t for t in TRENDING_TOPICS["blog"] if t != topic], 3
+                    ),
+                    "estimated_time_to_write": f"{random.randint(3, 8)} hours",
+                    "seo_potential": random.choice(["high", "medium", "very high"]),
+                }
+            )
 
     elif content_type == "twitter":
-        topics = random.sample(TRENDING_TOPICS["twitter"], min(count, len(TRENDING_TOPICS["twitter"])))
+        topics = random.sample(
+            TRENDING_TOPICS["twitter"], min(count, len(TRENDING_TOPICS["twitter"]))
+        )
 
         for i, topic in enumerate(topics):
-            suggestions.append({
-                "id": f"twitter_{i+1}",
-                "topic": topic,
-                "suggested_hook": _generate_twitter_hook(topic),
-                "format": random.choice(["thread", "single tweet", "poll", "quote tweet"]),
-                "estimated_engagement": random.choice(["medium", "high", "very high"]),
-                "best_posting_time": random.choice(["9-11 AM", "2-4 PM", "7-9 PM"]),
-                "hashtags": _generate_hashtags(topic),
-                "reasoning": _generate_reasoning(topic, "twitter"),
-                "thread_structure": _generate_thread_structure(topic) if random.random() > 0.5 else None,
-                "visual_suggestions": random.choice([
-                    "code screenshot",
-                    "diagram",
-                    "infographic",
-                    "none - text only",
-                ]),
-            })
+            suggestions.append(
+                {
+                    "id": f"twitter_{i + 1}",
+                    "topic": topic,
+                    "suggested_hook": _generate_twitter_hook(topic),
+                    "format": random.choice(
+                        ["thread", "single tweet", "poll", "quote tweet"]
+                    ),
+                    "estimated_engagement": random.choice(
+                        ["medium", "high", "very high"]
+                    ),
+                    "best_posting_time": random.choice(["9-11 AM", "2-4 PM", "7-9 PM"]),
+                    "hashtags": _generate_hashtags(topic),
+                    "reasoning": _generate_reasoning(topic, "twitter"),
+                    "thread_structure": _generate_thread_structure(topic)
+                    if random.random() > 0.5
+                    else None,
+                    "visual_suggestions": random.choice(
+                        [
+                            "code screenshot",
+                            "diagram",
+                            "infographic",
+                            "none - text only",
+                        ]
+                    ),
+                }
+            )
 
     elif content_type == "linkedin":
-        topics = random.sample(TRENDING_TOPICS["linkedin"], min(count, len(TRENDING_TOPICS["linkedin"])))
+        topics = random.sample(
+            TRENDING_TOPICS["linkedin"], min(count, len(TRENDING_TOPICS["linkedin"]))
+        )
 
         for i, topic in enumerate(topics):
-            suggestions.append({
-                "id": f"linkedin_{i+1}",
-                "topic": topic,
-                "suggested_opening": _generate_linkedin_opening(topic),
-                "format": random.choice(["story", "tips", "case study", "opinion", "carousel"]),
-                "target_professional_level": random.choice(["mid-level", "senior", "all levels"]),
-                "estimated_engagement": random.choice(["medium", "high", "very high"]),
-                "best_posting_day": random.choice(["Tuesday", "Wednesday", "Thursday"]),
-                "reasoning": _generate_reasoning(topic, "linkedin"),
-                "key_points": _generate_key_points(topic),
-                "call_to_action": _generate_cta(topic),
-                "industry_relevance": random.choice(["software", "tech", "general"]),
-            })
+            suggestions.append(
+                {
+                    "id": f"linkedin_{i + 1}",
+                    "topic": topic,
+                    "suggested_opening": _generate_linkedin_opening(topic),
+                    "format": random.choice(
+                        ["story", "tips", "case study", "opinion", "carousel"]
+                    ),
+                    "target_professional_level": random.choice(
+                        ["mid-level", "senior", "all levels"]
+                    ),
+                    "estimated_engagement": random.choice(
+                        ["medium", "high", "very high"]
+                    ),
+                    "best_posting_day": random.choice(
+                        ["Tuesday", "Wednesday", "Thursday"]
+                    ),
+                    "reasoning": _generate_reasoning(topic, "linkedin"),
+                    "key_points": _generate_key_points(topic),
+                    "call_to_action": _generate_cta(topic),
+                    "industry_relevance": random.choice(
+                        ["software", "tech", "general"]
+                    ),
+                }
+            )
 
     else:
         raise ValueError(f"Unsupported content type: {content_type}")
@@ -250,10 +281,10 @@ def _generate_reasoning(topic: str, content_type: str) -> str:
     """Generate reasoning for the suggestion."""
     reasons = [
         f"This topic shows high engagement in your recent {content_type} content",
-        f"Trending in your industry with growing search volume",
-        f"Gap in your existing content coverage",
-        f"Aligns with your audience's interests based on past interactions",
-        f"Competitor analysis shows this is performing well",
+        "Trending in your industry with growing search volume",
+        "Gap in your existing content coverage",
+        "Aligns with your audience's interests based on past interactions",
+        "Competitor analysis shows this is performing well",
     ]
     return random.choice(reasons)
 

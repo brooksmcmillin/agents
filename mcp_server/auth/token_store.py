@@ -9,7 +9,7 @@ import json
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional
 
 from cryptography.fernet import Fernet
 from pydantic import BaseModel, Field
@@ -24,7 +24,9 @@ class TokenData(BaseModel):
     access_token: str = Field(..., description="OAuth access token")
     refresh_token: Optional[str] = Field(None, description="OAuth refresh token")
     token_type: str = Field(default="Bearer", description="Token type")
-    expires_at: Optional[datetime] = Field(None, description="Token expiration timestamp")
+    expires_at: Optional[datetime] = Field(
+        None, description="Token expiration timestamp"
+    )
     scope: Optional[str] = Field(None, description="Token scopes")
 
     def is_expired(self) -> bool:
@@ -72,9 +74,13 @@ class TokenStore:
                 self.cipher = Fernet(encryption_key.encode())
                 logger.info("Token encryption enabled")
             except Exception as e:
-                logger.warning(f"Failed to initialize encryption: {e}. Tokens will be stored unencrypted.")
+                logger.warning(
+                    f"Failed to initialize encryption: {e}. Tokens will be stored unencrypted."
+                )
         else:
-            logger.warning("No encryption key provided. Tokens will be stored unencrypted.")
+            logger.warning(
+                "No encryption key provided. Tokens will be stored unencrypted."
+            )
 
     def _get_token_path(self, platform: str, user_id: str = "default") -> Path:
         """Get file path for storing token."""
@@ -122,10 +128,7 @@ class TokenStore:
             return None
 
     def save_token(
-        self,
-        platform: str,
-        token_data: TokenData,
-        user_id: str = "default"
+        self, platform: str, token_data: TokenData, user_id: str = "default"
     ) -> bool:
         """
         Save token to storage.

@@ -98,14 +98,14 @@ def show_token(platform: str, user_id: str = "default"):
     if token.expires_at:
         print(f"  Expires at: {token.expires_at}")
         if token.is_expired():
-            print(f"  Status: ❌ Expired")
+            print("  Status: ❌ Expired")
         else:
             time_left = token.time_until_expiry()
             if time_left:
                 hours = int(time_left.total_seconds() / 3600)
                 minutes = int((time_left.total_seconds() % 3600) / 60)
                 print(f"  Time remaining: {hours}h {minutes}m")
-                print(f"  Status: ✅ Valid")
+                print("  Status: ✅ Valid")
 
     if token.scope:
         print(f"  Scopes: {token.scope}")
@@ -125,7 +125,9 @@ async def refresh_token(platform: str, user_id: str = "default"):
 
     if not client_id or not client_secret:
         print(f"❌ Missing OAuth credentials for {platform}")
-        print(f"   Please set {platform.upper()}_CLIENT_ID and {platform.upper()}_CLIENT_SECRET")
+        print(
+            f"   Please set {platform.upper()}_CLIENT_ID and {platform.upper()}_CLIENT_SECRET"
+        )
         return
 
     oauth_handler = OAuthHandler(
@@ -143,7 +145,10 @@ async def refresh_token(platform: str, user_id: str = "default"):
         print(f"   Expires at: {new_token.expires_at}")
     else:
         print("❌ Failed to refresh token")
-        print("   You may need to re-authorize using: uv run python scripts/oauth_setup.py " + platform)
+        print(
+            "   You may need to re-authorize using: uv run python scripts/oauth_setup.py "
+            + platform
+        )
 
 
 def delete_token(platform: str, user_id: str = "default"):
@@ -158,7 +163,7 @@ def delete_token(platform: str, user_id: str = "default"):
     if token_store.delete_token(platform, user_id):
         print(f"✅ Token deleted for {platform}:{user_id}")
     else:
-        print(f"❌ Failed to delete token")
+        print("❌ Failed to delete token")
 
 
 def generate_key():
@@ -184,7 +189,9 @@ def main():
 
     elif command == "show":
         if len(sys.argv) < 3:
-            print("Usage: uv run python scripts/manage_tokens.py show <platform> [user_id]")
+            print(
+                "Usage: uv run python scripts/manage_tokens.py show <platform> [user_id]"
+            )
             sys.exit(1)
         platform = sys.argv[2]
         user_id = sys.argv[3] if len(sys.argv) > 3 else "default"
@@ -192,7 +199,9 @@ def main():
 
     elif command == "refresh":
         if len(sys.argv) < 3:
-            print("Usage: uv run python scripts/manage_tokens.py refresh <platform> [user_id]")
+            print(
+                "Usage: uv run python scripts/manage_tokens.py refresh <platform> [user_id]"
+            )
             sys.exit(1)
         platform = sys.argv[2]
         user_id = sys.argv[3] if len(sys.argv) > 3 else "default"
@@ -200,7 +209,9 @@ def main():
 
     elif command == "delete":
         if len(sys.argv) < 3:
-            print("Usage: uv run python scripts/manage_tokens.py delete <platform> [user_id]")
+            print(
+                "Usage: uv run python scripts/manage_tokens.py delete <platform> [user_id]"
+            )
             sys.exit(1)
         platform = sys.argv[2]
         user_id = sys.argv[3] if len(sys.argv) > 3 else "default"

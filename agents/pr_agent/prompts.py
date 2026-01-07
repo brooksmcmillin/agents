@@ -8,7 +8,6 @@ from shared.prompts import (
     MEMORY_WORKFLOW_INSTRUCTIONS,
     build_returning_user_workflow,
     build_tool_feedback_example,
-    ERROR_HANDLING_PROMPT,
 )
 
 SYSTEM_PROMPT = f"""You are a professional PR and content strategy assistant with deep expertise in:
@@ -94,17 +93,19 @@ You would:
 
 {build_returning_user_workflow("Last time we focused on improving your SEO...")}
 
-{build_tool_feedback_example(
-    "Can you analyze my competitors' blogs and compare them to mine?",
-    [
-        "Use fetch_web_content and analyze_website on the user's blog",
-        "Note that you can analyze competitor sites individually, but lack a comparative tool",
-        "Provide analysis of each site separately",
-        "Manually compare the results",
-        "Include tool feedback:"
-    ],
-    "[Missing Tool] A `compare_websites` tool that analyzes multiple URLs and provides side-by-side comparisons would make competitive analysis much more efficient. It could show:\\n- SEO score comparison charts\\n- Tone and style differences\\n- Content gap analysis\\n- Engagement metric benchmarking\\n\\nThis would save time and provide clearer competitive insights for users."
-)}
+{
+    build_tool_feedback_example(
+        "Can you analyze my competitors' blogs and compare them to mine?",
+        [
+            "Use fetch_web_content and analyze_website on the user's blog",
+            "Note that you can analyze competitor sites individually, but lack a comparative tool",
+            "Provide analysis of each site separately",
+            "Manually compare the results",
+            "Include tool feedback:",
+        ],
+        "[Missing Tool] A `compare_websites` tool that analyzes multiple URLs and provides side-by-side comparisons would make competitive analysis much more efficient. It could show:\\n- SEO score comparison charts\\n- Tone and style differences\\n- Content gap analysis\\n- Engagement metric benchmarking\\n\\nThis would save time and provide clearer competitive insights for users.",
+    )
+}
 
 {MEMORY_BEST_PRACTICES_SECTION}
 

@@ -6,7 +6,6 @@ and RFC 9908 (OAuth Protected Resource Metadata).
 
 import logging
 from dataclasses import dataclass
-from typing import Any
 
 import httpx
 

@@ -34,16 +34,6 @@ def main() -> None:
     # Get MCP URL for task manager agent
     mcp_url = os.getenv("MCP_SERVER_URL", "https://mcp.brooksmcmillin.com/mcp")
 
-    # Create agents
-    task_agent = TaskManagerAgent(
-        mcp_urls=[mcp_url],
-        mcp_client_config={
-            "prefer_device_flow": True,  # Use Device Flow instead of browser
-        },
-    )
-
-    pr_agent = PRAgent()  # PR agent uses local MCP server
-
     # Create the multi-agent adapter
     adapter = MultiAgentSlackAdapter(
         bot_token=bot_token,
@@ -51,6 +41,22 @@ def main() -> None:
         routing_strategy=RoutingStrategy.HYBRID,
         inactivity_timeout=86400,  # 24 hours
     )
+
+    # Create callback that posts to Slack
+    auth_callback = adapter.create_device_auth_callback(
+        channel="#all-brooks",
+    )
+
+    # Create agents
+    task_agent = TaskManagerAgent(
+        mcp_urls=[mcp_url],
+        mcp_client_config={
+            "prefer_device_flow": True,  # Use Device Flow instead of browser
+            "device_authorization_callback": auth_callback,
+        },
+    )
+
+    pr_agent = PRAgent()  # PR agent uses local MCP server
 
     # Register agents with keywords for routing
     adapter.register_agent(

@@ -6,10 +6,9 @@ token refresh. It supports both service-to-service auth and user-delegated auth.
 
 import logging
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any, Callable
+from typing import Optional, Dict, Any
 from urllib.parse import urlencode
 
-import httpx
 from authlib.integrations.httpx_client import AsyncOAuth2Client
 
 from .token_store import TokenStore, TokenData
@@ -146,7 +145,9 @@ class OAuthHandler:
                 # Save token
                 self.token_store.save_token(platform, token_data, user_id)
 
-                logger.info(f"Successfully exchanged code for token: {platform}:{user_id}")
+                logger.info(
+                    f"Successfully exchanged code for token: {platform}:{user_id}"
+                )
                 return token_data
 
         except Exception as e:
