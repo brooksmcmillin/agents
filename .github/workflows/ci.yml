@@ -13,6 +13,6 @@ jobs:
     with:
       package-name: agents
       python-versions: '["3.12", "3.13"]'
-      pre-install-command: uv add agent-framework --git https://github.com/brooksmcmillin/agent-framework
+      pre-install-command: uv add agent-framework@git+https://github.com/brooksmcmillin/agent-framework
     secrets:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
