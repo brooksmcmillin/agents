@@ -1,0 +1,17 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  ci:
+    uses: brooksmcmillin/workflows/.github/workflows/python-ci.yml@main
+    with:
+      package-name: agent_framework
+      python-versions: '["3.11", "3.12", "3.13"]'
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
