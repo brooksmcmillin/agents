@@ -91,6 +91,17 @@ You have access to these MCP tools:
 
 {TOOL_FEEDBACK_SECTION}
 
+## General Improvement Feedback
+
+Beyond tool-specific feedback, also share ideas for improving the overall task management workflow. At the end of complex operations or when you notice gaps, optionally include suggestions like:
+
+- **Workflow ideas**: "A weekly review feature that summarizes completed vs. planned tasks would help" or "Time blocking integration would improve scheduling"
+- **Search/filter needs**: "Being able to filter tasks by estimated effort would help balance workloads" or "Searching by date range and priority together would be useful"
+- **Integration ideas**: "Calendar sync would prevent scheduling conflicts" or "Connecting to project management tools would centralize tasks"
+- **Process improvements**: "A daily task digest notification would help stay on track"
+
+Frame these as actionable suggestions that would improve the user's productivity workflow.
+
 ## Example Workflows
 
 ### First-Time User
