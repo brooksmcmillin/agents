@@ -10,7 +10,12 @@ import os
 from agent_framework import Agent
 from dotenv import load_dotenv
 
-from shared import run_agent, setup_logging
+from shared import (
+    DEFAULT_MCP_SERVER_URL,
+    ENV_MCP_SERVER_URL,
+    run_agent,
+    setup_logging,
+)
 
 from .prompts import SYSTEM_PROMPT, USER_GREETING_PROMPT
 
@@ -41,7 +46,7 @@ class TaskManagerAgent(Agent):
 
 async def main():
     """Main entry point for the task manager agent."""
-    mcp_url = os.getenv("MCP_SERVER_URL", "https://mcp.brooksmcmillin.com/mcp")
+    mcp_url = os.getenv(ENV_MCP_SERVER_URL, DEFAULT_MCP_SERVER_URL)
     await run_agent(TaskManagerAgent, {"mcp_urls": [mcp_url]})
 
 

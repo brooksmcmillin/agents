@@ -2,26 +2,23 @@
 
 These tools allow the agent to save and retrieve important information
 across conversations and sessions.
+
+This module wraps the agent_framework's memory tools, which support
+both file-based and database-backed storage. Configure the backend
+using configure_memory_store() at application startup.
 """
 
 import logging
 from typing import Any
 
-from ..memory_store import MemoryStore
+from agent_framework.tools.memory import (
+    save_memory as af_save_memory,
+    get_memories as af_get_memories,
+    search_memories as af_search_memories,
+)
 
 
 logger = logging.getLogger(__name__)
-
-# Global memory store instance
-_memory_store: MemoryStore | None = None
-
-
-def get_memory_store() -> MemoryStore:
-    """Get or create the global memory store instance."""
-    global _memory_store
-    if _memory_store is None:
-        _memory_store = MemoryStore()
-    return _memory_store
 
 
 async def save_memory(
@@ -54,41 +51,13 @@ async def save_memory(
     Returns:
         Confirmation with the saved memory details
     """
-    logger.info(f"Saving memory: {key}")
-
-    try:
-        store = get_memory_store()
-        memory = store.save_memory(
-            key=key,
-            value=value,
-            category=category,
-            tags=tags,
-            importance=importance,
-        )
-
-        return {
-            "status": "success",
-            "action": "updated"
-            if memory.created_at != memory.updated_at
-            else "created",
-            "memory": {
-                "key": memory.key,
-                "value": memory.value,
-                "category": memory.category,
-                "tags": memory.tags,
-                "importance": memory.importance,
-                "created_at": memory.created_at.isoformat(),
-                "updated_at": memory.updated_at.isoformat(),
-            },
-            "message": f"Successfully saved memory: {key}",
-        }
-
-    except Exception as e:
-        logger.error(f"Failed to save memory {key}: {e}")
-        return {
-            "status": "error",
-            "message": f"Failed to save memory: {e}",
-        }
+    return await af_save_memory(
+        key=key,
+        value=value,
+        category=category,
+        tags=tags,
+        importance=importance,
+    )
 
 
 async def get_memories(
@@ -112,46 +81,12 @@ async def get_memories(
     Returns:
         List of matching memories, sorted by importance
     """
-    logger.info(
-        f"Retrieving memories (category={category}, tags={tags}, min_importance={min_importance})"
+    return await af_get_memories(
+        category=category,
+        tags=tags,
+        min_importance=min_importance,
+        limit=limit,
     )
-
-    try:
-        store = get_memory_store()
-        memories = store.get_all_memories(
-            category=category,
-            tags=tags,
-            min_importance=min_importance,
-        )
-
-        # Limit results
-        memories = memories[:limit]
-
-        return {
-            "status": "success",
-            "count": len(memories),
-            "memories": [
-                {
-                    "key": m.key,
-                    "value": m.value,
-                    "category": m.category,
-                    "tags": m.tags,
-                    "importance": m.importance,
-                    "created_at": m.created_at.isoformat(),
-                    "updated_at": m.updated_at.isoformat(),
-                }
-                for m in memories
-            ],
-            "message": f"Found {len(memories)} memories",
-        }
-
-    except Exception as e:
-        logger.error(f"Failed to get memories: {e}")
-        return {
-            "status": "error",
-            "message": f"Failed to retrieve memories: {e}",
-            "memories": [],
-        }
 
 
 async def search_memories(
@@ -171,76 +106,7 @@ async def search_memories(
     Returns:
         List of matching memories, sorted by importance
     """
-    logger.info(f"Searching memories for: {query}")
-
-    try:
-        store = get_memory_store()
-        memories = store.search_memories(query)
-
-        # Limit results
-        memories = memories[:limit]
-
-        return {
-            "status": "success",
-            "query": query,
-            "count": len(memories),
-            "memories": [
-                {
-                    "key": m.key,
-                    "value": m.value,
-                    "category": m.category,
-                    "tags": m.tags,
-                    "importance": m.importance,
-                    "created_at": m.created_at.isoformat(),
-                    "updated_at": m.updated_at.isoformat(),
-                }
-                for m in memories
-            ],
-            "message": f"Found {len(memories)} memories matching '{query}'",
-        }
-
-    except Exception as e:
-        logger.error(f"Failed to search memories: {e}")
-        return {
-            "status": "error",
-            "message": f"Failed to search memories: {e}",
-            "memories": [],
-        }
-
-
-# Usage examples for the agent:
-#
-# Save user's blog URL:
-# save_memory(
-#     key="user_blog_url",
-#     value="https://example.com/blog",
-#     category="user_preference",
-#     importance=8
-# )
-#
-# Save brand voice insights:
-# save_memory(
-#     key="brand_voice",
-#     value="Professional but conversational, uses technical terms but explains them clearly",
-#     category="insight",
-#     tags=["branding", "tone"],
-#     importance=9
-# )
-#
-# Save ongoing goal:
-# save_memory(
-#     key="current_goal",
-#     value="Increase Twitter engagement by focusing on video content and posting during peak hours",
-#     category="goal",
-#     tags=["twitter", "engagement"],
-#     importance=10
-# )
-#
-# Retrieve all high-importance memories:
-# get_memories(min_importance=7)
-#
-# Get all Twitter-related memories:
-# get_memories(tags=["twitter"])
-#
-# Search for blog-related info:
-# search_memories(query="blog")
+    return await af_search_memories(
+        query=query,
+        limit=limit,
+    )

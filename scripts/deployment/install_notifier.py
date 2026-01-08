@@ -15,6 +15,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+# Add project root to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from shared.env_utils import check_env_vars
+
 
 # Configuration
 CRON_SCHEDULE = "0 9,14,18 * * 1-5"  # 9 AM, 2 PM, 6 PM on weekdays
@@ -122,11 +126,7 @@ def install() -> bool:
 
     # Check for required env vars
     required_vars = ["SLACK_WEBHOOK_URL", "MCP_AUTH_TOKEN", "MCP_SERVER_URL"]
-    env_content = env_file.read_text()
-    missing_vars = []
-    for var in required_vars:
-        if var not in env_content or f"{var}=" not in env_content:
-            missing_vars.append(var)
+    missing_vars = check_env_vars(env_file, required_vars)
 
     if missing_vars:
         print("❌ Missing required environment variables in .env:")
@@ -290,11 +290,10 @@ def status() -> None:
     env_file = get_project_root() / ".env"
     if env_file.exists():
         print("\n✓ .env file exists")
-        env_content = env_file.read_text()
         required_vars = ["SLACK_WEBHOOK_URL", "MCP_AUTH_TOKEN", "MCP_SERVER_URL"]
+        missing_vars = check_env_vars(env_file, required_vars)
         for var in required_vars:
-            has_var = var in env_content and f"{var}=" in env_content
-            status_icon = "✓" if has_var else "✗"
+            status_icon = "✗" if var in missing_vars else "✓"
             print(f"  {status_icon} {var}")
     else:
         print("\n✗ .env file not found")
