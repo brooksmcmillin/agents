@@ -7,7 +7,7 @@ Uses real web scraping with BeautifulSoup and text analysis.
 import logging
 import re
 from datetime import datetime
-from typing import Any, Dict, Literal
+from typing import Any, Literal
 
 import httpx
 from bs4 import BeautifulSoup
@@ -369,7 +369,7 @@ def _analyze_engagement(
 async def analyze_website(
     url: str,
     analysis_type: Literal["tone", "seo", "engagement"],
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Fetch and analyze web content.
 

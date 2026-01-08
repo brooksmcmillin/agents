@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 
 from agent_framework.core.remote_mcp_client import RemoteMCPClient
 
-from shared import setup_logging
+from shared import DEFAULT_MCP_SERVER_URL, ENV_MCP_SERVER_URL, setup_logging
 from shared.oauth_config import discover_oauth_config
 from shared.oauth_flow import OAuthFlowHandler
 from shared.oauth_tokens import TokenStorage
@@ -26,6 +26,19 @@ load_dotenv()
 
 # Configure logging
 logger = setup_logging(__name__)
+
+
+def parse_task_result(result: str | dict) -> list[dict]:
+    """Parse MCP tool result into task list.
+
+    Args:
+        result: JSON string or dict from MCP tool call
+
+    Returns:
+        List of task dictionaries
+    """
+    data = json.loads(result) if isinstance(result, str) else result
+    return data.get("tasks", [])
 
 
 def parse_priority(priority_value: str | int | None) -> int:
@@ -166,13 +179,7 @@ async def fetch_tasks(
         },
     )
 
-    # Parse result (it's JSON string)
-    overdue_data = (
-        json.loads(overdue_result)
-        if isinstance(overdue_result, str)
-        else overdue_result
-    )
-    overdue_tasks = overdue_data.get("tasks", [])
+    overdue_tasks = parse_task_result(overdue_result)
 
     # Fetch tasks due today
     logger.info("Fetching tasks due today...")
@@ -185,10 +192,7 @@ async def fetch_tasks(
         },
     )
 
-    today_data = (
-        json.loads(today_result) if isinstance(today_result, str) else today_result
-    )
-    today_tasks = today_data.get("tasks", [])
+    today_tasks = parse_task_result(today_result)
 
     # Fetch upcoming tasks (next 3 days, excluding today)
     tomorrow = (today + timedelta(days=1)).isoformat()
@@ -202,12 +206,7 @@ async def fetch_tasks(
         },
     )
 
-    upcoming_data = (
-        json.loads(upcoming_result)
-        if isinstance(upcoming_result, str)
-        else upcoming_result
-    )
-    upcoming_tasks = upcoming_data.get("tasks", [])
+    upcoming_tasks = parse_task_result(upcoming_result)
 
     logger.info(
         f"Found {len(overdue_tasks)} overdue, {len(today_tasks)} today, {len(upcoming_tasks)} upcoming"
@@ -313,7 +312,7 @@ async def main():
     """Main entry point for task notifier."""
     try:
         # Get configuration from environment
-        mcp_url = os.getenv("MCP_SERVER_URL", "https://mcp.brooksmcmillin.com/mcp")
+        mcp_url = os.getenv(ENV_MCP_SERVER_URL, DEFAULT_MCP_SERVER_URL)
         webhook_url = os.getenv("SLACK_WEBHOOK_URL")
 
         if not webhook_url:
