@@ -26,7 +26,12 @@ AGENTS: dict[str, tuple[type, dict | None]] = {
     "pr": (PRAgent, None),
     "tasks": (
         TaskManagerAgent,
-        {"mcp_urls": [os.getenv(ENV_MCP_SERVER_URL, DEFAULT_MCP_SERVER_URL)]},
+        {
+            "mcp_urls": [os.getenv(ENV_MCP_SERVER_URL, DEFAULT_MCP_SERVER_URL)],
+            "mcp_client_config": {
+                "prefer_device_flow": True,  # Use Device Flow instead of browser
+            },
+        },
     ),
 }
 

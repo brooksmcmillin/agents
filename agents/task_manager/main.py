@@ -9,7 +9,7 @@ import os
 
 from agent_framework import Agent
 from dotenv import load_dotenv
-
+from typing import Any
 from shared import (
     DEFAULT_MCP_SERVER_URL,
     ENV_MCP_SERVER_URL,
@@ -34,6 +34,20 @@ class TaskManagerAgent(Agent):
     rescheduling overdue tasks, pre-researching upcoming tasks, and
     prioritizing tasks based on various criteria.
     """
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(
+            allowed_tools=[
+                "fetch_web_content",
+                "get_memories",
+                "get_social_media_stats",
+                "save_memory",
+                "search_memories",
+                "send_slack_message",
+                "suggest_content_topics",
+            ],
+            **kwargs,
+        )
 
     def get_system_prompt(self) -> str:
         """Return the system prompt for this agent."""
