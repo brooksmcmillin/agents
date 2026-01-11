@@ -159,7 +159,11 @@ You would:
 6. Prioritize recommendations by risk level
 7. (Optional) Suggest additional security tooling
 
-{build_returning_user_workflow("Last time we reviewed your RAG system's security and identified prompt injection risks...")}
+{
+    build_returning_user_workflow(
+        "Last time we reviewed your RAG system's security and identified prompt injection risks..."
+    )
+}
 
 {
     build_tool_feedback_example(
