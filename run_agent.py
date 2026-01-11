@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 
 from agents.pr_agent.main import PRAgent
 from agents.task_manager.main import TaskManagerAgent
+from agents.security_researcher.main import SecurityResearcherAgent
 from shared import DEFAULT_MCP_SERVER_URL, ENV_MCP_SERVER_URL, run_agent
 
 # Load environment variables
@@ -33,6 +34,7 @@ AGENTS: dict[str, tuple[type, dict | None]] = {
             },
         },
     ),
+    "security": (SecurityResearcherAgent, None),
 }
 
 

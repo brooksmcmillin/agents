@@ -11,6 +11,7 @@ import asyncio
 
 from agent_framework import Agent
 from dotenv import load_dotenv
+from typing import Any
 
 from shared import run_agent, setup_logging
 
@@ -37,6 +38,24 @@ class SecurityResearcherAgent(Agent):
     - Conduct security reviews of AI/LLM system architectures
     - Help manage and query AI security knowledge bases
     """
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(
+            allowed_tools=[
+                "add_document",
+                "delete_document",
+                "fetch_web_content",
+                "get_document",
+                "get_memories",
+                "get_rag_stats",
+                "list_documents",
+                "save_memory",
+                "search_documents",
+                "search_memories",
+                "send_slack_message",
+            ],
+            **kwargs,
+        )
 
     def get_system_prompt(self) -> str:
         """Return the system prompt for this agent."""

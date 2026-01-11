@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 
 from agents.task_manager.main import TaskManagerAgent
 from agents.pr_agent.main import PRAgent
+from agents.security_researcher.main import SecurityResearcherAgent
 from shared import setup_logging
 
 # Load environment variables
@@ -74,6 +75,8 @@ def main() -> None:
 
     pr_agent = PRAgent()  # PR agent uses local MCP server
 
+    security_researcher = SecurityResearcherAgent()
+
     # Register agents with keywords for routing
     adapter.register_agent(
         name="tasks",
@@ -96,6 +99,12 @@ def main() -> None:
             "linkedin",
         ],
         description="PR and content strategy - website analysis, SEO, social media",
+    )
+    adapter.register_agent(
+        name="security",
+        agent=security_researcher,
+        keywords=["security", "aisec", "sec", "rag"],
+        description="Security Research and AI Security Academic Paper RAG Manager",
     )
 
     # Set default agent for messages that don't match keywords
