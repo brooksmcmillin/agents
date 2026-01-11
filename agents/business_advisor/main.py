@@ -12,6 +12,7 @@ import os
 
 from agent_framework import Agent
 from dotenv import load_dotenv
+from typing import Any
 
 from shared import run_agent, setup_logging
 
@@ -40,6 +41,18 @@ class BusinessAdvisorAgent(Agent):
     - Full business plan development
     - Market research and competitive analysis
     """
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(
+            allowed_tools=[
+                "fetch_web_content",
+                "get_memories",
+                "save_memory",
+                "search_memories",
+                "send_slack_message",
+            ],
+            **kwargs,
+        )
 
     def get_system_prompt(self) -> str:
         """Return the system prompt for this agent."""
