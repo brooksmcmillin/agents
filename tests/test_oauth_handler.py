@@ -123,7 +123,8 @@ class TestOAuthHandler:
         ) as mock_client_class:
             mock_client = AsyncMock()
             mock_client.fetch_token = AsyncMock(return_value=mock_token_response)
-            mock_client_class.return_value.__aenter__.return_value = mock_client
+            mock_client.aclose = AsyncMock()
+            mock_client_class.return_value = mock_client
 
             result = await oauth_handler.exchange_code_for_token(
                 platform="twitter",
@@ -147,7 +148,8 @@ class TestOAuthHandler:
             mock_client.fetch_token = AsyncMock(
                 side_effect=Exception("OAuth server error")
             )
-            mock_client_class.return_value.__aenter__.return_value = mock_client
+            mock_client.aclose = AsyncMock()
+            mock_client_class.return_value = mock_client
 
             result = await oauth_handler.exchange_code_for_token(
                 platform="twitter",
@@ -210,7 +212,8 @@ class TestOAuthHandler:
         ) as mock_client_class:
             mock_client = AsyncMock()
             mock_client.fetch_token = AsyncMock(return_value=mock_response)
-            mock_client_class.return_value.__aenter__.return_value = mock_client
+            mock_client.aclose = AsyncMock()
+            mock_client_class.return_value = mock_client
 
             refreshed = await oauth_handler.refresh_token("twitter")
 
@@ -241,7 +244,8 @@ class TestOAuthHandler:
         ) as mock_client_class:
             mock_client = AsyncMock()
             mock_client.fetch_token = AsyncMock(return_value=mock_response)
-            mock_client_class.return_value.__aenter__.return_value = mock_client
+            mock_client.aclose = AsyncMock()
+            mock_client_class.return_value = mock_client
 
             refreshed = await oauth_handler.refresh_token("twitter")
 
@@ -264,7 +268,8 @@ class TestOAuthHandler:
         ) as mock_client_class:
             mock_client = AsyncMock()
             mock_client.fetch_token = AsyncMock(side_effect=Exception("Refresh failed"))
-            mock_client_class.return_value.__aenter__.return_value = mock_client
+            mock_client.aclose = AsyncMock()
+            mock_client_class.return_value = mock_client
 
             result = await oauth_handler.refresh_token("twitter")
             assert result is None
@@ -317,7 +322,8 @@ class TestOAuthHandler:
         ) as mock_client_class:
             mock_client = AsyncMock()
             mock_client.fetch_token = AsyncMock(return_value=mock_response)
-            mock_client_class.return_value.__aenter__.return_value = mock_client
+            mock_client.aclose = AsyncMock()
+            mock_client_class.return_value = mock_client
 
             result = await oauth_handler.get_valid_token("twitter")
 
@@ -341,7 +347,8 @@ class TestOAuthHandler:
         ) as mock_client_class:
             mock_client = AsyncMock()
             mock_client.fetch_token = AsyncMock(side_effect=Exception("Refresh failed"))
-            mock_client_class.return_value.__aenter__.return_value = mock_client
+            mock_client.aclose = AsyncMock()
+            mock_client_class.return_value = mock_client
 
             result = await oauth_handler.get_valid_token("twitter")
             assert result is None

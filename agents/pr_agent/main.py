@@ -24,7 +24,9 @@ load_dotenv()
 logger = setup_logging(__name__)
 
 """
-Possible Tools: ['fetch_web_content', 'save_memory', 'get_memories', 'search_memories', 'send_slack_message', 'add_document', 'search_documents', 'get_document', 'delete_document', 'list_documents', 'get_rag_stats', 'analyze_website', 'get_social_media_stats', 'suggest_content_topics', 'get_time', 'check_task_system_status', 'get_tasks', 'create_task', 'update_task', 'get_categories', 'search_tasks']
+Possible Tools: ['fetch_web_content', 'save_memory', 'get_memories', 'search_memories',
+'send_slack_message', 'add_document', 'search_documents', 'get_document', 'delete_document',
+'list_documents', 'get_rag_stats', 'analyze_website', 'get_social_media_stats', 'suggest_content_topics']
 """
 
 
@@ -47,7 +49,8 @@ class PRAgent(Agent):
                 "search_memories",
                 "send_slack_message",
                 "suggest_content_topics",
-            ]
+            ],
+            **kwargs,
         )
 
     def get_system_prompt(self) -> str:

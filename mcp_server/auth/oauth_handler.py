@@ -127,32 +127,32 @@ class OAuthHandler:
 
         config = self.PLATFORM_CONFIGS[platform]
 
+        client = AsyncOAuth2Client(
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+        )
         try:
-            async with AsyncOAuth2Client(
-                client_id=self.client_id,
-                client_secret=self.client_secret,
-            ) as client:
-                # Exchange code for token
-                token_response = await client.fetch_token(
-                    config["token_url"],
-                    code=code,
-                    redirect_uri=redirect_uri,
-                )
+            # Exchange code for token
+            token_response = await client.fetch_token(
+                config["token_url"],
+                code=code,
+                redirect_uri=redirect_uri,
+            )
 
-                # Create TokenData
-                token_data = self._parse_token_response(token_response)
+            # Create TokenData
+            token_data = self._parse_token_response(token_response)
 
-                # Save token
-                self.token_store.save_token(platform, token_data, user_id)
+            # Save token
+            self.token_store.save_token(platform, token_data, user_id)
 
-                logger.info(
-                    f"Successfully exchanged code for token: {platform}:{user_id}"
-                )
-                return token_data
+            logger.info(f"Successfully exchanged code for token: {platform}:{user_id}")
+            return token_data
 
         except Exception as e:
             logger.error(f"Failed to exchange code for token: {e}")
             return None
+        finally:
+            await client.aclose()  # type: ignore[attr-defined]
 
     async def refresh_token(
         self,
@@ -184,34 +184,36 @@ class OAuthHandler:
 
         config = self.PLATFORM_CONFIGS[platform]
 
+        client = AsyncOAuth2Client(
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+        )
         try:
-            async with AsyncOAuth2Client(
-                client_id=self.client_id,
-                client_secret=self.client_secret,
-            ) as client:
-                # Refresh token
-                token_response = await client.fetch_token(
-                    config["token_url"],
-                    grant_type="refresh_token",
-                    refresh_token=current_token.refresh_token,
-                )
+            # Refresh token
+            token_response = await client.fetch_token(
+                config["token_url"],
+                grant_type="refresh_token",
+                refresh_token=current_token.refresh_token,
+            )
 
-                # Create new TokenData
-                token_data = self._parse_token_response(token_response)
+            # Create new TokenData
+            token_data = self._parse_token_response(token_response)
 
-                # Preserve refresh token if not returned in response
-                if not token_data.refresh_token and current_token.refresh_token:
-                    token_data.refresh_token = current_token.refresh_token
+            # Preserve refresh token if not returned in response
+            if not token_data.refresh_token and current_token.refresh_token:
+                token_data.refresh_token = current_token.refresh_token
 
-                # Save new token
-                self.token_store.save_token(platform, token_data, user_id)
+            # Save new token
+            self.token_store.save_token(platform, token_data, user_id)
 
-                logger.info(f"Successfully refreshed token: {platform}:{user_id}")
-                return token_data
+            logger.info(f"Successfully refreshed token: {platform}:{user_id}")
+            return token_data
 
         except Exception as e:
             logger.error(f"Failed to refresh token: {e}")
             return None
+        finally:
+            await client.aclose()  # type: ignore[attr-defined]
 
     async def get_valid_token(
         self,

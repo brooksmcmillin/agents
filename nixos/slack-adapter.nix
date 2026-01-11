@@ -71,6 +71,8 @@ in
         LOG_LEVEL = cfg.logLevel;
         HOME = "/home/${cfg.user}";
         PYTHONUNBUFFERED = "1";
+        # Required for pymupdf and other packages with native dependencies
+        LD_LIBRARY_PATH = "/run/current-system/sw/share/nix-ld/lib";
       };
 
       serviceConfig = {
