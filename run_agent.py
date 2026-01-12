@@ -14,6 +14,7 @@ import sys
 
 from dotenv import load_dotenv
 
+from agents.business_advisor.main import BusinessAdvisorAgent
 from agents.pr_agent.main import PRAgent
 from agents.task_manager.main import TaskManagerAgent
 from agents.security_researcher.main import SecurityResearcherAgent
@@ -35,6 +36,15 @@ AGENTS: dict[str, tuple[type, dict | None]] = {
         },
     ),
     "security": (SecurityResearcherAgent, None),
+    "business": (
+        BusinessAdvisorAgent,
+        {
+            "mcp_urls": ["https://api.githubcopilot.com/mcp/"],
+            "mcp_client_config": {
+                "auth_token": os.getenv("GITHUB_MCP_PAT"),
+            },
+        },
+    ),
 }
 
 
