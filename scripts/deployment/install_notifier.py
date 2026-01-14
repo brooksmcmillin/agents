@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Install/manage task notifier cron job.
+"""Install/manage task notifier systemd timer.
 
-This script helps install, check, and uninstall the task notifier cron job.
+This script helps install, check, and uninstall the task notifier as a systemd user timer.
 
 Usage:
-    uv run python scripts/install_notifier.py install   # Install cron job
-    uv run python scripts/install_notifier.py status    # Check if installed
-    uv run python scripts/install_notifier.py uninstall # Remove cron job
-    uv run python scripts/install_notifier.py test      # Test notification
+    uv run python -m scripts.deployment.install_notifier install   # Install timer
+    uv run python -m scripts.deployment.install_notifier status    # Check if installed
+    uv run python -m scripts.deployment.install_notifier uninstall # Remove timer
+    uv run python -m scripts.deployment.install_notifier test      # Test notification
 """
 
+import os
 import socket
 import subprocess
 import sys
@@ -21,81 +22,136 @@ from shared.env_utils import check_env_vars
 
 
 # Configuration
-CRON_SCHEDULE = "0 9,14,18 * * 1-5"  # 9 AM, 2 PM, 6 PM on weekdays
-CRON_IDENTIFIER = "# task-notifier-agent"  # Unique identifier to find/remove
+SERVICE_NAME = "task-notifier"
 LOG_FILE = "/tmp/task-notifier.log"
+SYSTEMD_USER_DIR = Path.home() / ".config" / "systemd" / "user"
 
 
 def get_project_root() -> Path:
     """Get absolute path to project root."""
-    # This script is in scripts/, so parent is project root
-    return Path(__file__).parent.parent.resolve()
+    # This script is in scripts/deployment/, so two parents up is project root
+    return Path(__file__).parent.parent.parent.resolve()
 
 
-def get_cron_command() -> str:
-    """Build the full cron command with absolute paths."""
+def get_uv_path() -> str:
+    """Get the absolute path to uv."""
+    result = subprocess.run(["which", "uv"], capture_output=True, text=True)
+    if result.returncode == 0:
+        return result.stdout.strip()
+    return "uv"  # Fall back to PATH lookup
+
+
+def get_service_content() -> str:
+    """Generate the systemd service unit content."""
     project_root = get_project_root()
+    uv_path = get_uv_path()
 
-    # Build command: cd to project, run with uv, redirect output
-    command = (
-        f"cd {project_root} && uv run python -m agents.notifier.main >> {LOG_FILE} 2>&1"
-    )
+    # Build environment lines for NixOS compatibility
+    env_lines = []
+    ld_library_path = os.environ.get("LD_LIBRARY_PATH", "")
+    if ld_library_path:
+        env_lines.append(f"Environment=LD_LIBRARY_PATH={ld_library_path}")
 
-    return f"{CRON_SCHEDULE} {command} {CRON_IDENTIFIER}"
+    env_section = "\n".join(env_lines)
+    if env_section:
+        env_section += "\n"
+
+    return f"""[Unit]
+Description=Task Notifier - sends Slack notifications about open tasks
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory={project_root}
+{env_section}ExecStart={uv_path} run python -m agents.notifier.main
+StandardOutput=append:{LOG_FILE}
+StandardError=append:{LOG_FILE}
+
+[Install]
+WantedBy=default.target
+"""
 
 
-def is_crontab_available() -> bool:
-    """Check if crontab command is available."""
+def get_timer_content() -> str:
+    """Generate the systemd timer unit content."""
+    return """[Unit]
+Description=Task Notifier Timer - runs at 9 AM, 2 PM, 6 PM on weekdays
+
+[Timer]
+OnCalendar=Mon..Fri 09:00
+OnCalendar=Mon..Fri 14:00
+OnCalendar=Mon..Fri 18:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+"""
+
+
+def get_service_path() -> Path:
+    """Get path to the service unit file."""
+    return SYSTEMD_USER_DIR / f"{SERVICE_NAME}.service"
+
+
+def get_timer_path() -> Path:
+    """Get path to the timer unit file."""
+    return SYSTEMD_USER_DIR / f"{SERVICE_NAME}.timer"
+
+
+def is_systemd_available() -> bool:
+    """Check if systemd user session is available."""
     try:
-        subprocess.run(["crontab", "-l"], capture_output=True, check=False)
-        return True
+        result = subprocess.run(
+            ["systemctl", "--user", "status"],
+            capture_output=True,
+            check=False,
+        )
+        # Exit code 0 or 1 is fine (1 means some units failed, but systemd works)
+        return result.returncode in (0, 1)
     except FileNotFoundError:
         return False
 
 
-def get_current_crontab() -> list[str]:
-    """Get current crontab as list of lines.
-
-    Returns:
-        List of crontab lines, empty list if no crontab exists or crontab not available
-    """
-    if not is_crontab_available():
-        return []
-
-    try:
-        result = subprocess.run(
-            ["crontab", "-l"], capture_output=True, text=True, check=True
-        )
-        return result.stdout.strip().split("\n") if result.stdout.strip() else []
-    except subprocess.CalledProcessError as e:
-        # crontab returns non-zero if no crontab exists
-        if "no crontab" in e.stderr.lower():
-            return []
-        raise
-
-
 def is_installed() -> bool:
-    """Check if the notifier cron job is already installed."""
-    crontab = get_current_crontab()
-    return any(CRON_IDENTIFIER in line for line in crontab)
+    """Check if the notifier timer is installed."""
+    return get_timer_path().exists() and get_service_path().exists()
+
+
+def is_enabled() -> bool:
+    """Check if the timer is enabled."""
+    result = subprocess.run(
+        ["systemctl", "--user", "is-enabled", f"{SERVICE_NAME}.timer"],
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0
+
+
+def is_active() -> bool:
+    """Check if the timer is active."""
+    result = subprocess.run(
+        ["systemctl", "--user", "is-active", f"{SERVICE_NAME}.timer"],
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0
 
 
 def install() -> bool:
-    """Install the notifier cron job.
+    """Install the notifier systemd timer.
 
     Returns:
         True if successful, False otherwise
     """
-    print("🔧 Installing task notifier cron job...\n")
+    print("🔧 Installing task notifier systemd timer...\n")
 
-    # Check if crontab is available
-    if not is_crontab_available():
-        print("❌ crontab command not found!")
-        print("\nThis machine doesn't have cron installed.")
-        print("Install cron first:")
-        print("  - Ubuntu/Debian: sudo apt install cron")
-        print("  - Arch: sudo pacman -S cronie")
-        print("  - macOS: cron is built-in")
+    # Check if systemd is available
+    if not is_systemd_available():
+        print("❌ systemd user session not available!")
+        print(
+            "\nMake sure you're running in a systemd-based system with user sessions."
+        )
         return False
 
     # Check if already installed
@@ -107,7 +163,7 @@ def install() -> bool:
     # Show configuration
     project_root = get_project_root()
     print(f"Project root: {project_root}")
-    print(f"Schedule: {CRON_SCHEDULE} (9 AM, 2 PM, 6 PM on weekdays)")
+    print("Schedule: 9 AM, 2 PM, 6 PM on weekdays")
     print(f"Log file: {LOG_FILE}")
     print(f"Hostname: {socket.gethostname()}\n")
 
@@ -147,96 +203,127 @@ def install() -> bool:
 
     # Confirm installation
     print("\n" + "=" * 60)
-    print("Ready to install cron job:")
+    print("Ready to install systemd timer:")
     print("=" * 60)
-    print(f"\n{get_cron_command()}\n")
+    print(f"\nService: {get_service_path()}")
+    print(f"Timer: {get_timer_path()}")
+    print("\nTimer schedule:")
+    print("  - Mon-Fri 09:00")
+    print("  - Mon-Fri 14:00")
+    print("  - Mon-Fri 18:00")
+    print()
 
-    response = input("Install this cron job? (y/N): ")
+    response = input("Install this timer? (y/N): ")
     if response.lower() != "y":
         print("❌ Installation cancelled")
         return False
 
-    # Get current crontab
-    current_crontab = get_current_crontab()
+    # Create systemd user directory if needed
+    SYSTEMD_USER_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Add new job
-    new_crontab = current_crontab + [get_cron_command()]
+    # Write service file
+    service_path = get_service_path()
+    service_path.write_text(get_service_content())
+    print(f"\n✓ Created {service_path}")
 
-    # Write back to crontab
-    try:
-        process = subprocess.Popen(["crontab", "-"], stdin=subprocess.PIPE, text=True)
-        process.communicate("\n".join(new_crontab) + "\n")
+    # Write timer file
+    timer_path = get_timer_path()
+    timer_path.write_text(get_timer_content())
+    print(f"✓ Created {timer_path}")
 
-        if process.returncode != 0:
-            print("❌ Failed to update crontab")
-            return False
+    # Reload systemd
+    subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
+    print("✓ Reloaded systemd daemon")
 
-        print("\n✅ Successfully installed task notifier cron job!")
-        print("\nNotifications will be sent at:")
-        print("  - 9:00 AM")
-        print("  - 2:00 PM")
-        print("  - 6:00 PM")
-        print("  (Monday-Friday only)")
-        print(f"\nLogs will be written to: {LOG_FILE}")
-        print(f"\nTo view logs: tail -f {LOG_FILE}")
-        print("To check status: uv run python scripts/install_notifier.py status")
-        print("To uninstall: uv run python scripts/install_notifier.py uninstall")
+    # Enable and start timer
+    subprocess.run(
+        ["systemctl", "--user", "enable", f"{SERVICE_NAME}.timer"],
+        check=True,
+    )
+    print(f"✓ Enabled {SERVICE_NAME}.timer")
 
-        return True
+    subprocess.run(
+        ["systemctl", "--user", "start", f"{SERVICE_NAME}.timer"],
+        check=True,
+    )
+    print(f"✓ Started {SERVICE_NAME}.timer")
 
-    except Exception as e:
-        print(f"❌ Error updating crontab: {e}")
-        return False
+    print("\n✅ Successfully installed task notifier timer!")
+    print("\nNotifications will be sent at:")
+    print("  - 9:00 AM")
+    print("  - 2:00 PM")
+    print("  - 6:00 PM")
+    print("  (Monday-Friday only)")
+    print(f"\nLogs will be written to: {LOG_FILE}")
+    print("\nUseful commands:")
+    print(f"  View logs: tail -f {LOG_FILE}")
+    print(f"  Timer status: systemctl --user status {SERVICE_NAME}.timer")
+    print("  List timers: systemctl --user list-timers")
+    print(f"  Run now: systemctl --user start {SERVICE_NAME}.service")
+    print("  Check status: uv run python -m scripts.deployment.install_notifier status")
+    print("  Uninstall: uv run python -m scripts.deployment.install_notifier uninstall")
+
+    return True
 
 
 def uninstall() -> bool:
-    """Uninstall the notifier cron job.
+    """Uninstall the notifier systemd timer.
 
     Returns:
         True if successful, False otherwise
     """
-    print("🗑️  Uninstalling task notifier cron job...\n")
+    print("🗑️  Uninstalling task notifier systemd timer...\n")
 
     # Check if installed
     if not is_installed():
         print("⚠️  Task notifier is not installed")
         return False
 
-    # Get current crontab
-    current_crontab = get_current_crontab()
-
     # Show what will be removed
-    for line in current_crontab:
-        if CRON_IDENTIFIER in line:
-            print(f"Will remove: {line}\n")
+    print(f"Will remove: {get_service_path()}")
+    print(f"Will remove: {get_timer_path()}\n")
 
     # Confirm removal
-    response = input("Remove this cron job? (y/N): ")
+    response = input("Remove these files and disable the timer? (y/N): ")
     if response.lower() != "y":
         print("❌ Uninstall cancelled")
         return False
 
-    # Remove lines with identifier
-    new_crontab = [line for line in current_crontab if CRON_IDENTIFIER not in line]
+    # Stop timer if running
+    subprocess.run(
+        ["systemctl", "--user", "stop", f"{SERVICE_NAME}.timer"],
+        capture_output=True,
+    )
+    print(f"✓ Stopped {SERVICE_NAME}.timer")
 
-    # Write back to crontab
-    try:
-        process = subprocess.Popen(["crontab", "-"], stdin=subprocess.PIPE, text=True)
-        process.communicate("\n".join(new_crontab) + "\n")
+    # Disable timer
+    subprocess.run(
+        ["systemctl", "--user", "disable", f"{SERVICE_NAME}.timer"],
+        capture_output=True,
+    )
+    print(f"✓ Disabled {SERVICE_NAME}.timer")
 
-        if process.returncode != 0:
-            print("❌ Failed to update crontab")
-            return False
+    # Remove files
+    service_path = get_service_path()
+    timer_path = get_timer_path()
 
-        print("✅ Successfully uninstalled task notifier cron job!")
-        print(f"\nNote: Log file still exists at {LOG_FILE}")
-        print("You can remove it manually if desired.")
+    if service_path.exists():
+        service_path.unlink()
+        print(f"✓ Removed {service_path}")
 
-        return True
+    if timer_path.exists():
+        timer_path.unlink()
+        print(f"✓ Removed {timer_path}")
 
-    except Exception as e:
-        print(f"❌ Error updating crontab: {e}")
-        return False
+    # Reload systemd
+    subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
+    print("✓ Reloaded systemd daemon")
+
+    print("\n✅ Successfully uninstalled task notifier timer!")
+    print(f"\nNote: Log file still exists at {LOG_FILE}")
+    print("You can remove it manually if desired.")
+
+    return True
 
 
 def status() -> None:
@@ -244,30 +331,40 @@ def status() -> None:
     print("📊 Task Notifier Status\n")
     print("=" * 60)
 
-    # Check if crontab is available
-    crontab_available = is_crontab_available()
-    print(f"Crontab available: {'✅ Yes' if crontab_available else '❌ No'}")
+    # Check if systemd is available
+    systemd_available = is_systemd_available()
+    print(f"Systemd available: {'✅ Yes' if systemd_available else '❌ No'}")
 
-    if not crontab_available:
-        print("\n⚠️  This machine doesn't have cron installed.")
-        print("Cron jobs can only be installed on machines with cron.")
+    if not systemd_available:
+        print("\n⚠️  systemd user session not available.")
         print("\nYou can still test the notifier with:")
-        print("  uv run python scripts/install_notifier.py test")
-        print("\nTo install cron:")
-        print("  - Ubuntu/Debian: sudo apt install cron")
-        print("  - Arch: sudo pacman -S cronie")
-        print("  - macOS: cron is built-in")
+        print("  uv run python -m scripts.deployment.install_notifier test")
+        return
 
     # Check if installed
-    installed = is_installed() if crontab_available else False
+    installed = is_installed()
     print(f"Installed: {'✅ Yes' if installed else '❌ No'}")
 
     if installed:
-        # Show the cron line
-        crontab = get_current_crontab()
-        for line in crontab:
-            if CRON_IDENTIFIER in line:
-                print(f"\nCron job: {line}")
+        enabled = is_enabled()
+        active = is_active()
+        print(f"Enabled: {'✅ Yes' if enabled else '❌ No'}")
+        print(f"Active: {'✅ Yes' if active else '❌ No'}")
+
+        # Show timer info
+        print(f"\nService file: {get_service_path()}")
+        print(f"Timer file: {get_timer_path()}")
+
+        # Show next trigger time
+        result = subprocess.run(
+            ["systemctl", "--user", "list-timers", f"{SERVICE_NAME}.timer"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0 and SERVICE_NAME in result.stdout:
+            print("\nTimer schedule:")
+            for line in result.stdout.strip().split("\n"):
+                print(f"  {line}")
 
         # Show log file info
         log_path = Path(LOG_FILE)
@@ -301,7 +398,9 @@ def status() -> None:
     print("=" * 60)
 
     if not installed:
-        print("\nTo install: uv run python scripts/install_notifier.py install")
+        print(
+            "\nTo install: uv run python -m scripts.deployment.install_notifier install"
+        )
 
 
 def test() -> bool:
