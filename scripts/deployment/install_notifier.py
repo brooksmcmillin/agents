@@ -442,6 +442,8 @@ def test() -> bool:
             print(f"Exit code: {result.returncode}")
             if result.stderr:
                 print(f"Error: {result.stderr}")
+            print("\nFor more details, run with debug logging:")
+            print("  LOG_LEVEL=DEBUG uv run python -m agents.notifier.main")
             return False
 
     except subprocess.TimeoutExpired:
