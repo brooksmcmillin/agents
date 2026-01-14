@@ -17,3 +17,4 @@ jobs:
       run-build: false
     secrets:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      GH_PAT: ${{ secrets.GH_PAT }}
