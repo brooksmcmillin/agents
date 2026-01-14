@@ -165,6 +165,7 @@ async def fetch_tasks(
     """
     today = datetime.now().date()
     today_str = today.isoformat()
+    tomorrow_str = (today + timedelta(days=1)).isoformat()
     upcoming_end = (today + timedelta(days=3)).isoformat()
 
     # Fetch overdue tasks (due before today, status pending or in_progress)
@@ -172,8 +173,7 @@ async def fetch_tasks(
     overdue_result = await client.call_tool(
         "get_tasks",
         {
-            "status": "pending",  # Only pending/in_progress tasks
-            "due_before": today_str,
+            "status": "overdue",
         },
     )
 
@@ -185,22 +185,21 @@ async def fetch_tasks(
         "get_tasks",
         {
             "status": "pending",
-            "due_after": today_str,
-            "due_before": today_str,
+            "start_date": today_str,
+            "end_date": today_str,
         },
     )
 
     today_tasks = parse_task_result(today_result)
 
     # Fetch upcoming tasks (next 3 days, excluding today)
-    tomorrow = (today + timedelta(days=1)).isoformat()
     logger.info("Fetching upcoming tasks...")
     upcoming_result = await client.call_tool(
         "get_tasks",
         {
             "status": "pending",
-            "due_after": tomorrow,
-            "due_before": upcoming_end,
+            "start_date": tomorrow_str,
+            "end_date": upcoming_end,
         },
     )
 
