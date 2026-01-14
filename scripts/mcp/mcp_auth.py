@@ -22,9 +22,7 @@ import httpx
 from aiohttp import web
 from dotenv import load_dotenv, set_key
 
-# Add shared module to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-from shared.oauth_flow import generate_pkce_pair
+from agent_framework.oauth import generate_pkce_pair
 
 # Load environment variables
 load_dotenv()

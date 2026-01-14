@@ -15,11 +15,9 @@ import httpx
 from dotenv import load_dotenv
 
 from agent_framework.core.remote_mcp_client import RemoteMCPClient
+from agent_framework.oauth import OAuthFlowHandler, TokenStorage, discover_oauth_config
 
 from shared import DEFAULT_MCP_SERVER_URL, ENV_MCP_SERVER_URL, setup_logging
-from shared.oauth_config import discover_oauth_config
-from shared.oauth_flow import OAuthFlowHandler
-from shared.oauth_tokens import TokenStorage
 
 # Load environment variables
 load_dotenv()

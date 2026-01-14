@@ -3,11 +3,12 @@
 This module contains common code that can be reused across multiple agents,
 including:
 - Base agent classes
-- Shared MCP client utilities (local and remote)
 - Common configuration
 - Utility functions
 
-As you build more agents, extract common patterns here to avoid duplication.
+OAuth and MCP client utilities have been moved to agent-framework.
+Use `from agent_framework.oauth import ...` for OAuth functionality.
+Use `from agent_framework.core import RemoteMCPClient` for remote MCP.
 """
 
 from .agent_runner import run_agent
@@ -22,7 +23,6 @@ from .constants import (
 )
 from .env_utils import check_env_vars, env_file_exists
 from .logging_config import setup_logging
-from .remote_mcp_client import RemoteMCPClient
 
 __all__ = [
     "DEFAULT_MCP_SERVER_URL",
@@ -32,7 +32,6 @@ __all__ = [
     "ENV_SLACK_APP_TOKEN",
     "ENV_SLACK_BOT_TOKEN",
     "ENV_SLACK_WEBHOOK_URL",
-    "RemoteMCPClient",
     "check_env_vars",
     "env_file_exists",
     "run_agent",
