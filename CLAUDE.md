@@ -261,8 +261,7 @@ This creates a feedback loop where the agent helps improve itself based on real-
 
 **Shared Infrastructure:**
 - `shared/` - Common utilities and base classes for all agents
-- `shared/remote_mcp_client.py` - Client for connecting to remote MCP servers via HTTP/SSE
-- `agent-framework` - External package providing base Agent class and MCP client
+- `agent-framework` - External package providing base Agent class, MCP client, and OAuth utilities
 
 **MCP Server (Shared Tools):**
 - `mcp_server/server.py` - MCP server (stdio transport) for local use

@@ -4,7 +4,7 @@ import asyncio
 
 import httpx
 
-from shared.oauth_tokens import TokenStorage
+from agent_framework.oauth import TokenStorage
 
 
 async def main():
