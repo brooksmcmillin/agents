@@ -438,14 +438,25 @@ class TestRedirects:
         mock_html = "<html><body><article>Content</article></body></html>"
 
         with patch("httpx.AsyncClient") as mock_client_class:
-            mock_response = AsyncMock()
-            mock_response.text = mock_html
-            # Final URL after redirect
-            mock_response.url = "https://example.com/final-page"
-            mock_response.raise_for_status = MagicMock()
+            # First response: redirect
+            mock_redirect_response = AsyncMock()
+            mock_redirect_response.status_code = 302
+            mock_redirect_response.headers = {
+                "Location": "https://example.com/final-page"
+            }
+            mock_redirect_response.raise_for_status = MagicMock()
+
+            # Second response: final content
+            mock_final_response = AsyncMock()
+            mock_final_response.status_code = 200
+            mock_final_response.text = mock_html
+            mock_final_response.headers = {}
+            mock_final_response.raise_for_status = MagicMock()
 
             mock_instance = AsyncMock()
-            mock_instance.get = AsyncMock(return_value=mock_response)
+            mock_instance.get = AsyncMock(
+                side_effect=[mock_redirect_response, mock_final_response]
+            )
             mock_client_class.return_value.__aenter__.return_value = mock_instance
 
             result = await fetch_web_content("https://example.com/redirect")
@@ -457,8 +468,7 @@ class TestRedirects:
 class TestSSRFProtection:
     """Tests for SSRF (Server-Side Request Forgery) protection.
 
-    NOTE: The current implementation only validates URL scheme.
-    These tests document the expected behavior and security gaps.
+    Tests verify that localhost, private IPs, and dangerous protocols are blocked.
     """
 
     @pytest.mark.asyncio
@@ -473,51 +483,19 @@ class TestSSRFProtection:
         with pytest.raises(ValueError, match="Invalid URL"):
             await fetch_web_content("ftp://example.com/file")
 
-    # NOTE: The following tests document potential SSRF vulnerabilities
-    # that are NOT currently blocked by the implementation.
-    # Consider adding IP/hostname validation in production.
+    @pytest.mark.asyncio
+    async def test_localhost_blocked(self):
+        """Test that localhost URLs are blocked (SSRF protection)."""
+        # SSRF protection should block localhost access
+        with pytest.raises(ValueError, match="security reasons"):
+            await fetch_web_content("http://localhost/admin")
 
     @pytest.mark.asyncio
-    async def test_localhost_access_note(self):
-        """Document: localhost URLs are currently allowed (potential SSRF)."""
-        # This test documents that localhost is NOT blocked
-        # In production, consider blocking internal IPs
-        mock_html = "<html><body><article>Internal</article></body></html>"
-
-        with patch("httpx.AsyncClient") as mock_client_class:
-            mock_response = AsyncMock()
-            mock_response.text = mock_html
-            mock_response.url = "http://localhost/admin"
-            mock_response.raise_for_status = MagicMock()
-
-            mock_instance = AsyncMock()
-            mock_instance.get = AsyncMock(return_value=mock_response)
-            mock_client_class.return_value.__aenter__.return_value = mock_instance
-
-            # Currently this succeeds - which may be a security risk
-            result = await fetch_web_content("http://localhost/admin")
-            assert result is not None
-            # TODO: Consider blocking internal URLs in production
-
-    @pytest.mark.asyncio
-    async def test_internal_ip_access_note(self):
-        """Document: Internal IPs are currently allowed (potential SSRF)."""
-        mock_html = "<html><body><article>Internal</article></body></html>"
-
-        with patch("httpx.AsyncClient") as mock_client_class:
-            mock_response = AsyncMock()
-            mock_response.text = mock_html
-            mock_response.url = "http://192.168.1.1/admin"
-            mock_response.raise_for_status = MagicMock()
-
-            mock_instance = AsyncMock()
-            mock_instance.get = AsyncMock(return_value=mock_response)
-            mock_client_class.return_value.__aenter__.return_value = mock_instance
-
-            # Currently this succeeds - which may be a security risk
-            result = await fetch_web_content("http://192.168.1.1/admin")
-            assert result is not None
-            # TODO: Consider blocking internal IPs in production
+    async def test_internal_ip_blocked(self):
+        """Test that internal IPs are blocked (SSRF protection)."""
+        # SSRF protection should block private IP addresses
+        with pytest.raises(ValueError, match="security reasons"):
+            await fetch_web_content("http://192.168.1.1/admin")
 
 
 class TestCharacterCount:
