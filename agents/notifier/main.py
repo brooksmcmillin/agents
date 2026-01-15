@@ -7,70 +7,24 @@ once via an interactive agent and the notifier will reuse those tokens.
 """
 
 import asyncio
-import json
 import os
 from datetime import datetime, timedelta
 
 import httpx
-from dotenv import load_dotenv
 
 from agent_framework.core.remote_mcp_client import RemoteMCPClient
-from agent_framework.oauth import OAuthFlowHandler, TokenStorage, discover_oauth_config
 
-from shared import DEFAULT_MCP_SERVER_URL, ENV_MCP_SERVER_URL, setup_logging
-
-# Load environment variables
-load_dotenv()
+from shared import (
+    DEFAULT_MCP_SERVER_URL,
+    ENV_MCP_SERVER_URL,
+    get_valid_token_for_mcp,
+    parse_priority,
+    parse_task_result,
+    setup_logging,
+)
 
 # Configure logging
 logger = setup_logging(__name__)
-
-
-def parse_task_result(result: str | dict) -> list[dict]:
-    """Parse MCP tool result into task list.
-
-    Args:
-        result: JSON string or dict from MCP tool call
-
-    Returns:
-        List of task dictionaries
-    """
-    data = json.loads(result) if isinstance(result, str) else result
-    return data.get("tasks", [])
-
-
-def parse_priority(priority_value: str | int | None) -> int:
-    """Parse priority value from various formats to integer.
-
-    Args:
-        priority_value: Priority as int, numeric string, or text like "urgent"
-
-    Returns:
-        Integer priority 1-10 (defaults to 5 if can't parse)
-    """
-    if priority_value is None:
-        return 5
-
-    # If already an int, return it
-    if isinstance(priority_value, int):
-        return priority_value
-
-    # Try to convert string to int
-    try:
-        return int(priority_value)
-    except (ValueError, TypeError):
-        pass
-
-    # Handle text priorities
-    text_priority = str(priority_value).lower()
-    if text_priority in ("urgent", "high", "critical"):
-        return 9
-    elif text_priority in ("medium", "normal"):
-        return 5
-    elif text_priority in ("low"):
-        return 2
-
-    return 5  # Default
 
 
 def format_task_message(
@@ -212,66 +166,6 @@ async def fetch_tasks(
     return overdue_tasks, today_tasks, upcoming_tasks
 
 
-async def get_valid_token(mcp_url: str) -> str | None:
-    """Get a valid access token from storage, refreshing if needed.
-
-    Args:
-        mcp_url: The MCP server URL
-
-    Returns:
-        Valid access token string, or None if unavailable
-    """
-    token_storage = TokenStorage()
-
-    # Normalize URL like RemoteMCPClient does
-    if not mcp_url.endswith("/"):
-        mcp_url = mcp_url + "/"
-
-    # Try to load saved token
-    token = token_storage.load_token(mcp_url)
-    if not token:
-        logger.warning(f"No saved token found for {mcp_url}")
-        return None
-
-    # Check if token is valid (not expired)
-    if not token.is_expired():
-        logger.info("Using valid token from storage")
-        return token.access_token
-
-    # Token expired - try to refresh
-    logger.info("Token expired, attempting refresh...")
-
-    if not token.refresh_token:
-        logger.warning("No refresh token available")
-        return None
-
-    if not token.client_id:
-        logger.warning("No client_id stored with token - cannot refresh")
-        return None
-
-    try:
-        # Discover OAuth config for refresh endpoint
-        oauth_config = await discover_oauth_config(mcp_url)
-        oauth_flow = OAuthFlowHandler(oauth_config)
-
-        # Refresh the token using stored client credentials
-        new_token = await oauth_flow.refresh_token(
-            token.refresh_token,
-            client_id=token.client_id,
-            client_secret=token.client_secret,
-        )
-
-        # Save the refreshed token
-        token_storage.save_token(mcp_url, new_token)
-        logger.info("Token refreshed successfully")
-
-        return new_token.access_token
-
-    except Exception as e:
-        logger.error(f"Failed to refresh token: {e}")
-        return None
-
-
 async def send_slack_notification(message: str, webhook_url: str) -> bool:
     """Send notification to Slack via webhook.
 
@@ -320,7 +214,7 @@ async def main():
             return
 
         # Get token from shared storage (with automatic refresh)
-        auth_token = await get_valid_token(mcp_url)
+        auth_token = await get_valid_token_for_mcp(mcp_url)
 
         if not auth_token:
             logger.error("No valid token available")

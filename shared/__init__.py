@@ -11,7 +11,14 @@ Use `from agent_framework.oauth import ...` for OAuth functionality.
 Use `from agent_framework.core import RemoteMCPClient` for remote MCP.
 """
 
+from dotenv import load_dotenv
+
+# Load environment variables once when shared module is imported
+load_dotenv()
+
+# ruff: noqa: E402 - imports after load_dotenv() is intentional
 from .agent_runner import run_agent
+from .auth_utils import get_valid_token_for_mcp
 from .constants import (
     DEFAULT_MCP_SERVER_URL,
     ENV_ANTHROPIC_API_KEY,
@@ -23,6 +30,8 @@ from .constants import (
 )
 from .env_utils import check_env_vars, env_file_exists
 from .logging_config import setup_logging
+from .security_utils import SSRFValidator
+from .task_utils import format_priority_emoji, parse_priority, parse_task_result
 
 __all__ = [
     "DEFAULT_MCP_SERVER_URL",
@@ -32,8 +41,13 @@ __all__ = [
     "ENV_SLACK_APP_TOKEN",
     "ENV_SLACK_BOT_TOKEN",
     "ENV_SLACK_WEBHOOK_URL",
+    "SSRFValidator",
     "check_env_vars",
     "env_file_exists",
+    "format_priority_emoji",
+    "get_valid_token_for_mcp",
+    "parse_priority",
+    "parse_task_result",
     "run_agent",
     "setup_logging",
 ]

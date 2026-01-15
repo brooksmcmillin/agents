@@ -8,7 +8,6 @@ import asyncio
 import os
 
 from agent_framework import Agent
-from dotenv import load_dotenv
 from typing import Any
 from shared import (
     DEFAULT_MCP_SERVER_URL,
@@ -18,9 +17,6 @@ from shared import (
 )
 
 from .prompts import SYSTEM_PROMPT, USER_GREETING_PROMPT
-
-# Load environment variables
-load_dotenv()
 
 # Configure logging
 logger = setup_logging(__name__)
@@ -59,7 +55,12 @@ class TaskManagerAgent(Agent):
 
 
 async def main():
-    """Main entry point for the task manager agent."""
+    """Start the Task Manager agent.
+
+    Connects to remote MCP server at MCP_SERVER_URL for task management.
+    Uses OAuth device flow for authentication.
+    Requires ANTHROPIC_API_KEY in environment.
+    """
     mcp_url = os.getenv(ENV_MCP_SERVER_URL, DEFAULT_MCP_SERVER_URL)
     await run_agent(TaskManagerAgent, {"mcp_urls": [mcp_url]})
 

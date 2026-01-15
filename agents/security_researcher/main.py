@@ -10,15 +10,11 @@ This module implements the agentic loop that:
 import asyncio
 
 from agent_framework import Agent
-from dotenv import load_dotenv
 from typing import Any
 
 from shared import run_agent, setup_logging
 
 from .prompts import SYSTEM_PROMPT, USER_GREETING_PROMPT
-
-# Load environment variables
-load_dotenv()
 
 # Configure logging
 logger = setup_logging(__name__)
@@ -67,7 +63,11 @@ class SecurityResearcherAgent(Agent):
 
 
 async def main():
-    """Main entry point for the security researcher agent."""
+    """Start the Security Researcher agent.
+
+    Connects to local MCP server for web content, document RAG, and memory tools.
+    Requires ANTHROPIC_API_KEY in environment.
+    """
     await run_agent(SecurityResearcherAgent)
 
 
