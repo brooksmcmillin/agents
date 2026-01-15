@@ -10,15 +10,11 @@ import os
 
 from agent_framework import MultiAgentSlackAdapter, RoutingStrategy
 from agent_framework.tools import configure_memory_store
-from dotenv import load_dotenv
 
 from agents.task_manager.main import TaskManagerAgent
 from agents.pr_agent.main import PRAgent
 from agents.security_researcher.main import SecurityResearcherAgent
 from shared import setup_logging
-
-# Load environment variables
-load_dotenv()
 
 # Configure logging
 logger = setup_logging(__name__)

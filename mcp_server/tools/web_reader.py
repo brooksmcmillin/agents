@@ -11,6 +11,8 @@ import httpx
 from bs4 import BeautifulSoup
 import html2text
 
+from shared.security_utils import SSRFValidator
+
 logger = logging.getLogger(__name__)
 
 
@@ -42,17 +44,49 @@ async def fetch_web_content(url: str, max_length: int = 50000) -> dict[str, Any]
     """
     logger.info(f"Fetching web content from: {url}")
 
-    # Validate URL
+    # Validate URL format
     if not url.startswith(("http://", "https://")):
         raise ValueError(f"Invalid URL: {url}")
 
+    # SSRF protection: validate URL before fetching
+    is_safe, reason = SSRFValidator.is_safe_url(url)
+    if not is_safe:
+        raise ValueError(f"URL rejected for security reasons: {reason}")
+
     try:
-        # Fetch the webpage
-        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+        # Fetch the webpage (without automatic redirect following for security)
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=False) as client:
             response = await client.get(url)
+
+            # Handle redirects manually with SSRF validation
+            redirects_followed = 0
+            max_redirects = 5
+            final_url = url
+
+            while (
+                response.status_code in (301, 302, 303, 307, 308)
+                and redirects_followed < max_redirects
+            ):
+                redirect_url = response.headers.get("Location")
+                if not redirect_url:
+                    raise ValueError("Redirect without Location header")
+
+                # Validate redirect target
+                is_safe, reason = SSRFValidator.is_safe_url(redirect_url)
+                if not is_safe:
+                    raise ValueError(
+                        f"Redirect rejected for security reasons: {reason}"
+                    )
+
+                response = await client.get(redirect_url)
+                final_url = redirect_url
+                redirects_followed += 1
+
+            if redirects_followed >= max_redirects:
+                raise ValueError(f"Too many redirects (>{max_redirects})")
+
             response.raise_for_status()
             html_content = response.text
-            final_url = str(response.url)
 
         # Parse HTML
         soup = BeautifulSoup(html_content, "lxml")

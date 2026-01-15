@@ -21,6 +21,13 @@ repos:
         language: system
         types: [python]
         pass_filenames: false
+      - id: pytest
+        name: pytest
+        entry: uv run pytest
+        language: system
+        types: [python]
+        pass_filenames: false
+        stages: [pre-commit]
 
   # Security scanning
   - repo: https://github.com/PyCQA/bandit

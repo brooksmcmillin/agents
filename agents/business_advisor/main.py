@@ -11,15 +11,11 @@ import asyncio
 import os
 
 from agent_framework import Agent
-from dotenv import load_dotenv
 from typing import Any
 
 from shared import run_agent, setup_logging
 
 from .prompts import SYSTEM_PROMPT, USER_GREETING_PROMPT
-
-# Load environment variables
-load_dotenv()
 
 # Configure logging
 logger = setup_logging(__name__)
@@ -64,10 +60,11 @@ class BusinessAdvisorAgent(Agent):
 
 
 async def main():
-    """Main entry point for the business advisor agent.
+    """Start the Business Advisor agent.
 
-    Configures MCP connections including GitHub MCP for repository analysis
-    and local MCP for web analysis and memory tools.
+    Connects to local MCP server for web analysis and memory tools.
+    Optionally connects to GitHub MCP server if GITHUB_MCP_SERVER is set.
+    Requires ANTHROPIC_API_KEY in environment.
     """
     # Check for GitHub MCP configuration
     github_mcp_config = os.getenv("GITHUB_MCP_SERVER")
