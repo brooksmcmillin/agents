@@ -283,24 +283,26 @@ This creates a feedback loop where the agent helps improve itself based on real-
 
 See `HOT_RELOAD.md` for details.
 
-**Debugging:**
+**Testing and Debugging:**
+
+See [TESTING.md](TESTING.md) for comprehensive testing and debugging guide, including:
+- Memory system testing with `scripts/test_memory.py`
+- Backend configuration (file vs database)
+- Log file locations and common error patterns
+- Database connectivity testing
+- Common issues and solutions
+
+**Quick Debugging:**
 
 ```bash
-# View logs
-tail -f pr_agent.log
+# Test memory system
+uv run python scripts/test_memory.py stats
 
-# Enable debug logging
-# In .env: LOG_LEVEL=DEBUG
+# View agent logs
+tail -f ~/.agents/logs/agent_$(date +%Y-%m-%d).log
 
-# Test MCP tools in isolation
-uv run python demo.py
-
-# Test individual tools
-uv run python -c "
-from mcp_server.tools import analyze_website
-import asyncio
-print(asyncio.run(analyze_website('https://example.com', 'tone')))
-"
+# Test MCP server standalone
+uv run python -m mcp_server.server
 ```
 
 **Interactive Commands:**

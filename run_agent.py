@@ -13,6 +13,7 @@ import os
 import sys
 
 from agents.business_advisor.main import BusinessAdvisorAgent
+from agents.chatbot.main import ChatbotAgent
 from agents.pr_agent.main import PRAgent
 from agents.task_manager.main import TaskManagerAgent
 from agents.security_researcher.main import SecurityResearcherAgent
@@ -20,6 +21,7 @@ from shared import DEFAULT_MCP_SERVER_URL, ENV_MCP_SERVER_URL, run_agent
 
 # Registry of available agents
 AGENTS: dict[str, tuple[type, dict | None]] = {
+    "chatbot": (ChatbotAgent, None),
     "pr": (PRAgent, None),
     "tasks": (
         TaskManagerAgent,
