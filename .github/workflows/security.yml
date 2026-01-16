@@ -19,6 +19,6 @@ jobs:
     uses: brooksmcmillin/workflows/.github/workflows/python-security.yml@main
     with:
       package-name: agents
-      pre-install-command: uv add agent-framework@git+https://github.com/brooksmcmillin/agent-framework
+      pre-install-command: uv add agent-framework@git+https://github.com/brooksmcmillin/agent-framework chasm@git+https://github.com/brooksmcmillin/chasm
     secrets:
       GH_PAT: ${{ secrets.GH_PAT }}
