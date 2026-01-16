@@ -292,6 +292,8 @@ LINKEDIN_CLIENT_SECRET=...
 ## Documentation
 
 - **[CLAUDE.md](CLAUDE.md)** - Comprehensive project documentation for Claude Code
+- **[TESTING.md](TESTING.md)** - Testing and debugging guide (memory tools, logs, common issues)
+- **[VOICE_AGENTS.md](VOICE_AGENTS.md)** - Voice-enabled agents with chasm audio pipeline
 - **[GUIDES.md](GUIDES.md)** - Feature guides (hot reload, memory, remote MCP)
 - **Agent READMEs** - See `agents/*/README.md` for agent-specific docs
 - **Code Comments** - Extensive inline documentation
