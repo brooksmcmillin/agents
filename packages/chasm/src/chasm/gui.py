@@ -237,7 +237,9 @@ if __name__ == "__main__":
 
     # Configure MCP server path - use the agents repo's MCP server
     # Adjust this path if your setup is different
-    mcp_server_path = Path(__file__).parent.parent / "agents" / "mcp_server" / "server.py"
+    mcp_server_path = (
+        Path(__file__).parent.parent / "agents" / "mcp_server" / "server.py"
+    )
 
     if not mcp_server_path.exists():
         print(f"Warning: MCP server not found at {mcp_server_path}")

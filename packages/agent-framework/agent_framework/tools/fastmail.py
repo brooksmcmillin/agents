@@ -8,7 +8,6 @@ API documentation: https://www.fastmail.com/dev/
 """
 
 import logging
-from datetime import datetime
 from typing import Any
 
 import httpx
@@ -228,27 +227,29 @@ async def list_mailboxes(
     try:
         client = _get_client(api_token)
 
-        response = await client._call([
+        response = await client._call(
             [
-                "Mailbox/get",
-                {
-                    "accountId": client.account_id,
-                    "properties": [
-                        "id",
-                        "name",
-                        "role",
-                        "parentId",
-                        "totalEmails",
-                        "unreadEmails",
-                        "totalThreads",
-                        "unreadThreads",
-                        "sortOrder",
-                        "isSubscribed",
-                    ],
-                },
-                "mailbox-list",
+                [
+                    "Mailbox/get",
+                    {
+                        "accountId": client.account_id,
+                        "properties": [
+                            "id",
+                            "name",
+                            "role",
+                            "parentId",
+                            "totalEmails",
+                            "unreadEmails",
+                            "totalThreads",
+                            "unreadThreads",
+                            "sortOrder",
+                            "isSubscribed",
+                        ],
+                    },
+                    "mailbox-list",
+                ]
             ]
-        ])
+        )
 
         # Extract mailboxes from response
         method_responses = response.get("methodResponses", [])
@@ -355,16 +356,18 @@ async def get_emails(
         # If role specified, first get the mailbox ID
         target_mailbox_id = mailbox_id
         if not target_mailbox_id and mailbox_role:
-            mailbox_response = await client._call([
+            mailbox_response = await client._call(
                 [
-                    "Mailbox/query",
-                    {
-                        "accountId": client.account_id,
-                        "filter": {"role": mailbox_role},
-                    },
-                    "find-mailbox",
+                    [
+                        "Mailbox/query",
+                        {
+                            "accountId": client.account_id,
+                            "filter": {"role": mailbox_role},
+                        },
+                        "find-mailbox",
+                    ]
                 ]
-            ])
+            )
 
             responses = mailbox_response.get("methodResponses", [])
             if responses and responses[0][0] == "Mailbox/query":
@@ -409,51 +412,55 @@ async def get_emails(
             email_filter = {"operator": "AND", "conditions": conditions}
 
         # Build sort
-        sort_property = sort_by if sort_by in ["receivedAt", "sentAt", "from", "subject"] else "receivedAt"
+        sort_property = (
+            sort_by if sort_by in ["receivedAt", "sentAt", "from", "subject"] else "receivedAt"
+        )
         sort = [{"property": sort_property, "isAscending": not sort_descending}]
 
         # Clamp limit
         limit = max(1, min(100, limit))
 
         # Query emails
-        response = await client._call([
+        response = await client._call(
             [
-                "Email/query",
-                {
-                    "accountId": client.account_id,
-                    "filter": email_filter,
-                    "sort": sort,
-                    "position": position,
-                    "limit": limit,
-                    "calculateTotal": True,
-                },
-                "email-query",
-            ],
-            [
-                "Email/get",
-                {
-                    "accountId": client.account_id,
-                    "#ids": {
-                        "resultOf": "email-query",
-                        "name": "Email/query",
-                        "path": "/ids",
+                [
+                    "Email/query",
+                    {
+                        "accountId": client.account_id,
+                        "filter": email_filter,
+                        "sort": sort,
+                        "position": position,
+                        "limit": limit,
+                        "calculateTotal": True,
                     },
-                    "properties": [
-                        "id",
-                        "threadId",
-                        "mailboxIds",
-                        "from",
-                        "to",
-                        "subject",
-                        "receivedAt",
-                        "keywords",
-                        "hasAttachment",
-                        "preview",
-                    ],
-                },
-                "email-get",
-            ],
-        ])
+                    "email-query",
+                ],
+                [
+                    "Email/get",
+                    {
+                        "accountId": client.account_id,
+                        "#ids": {
+                            "resultOf": "email-query",
+                            "name": "Email/query",
+                            "path": "/ids",
+                        },
+                        "properties": [
+                            "id",
+                            "threadId",
+                            "mailboxIds",
+                            "from",
+                            "to",
+                            "subject",
+                            "receivedAt",
+                            "keywords",
+                            "hasAttachment",
+                            "preview",
+                        ],
+                    },
+                    "email-get",
+                ],
+            ]
+        )
 
         method_responses = response.get("methodResponses", [])
 
@@ -535,42 +542,44 @@ async def get_email(
     try:
         client = _get_client(api_token)
 
-        response = await client._call([
+        response = await client._call(
             [
-                "Email/get",
-                {
-                    "accountId": client.account_id,
-                    "ids": [email_id],
-                    "properties": [
-                        "id",
-                        "threadId",
-                        "mailboxIds",
-                        "from",
-                        "to",
-                        "cc",
-                        "bcc",
-                        "replyTo",
-                        "subject",
-                        "receivedAt",
-                        "sentAt",
-                        "keywords",
-                        "hasAttachment",
-                        "preview",
-                        "inReplyTo",
-                        "references",
-                        "messageId",
-                        "size",
-                        "textBody",
-                        "htmlBody",
-                        "bodyValues",
-                    ],
-                    "fetchTextBodyValues": True,
-                    "fetchHTMLBodyValues": True,
-                    "maxBodyValueBytes": 1000000,  # 1MB max
-                },
-                "email-get",
+                [
+                    "Email/get",
+                    {
+                        "accountId": client.account_id,
+                        "ids": [email_id],
+                        "properties": [
+                            "id",
+                            "threadId",
+                            "mailboxIds",
+                            "from",
+                            "to",
+                            "cc",
+                            "bcc",
+                            "replyTo",
+                            "subject",
+                            "receivedAt",
+                            "sentAt",
+                            "keywords",
+                            "hasAttachment",
+                            "preview",
+                            "inReplyTo",
+                            "references",
+                            "messageId",
+                            "size",
+                            "textBody",
+                            "htmlBody",
+                            "bodyValues",
+                        ],
+                        "fetchTextBodyValues": True,
+                        "fetchHTMLBodyValues": True,
+                        "maxBodyValueBytes": 1000000,  # 1MB max
+                    },
+                    "email-get",
+                ]
             ]
-        ])
+        )
 
         method_responses = response.get("methodResponses", [])
         if not method_responses:
@@ -673,56 +682,58 @@ async def search_emails(
         # Clamp limit
         limit = max(1, min(50, limit))
 
-        response = await client._call([
+        response = await client._call(
             [
-                "Email/query",
-                {
-                    "accountId": client.account_id,
-                    "filter": email_filter,
-                    "sort": [{"property": "receivedAt", "isAscending": False}],
-                    "limit": limit,
-                    "calculateTotal": True,
-                },
-                "search-query",
-            ],
-            [
-                "Email/get",
-                {
-                    "accountId": client.account_id,
-                    "#ids": {
-                        "resultOf": "search-query",
-                        "name": "Email/query",
-                        "path": "/ids",
+                [
+                    "Email/query",
+                    {
+                        "accountId": client.account_id,
+                        "filter": email_filter,
+                        "sort": [{"property": "receivedAt", "isAscending": False}],
+                        "limit": limit,
+                        "calculateTotal": True,
                     },
-                    "properties": [
-                        "id",
-                        "threadId",
-                        "mailboxIds",
-                        "from",
-                        "to",
-                        "subject",
-                        "receivedAt",
-                        "keywords",
-                        "hasAttachment",
-                        "preview",
-                    ],
-                },
-                "search-get",
-            ],
-            [
-                "SearchSnippet/get",
-                {
-                    "accountId": client.account_id,
-                    "filter": email_filter,
-                    "#emailIds": {
-                        "resultOf": "search-query",
-                        "name": "Email/query",
-                        "path": "/ids",
+                    "search-query",
+                ],
+                [
+                    "Email/get",
+                    {
+                        "accountId": client.account_id,
+                        "#ids": {
+                            "resultOf": "search-query",
+                            "name": "Email/query",
+                            "path": "/ids",
+                        },
+                        "properties": [
+                            "id",
+                            "threadId",
+                            "mailboxIds",
+                            "from",
+                            "to",
+                            "subject",
+                            "receivedAt",
+                            "keywords",
+                            "hasAttachment",
+                            "preview",
+                        ],
                     },
-                },
-                "search-snippets",
-            ],
-        ])
+                    "search-get",
+                ],
+                [
+                    "SearchSnippet/get",
+                    {
+                        "accountId": client.account_id,
+                        "filter": email_filter,
+                        "#emailIds": {
+                            "resultOf": "search-query",
+                            "name": "Email/query",
+                            "path": "/ids",
+                        },
+                    },
+                    "search-snippets",
+                ],
+            ]
+        )
 
         method_responses = response.get("methodResponses", [])
 
@@ -840,15 +851,17 @@ async def send_email(
         client = _get_client(api_token)
 
         # Get identities to find the sender
-        identity_response = await client._call([
+        identity_response = await client._call(
             [
-                "Identity/get",
-                {
-                    "accountId": client.account_id,
-                },
-                "identity-get",
+                [
+                    "Identity/get",
+                    {
+                        "accountId": client.account_id,
+                    },
+                    "identity-get",
+                ]
             ]
-        ])
+        )
 
         identity_result = identity_response.get("methodResponses", [[]])[0]
         if identity_result[0] == "error":
@@ -872,7 +885,9 @@ async def send_email(
 
         # Build email object
         email_create: dict[str, Any] = {
-            "from": [{"email": from_address, "name": from_name}] if from_name else [{"email": from_address}],
+            "from": [{"email": from_address, "name": from_name}]
+            if from_name
+            else [{"email": from_address}],
             "to": [{"email": addr} for addr in to],
             "subject": subject,
         }
@@ -894,17 +909,19 @@ async def send_email(
         # Handle reply
         if reply_to_email_id:
             # Get the original email for threading
-            orig_response = await client._call([
+            orig_response = await client._call(
                 [
-                    "Email/get",
-                    {
-                        "accountId": client.account_id,
-                        "ids": [reply_to_email_id],
-                        "properties": ["messageId", "references", "threadId"],
-                    },
-                    "orig-get",
+                    [
+                        "Email/get",
+                        {
+                            "accountId": client.account_id,
+                            "ids": [reply_to_email_id],
+                            "properties": ["messageId", "references", "threadId"],
+                        },
+                        "orig-get",
+                    ]
                 ]
-            ])
+            )
 
             orig_result = orig_response.get("methodResponses", [[]])[0]
             if orig_result[0] == "Email/get":
@@ -920,16 +937,18 @@ async def send_email(
                         email_create["references"] = refs
 
         # Get drafts mailbox for temporary storage
-        drafts_response = await client._call([
+        drafts_response = await client._call(
             [
-                "Mailbox/query",
-                {
-                    "accountId": client.account_id,
-                    "filter": {"role": "drafts"},
-                },
-                "drafts-query",
+                [
+                    "Mailbox/query",
+                    {
+                        "accountId": client.account_id,
+                        "filter": {"role": "drafts"},
+                    },
+                    "drafts-query",
+                ]
             ]
-        ])
+        )
 
         drafts_result = drafts_response.get("methodResponses", [[]])[0]
         drafts_mailbox_id = None
@@ -949,35 +968,37 @@ async def send_email(
         email_create["keywords"] = {"$draft": True}
 
         # Create email and submit in one call
-        response = await client._call([
+        response = await client._call(
             [
-                "Email/set",
-                {
-                    "accountId": client.account_id,
-                    "create": {"draft": email_create},
-                },
-                "email-create",
-            ],
-            [
-                "EmailSubmission/set",
-                {
-                    "accountId": client.account_id,
-                    "create": {
-                        "send": {
-                            "identityId": identity_id,
-                            "emailId": "#draft",
-                        }
+                [
+                    "Email/set",
+                    {
+                        "accountId": client.account_id,
+                        "create": {"draft": email_create},
                     },
-                    "onSuccessUpdateEmail": {
-                        "#send": {
-                            "mailboxIds": {drafts_mailbox_id: None},  # Remove from drafts
-                            "keywords": {"$draft": None, "$sent": True},
-                        }
+                    "email-create",
+                ],
+                [
+                    "EmailSubmission/set",
+                    {
+                        "accountId": client.account_id,
+                        "create": {
+                            "send": {
+                                "identityId": identity_id,
+                                "emailId": "#draft",
+                            }
+                        },
+                        "onSuccessUpdateEmail": {
+                            "#send": {
+                                "mailboxIds": {drafts_mailbox_id: None},  # Remove from drafts
+                                "keywords": {"$draft": None, "$sent": True},
+                            }
+                        },
                     },
-                },
-                "email-submit",
-            ],
-        ])
+                    "email-submit",
+                ],
+            ]
+        )
 
         method_responses = response.get("methodResponses", [])
 
@@ -1080,16 +1101,18 @@ async def move_email(
         # Resolve mailbox ID from role if needed
         target_mailbox_id = to_mailbox_id
         if not target_mailbox_id and to_mailbox_role:
-            mailbox_response = await client._call([
+            mailbox_response = await client._call(
                 [
-                    "Mailbox/query",
-                    {
-                        "accountId": client.account_id,
-                        "filter": {"role": to_mailbox_role},
-                    },
-                    "find-mailbox",
+                    [
+                        "Mailbox/query",
+                        {
+                            "accountId": client.account_id,
+                            "filter": {"role": to_mailbox_role},
+                        },
+                        "find-mailbox",
+                    ]
                 ]
-            ])
+            )
 
             responses = mailbox_response.get("methodResponses", [])
             if responses and responses[0][0] == "Mailbox/query":
@@ -1103,17 +1126,19 @@ async def move_email(
                     }
 
         # Get current mailboxes for the email
-        get_response = await client._call([
+        get_response = await client._call(
             [
-                "Email/get",
-                {
-                    "accountId": client.account_id,
-                    "ids": [email_id],
-                    "properties": ["mailboxIds"],
-                },
-                "email-get",
+                [
+                    "Email/get",
+                    {
+                        "accountId": client.account_id,
+                        "ids": [email_id],
+                        "properties": ["mailboxIds"],
+                    },
+                    "email-get",
+                ]
             ]
-        ])
+        )
 
         get_result = get_response.get("methodResponses", [[]])[0]
         if get_result[0] == "error":
@@ -1146,18 +1171,20 @@ async def move_email(
                 mailbox_update[mailbox_id] = None  # Remove
 
         # Update email
-        response = await client._call([
+        response = await client._call(
             [
-                "Email/set",
-                {
-                    "accountId": client.account_id,
-                    "update": {
-                        email_id: {"mailboxIds": mailbox_update},
+                [
+                    "Email/set",
+                    {
+                        "accountId": client.account_id,
+                        "update": {
+                            email_id: {"mailboxIds": mailbox_update},
+                        },
                     },
-                },
-                "email-move",
+                    "email-move",
+                ]
             ]
-        ])
+        )
 
         method_responses = response.get("methodResponses", [])
         if not method_responses:
@@ -1189,7 +1216,7 @@ async def move_email(
                 "status": "success",
                 "email_id": email_id,
                 "mailbox_id": target_mailbox_id,
-                "message": f"Email moved successfully",
+                "message": "Email moved successfully",
             }
 
         return {
@@ -1261,18 +1288,20 @@ async def update_email_flags(
         if mark_flagged is not None:
             keywords_update["$flagged"] = True if mark_flagged else None
 
-        response = await client._call([
+        response = await client._call(
             [
-                "Email/set",
-                {
-                    "accountId": client.account_id,
-                    "update": {
-                        email_id: {"keywords": keywords_update},
+                [
+                    "Email/set",
+                    {
+                        "accountId": client.account_id,
+                        "update": {
+                            email_id: {"keywords": keywords_update},
+                        },
                     },
-                },
-                "email-flags",
+                    "email-flags",
+                ]
             ]
-        ])
+        )
 
         method_responses = response.get("methodResponses", [])
         if not method_responses:
@@ -1361,16 +1390,18 @@ async def delete_email(
 
         if permanent:
             # Permanently delete
-            response = await client._call([
+            response = await client._call(
                 [
-                    "Email/set",
-                    {
-                        "accountId": client.account_id,
-                        "destroy": [email_id],
-                    },
-                    "email-delete",
+                    [
+                        "Email/set",
+                        {
+                            "accountId": client.account_id,
+                            "destroy": [email_id],
+                        },
+                        "email-delete",
+                    ]
                 ]
-            ])
+            )
 
             method_responses = response.get("methodResponses", [])
             if not method_responses:

@@ -15,23 +15,23 @@ from mcp.types import EmbeddedResource, ImageContent, TextContent, Tool
 from agent_framework.tools import (
     add_document,
     delete_document,
+    # FastMail tools
+    delete_email,
     fetch_web_content,
     get_document,
+    get_email,
+    get_emails,
     get_memories,
     get_rag_stats,
     list_documents,
-    save_memory,
-    search_documents,
-    search_memories,
-    send_slack_message,
-    # FastMail tools
-    delete_email,
-    get_email,
-    get_emails,
     list_mailboxes,
     move_email,
+    save_memory,
+    search_documents,
     search_emails,
+    search_memories,
     send_email,
+    send_slack_message,
     update_email_flags,
 )
 

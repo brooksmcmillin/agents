@@ -105,8 +105,12 @@ class VoiceAdapter:
 
     def _log_device_info(self) -> None:
         """Log audio device information."""
-        input_name = self._get_pulse_device_name("source") or self.input_device_info["name"]
-        output_name = self._get_pulse_device_name("sink") or self.output_device_info["name"]
+        input_name = (
+            self._get_pulse_device_name("source") or self.input_device_info["name"]
+        )
+        output_name = (
+            self._get_pulse_device_name("sink") or self.output_device_info["name"]
+        )
         print(f"Audio input:  {input_name}")
         print(f"Audio output: {output_name}")
 
@@ -171,11 +175,15 @@ class VoiceAdapter:
 
     def get_input_device_name(self) -> str:
         """Get the name of the current audio input device."""
-        return self._get_pulse_device_name("source") or str(self.input_device_info["name"])
+        return self._get_pulse_device_name("source") or str(
+            self.input_device_info["name"]
+        )
 
     def get_output_device_name(self) -> str:
         """Get the name of the current audio output device."""
-        return self._get_pulse_device_name("sink") or str(self.output_device_info["name"])
+        return self._get_pulse_device_name("sink") or str(
+            self.output_device_info["name"]
+        )
 
     def _get_event_loop(self) -> asyncio.AbstractEventLoop:
         """Get or create an event loop for async operations."""
