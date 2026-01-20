@@ -29,6 +29,10 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 # Install dependencies
 uv sync
 
+# Optional: Install voice interface dependencies
+# Requires PortAudio system library (sudo apt-get install portaudio19-dev on Ubuntu)
+uv sync --group voice
+
 # Configure environment
 cp .env.example .env
 # Edit .env and add: ANTHROPIC_API_KEY=your_key_here
@@ -83,6 +87,10 @@ User Input → Agent → Claude API → MCP Client → MCP Server → Tools
 - Common code reusable across agents
 - Remote MCP client implementation
 - OAuth helpers and utilities
+
+**4. Packages** (`packages/`)
+- `agent-framework/` - Shared library with MCP tools, base agent classes, and security utilities
+- `chasm/` - Voice interface library (Deepgram STT + Cartesia TTS) - optional dependency
 
 ### Agentic Loop
 
@@ -163,9 +171,18 @@ agents/
 ├── mcp_server/          # Shared MCP server and tools
 │   ├── server.py        # MCP server (stdio transport)
 │   ├── server_http.py   # MCP server (HTTP/SSE transport)
-│   ├── tools/           # Tool implementations
 │   ├── auth/            # OAuth handler and token storage
-│   └── memory_store.py  # Persistent memory system
+│   └── config.py        # Server configuration
+├── packages/            # Internal libraries (monorepo)
+│   ├── agent-framework/ # Base agent classes, MCP client, and tools
+│   │   ├── agent_framework/
+│   │   │   ├── tools/   # MCP tools (web, social, memory, RAG, Slack)
+│   │   │   ├── security/  # SSRF protection
+│   │   │   ├── core/    # Agent base class
+│   │   │   └── server.py  # MCP server base classes
+│   │   └── tests/       # Framework tests
+│   └── chasm/           # Voice interface library
+│       └── src/chasm/   # Deepgram + Cartesia voice pipeline
 ├── shared/              # Common utilities
 │   └── remote_mcp_client.py  # Remote MCP client
 ├── scripts/             # Utility scripts
@@ -180,7 +197,7 @@ agents/
 ### Hot Reload - Edit Tools Without Restarting
 
 1. Start agent: `uv run python -m agents.pr_agent.main`
-2. Edit tool code in `mcp_server/tools/*.py`
+2. Edit tool code in `packages/agent-framework/agent_framework/tools/*.py`
 3. Save changes
 4. Next tool call automatically picks up changes
 5. Type `reload` to force reconnection if needed
@@ -189,22 +206,24 @@ The agent reconnects to MCP server for each tool call instead of maintaining a p
 
 ### Adding a New Tool
 
-1. Create implementation in `mcp_server/tools/your_tool.py`:
+1. Create implementation in `packages/agent-framework/agent_framework/tools/your_tool.py`:
 ```python
 async def your_tool(param: str) -> dict[str, Any]:
     # Implementation
     return {"result": "data"}
 ```
 
-2. Export from `mcp_server/tools/__init__.py`:
+2. Export from `packages/agent-framework/agent_framework/tools/__init__.py`:
 ```python
 from .your_tool import your_tool
+
+__all__ = [..., "your_tool"]
 ```
 
 3. Register in `mcp_server/server.py`:
-   - Add to `list_tools()` function with schema
-   - Add handler in `call_tool()` function
-   - Tool automatically available to Claude on next reconnection
+   - Import the tool from `agent_framework.tools`
+   - Register with `server.register_tool()` in `setup_custom_tools()`
+   - Tool automatically available to all agents that use this MCP server
 
 ### Adding a New Agent
 
@@ -335,15 +354,22 @@ rm memories/memories.json
 
 ## Technology Stack
 
-- **Python 3.11+**
+- **Python 3.12+**
 - **anthropic** - Official Anthropic SDK for Claude
-- **agent-framework** - Base agent class and MCP client
+- **agent-framework** - Base agent class and MCP client (local package)
+- **chasm** - Voice interface library (local package, optional)
 - **mcp** - Model Context Protocol SDK
 - **httpx** - Async HTTP client
 - **authlib** - OAuth 2.0 implementation
 - **cryptography** - Token encryption (Fernet)
 - **pydantic** - Data validation and settings
 - **python-dotenv** - Environment management
+
+### Optional Dependencies
+
+- **voice** - Voice interface support via `chasm` (requires PortAudio system library)
+  - Install with: `uv sync --group voice`
+  - System requirements: `sudo apt-get install portaudio19-dev` (Ubuntu/Debian)
 
 ## Code Style
 

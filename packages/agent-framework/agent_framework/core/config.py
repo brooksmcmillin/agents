@@ -1,0 +1,125 @@
+"""Configuration management for agents and MCP servers."""
+
+import os
+from datetime import datetime
+from pathlib import Path
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    """Application settings loaded from environment variables."""
+
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", case_sensitive=False, extra="ignore"
+    )
+
+    # LLM Configuration
+    anthropic_api_key: str | None = Field(default=None, description="Anthropic API key for Claude")
+
+    # MCP Server Configuration
+    mcp_server_host: str = Field(default="localhost", description="MCP server host")
+    mcp_server_port: int = Field(default=8000, description="MCP server port")
+
+    # Token Storage
+    token_storage_path: Path = Field(
+        default=Path.home() / ".agents" / "tokens",
+        description="Path to store OAuth tokens",
+    )
+    token_encryption_key: str | None = Field(
+        default=None, description="Key for encrypting stored tokens"
+    )
+
+    # Memory Storage
+    memory_storage_path: Path = Field(
+        default=Path.home() / ".agents" / "memories",
+        description="Path to store memories",
+    )
+
+    # RAG (Retrieval-Augmented Generation) Storage
+    rag_database_url: str | None = Field(
+        default=None,
+        description="PostgreSQL connection URL for RAG storage (e.g., postgresql://user:pass@localhost:5432/dbname)",
+    )
+    openai_api_key: str | None = Field(
+        default=None, description="OpenAI API key for generating embeddings"
+    )
+    rag_embedding_model: str = Field(
+        default="text-embedding-3-small",
+        description="OpenAI embedding model to use for RAG",
+    )
+    rag_table_name: str = Field(
+        default="rag_documents", description="PostgreSQL table name for RAG documents"
+    )
+
+    # FastMail Integration (JMAP API)
+    fastmail_api_token: str | None = Field(
+        default=None,
+        description="FastMail API token for JMAP access. Generate at: "
+        "Settings -> Privacy & Security -> Integrations -> API tokens",
+    )
+
+    # Slack Integration
+    slack_webhook_url: str | None = Field(
+        default=None, description="Default Slack incoming webhook URL"
+    )
+    slack_bot_token: str | None = Field(
+        default=None, description="Slack Bot User OAuth Token (xoxb-...)"
+    )
+    slack_app_token: str | None = Field(
+        default=None, description="Slack App-Level Token for Socket Mode (xapp-...)"
+    )
+    slack_signing_secret: str | None = Field(
+        default=None, description="Slack Signing Secret for request verification"
+    )
+
+    # Logging
+    log_level: str = Field(default="INFO", description="Logging level")
+    log_dir: Path = Field(
+        default=Path.home() / ".agents" / "logs",
+        description="Directory for log files",
+    )
+
+    # Security - Lakera Guard
+    lakera_api_key: str | None = Field(
+        default=None,
+        description="Lakera Guard API key for prompt injection detection. "
+        "If not set, security checks are skipped.",
+    )
+    lakera_fail_open: bool = Field(
+        default=True,
+        description="If True, allow content through when Lakera API errors occur. "
+        "If False, block content on API failures.",
+    )
+
+    def __init__(self, **kwargs):
+        """Initialize settings and create necessary directories."""
+        super().__init__(**kwargs)
+        # Ensure storage directories exist
+        self.token_storage_path.mkdir(parents=True, exist_ok=True)
+        # Only create memory_storage_path if using file backend
+        if os.environ.get("MEMORY_BACKEND", "file").lower() == "file":
+            self.memory_storage_path.mkdir(parents=True, exist_ok=True)
+        self.log_dir.mkdir(parents=True, exist_ok=True)
+
+    def get_log_file(self, component_name: str = "agent") -> Path:
+        """Get a log file path for a specific component.
+
+        Creates log files with the format: {component_name}_{date}.log
+        e.g., pr_agent_2024-01-15.log, mcp_server_2024-01-15.log
+
+        Args:
+            component_name: Name of the component (agent name, server name, etc.)
+
+        Returns:
+            Path to the log file
+        """
+        date_str = datetime.now().strftime("%Y-%m-%d")
+        # Sanitize component name for filesystem
+        safe_name = "".join(c if c.isalnum() or c in "_-" else "_" for c in component_name)
+        return self.log_dir / f"{safe_name}_{date_str}.log"
+
+
+# Global settings instance
+settings = Settings()

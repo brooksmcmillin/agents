@@ -14,10 +14,12 @@ This is a multi-agent system built with Claude (Anthropic SDK) and Model Context
    - `notifier/` - Lightweight task notification script (Slack)
 2. **MCP Server** (`mcp_server/`) - Local MCP server configuration and OAuth infrastructure
 3. **Shared Utilities** (`shared/`) - Common code reusable across all agents
-4. **Agent Framework** (`../agent-framework/`) - Shared library containing:
-   - MCP tools (web analysis, social media, memory, etc.)
-   - Security utilities (SSRF protection)
-   - Base agent classes and MCP client
+4. **Packages** (`packages/`) - Internal libraries in monorepo structure:
+   - `agent-framework/` - Shared library containing:
+     - MCP tools (web analysis, social media, memory, etc.)
+     - Security utilities (SSRF protection)
+     - Base agent classes and MCP client
+   - `chasm/` - Voice interface for agent-framework agents (Deepgram + Cartesia) - optional dependency
 
 ## Development Setup
 
@@ -26,6 +28,9 @@ This project uses `uv` for dependency management:
 ```bash
 # Install dependencies
 uv sync
+
+# Optional: Install voice interface dependencies (requires PortAudio system library)
+uv sync --group voice
 
 # Run the PR agent
 uv run python -m agents.pr_agent.main
@@ -154,14 +159,14 @@ This tool is perfect for:
 
 **Adding a New Tool:**
 
-1. Create implementation in `../agent-framework/agent_framework/tools/your_tool.py`:
+1. Create implementation in `packages/agent-framework/agent_framework/tools/your_tool.py`:
 ```python
 async def your_tool(param: str) -> dict[str, Any]:
     # Implementation
     return {"result": "data"}
 ```
 
-2. Export from `../agent-framework/agent_framework/tools/__init__.py`:
+2. Export from `packages/agent-framework/agent_framework/tools/__init__.py`:
 ```python
 from .your_tool import your_tool
 
@@ -267,11 +272,14 @@ This creates a feedback loop where the agent helps improve itself based on real-
 
 **Shared Infrastructure:**
 - `shared/` - Common utilities and base classes for all agents
-- `../agent-framework/` - External library providing:
+- `packages/agent-framework/` - Internal library providing:
   - `agent_framework/tools/` - MCP tools (web analysis, social media, memory, RAG, Slack)
   - `agent_framework/security/` - Security utilities (SSRF protection)
   - `agent_framework/server.py` - MCP server base classes
   - `agent_framework/core/` - Base Agent class and MCP client
+- `packages/chasm/` - Voice interface library (Deepgram STT + Cartesia TTS) - optional dependency
+  - Install with: `uv sync --group voice`
+  - Requires PortAudio system library
 
 **MCP Server:**
 - `mcp_server/server.py` - MCP server configuration (registers agent-framework tools)
@@ -283,14 +291,14 @@ This creates a feedback loop where the agent helps improve itself based on real-
 **Editing Tools Without Restarting:**
 
 1. Start agent: `uv run python -m agents.pr_agent.main`
-2. Edit tool code in `../agent-framework/agent_framework/tools/*.py`
+2. Edit tool code in `packages/agent-framework/agent_framework/tools/*.py`
 3. Save changes (changes affect all agents using the framework)
 4. Next tool call automatically picks up changes
 5. Type `reload` to force reconnection if needed
 
 See `HOT_RELOAD.md` for details.
 
-**Note:** Tools are now in the agent-framework library, making them reusable across all agents and projects.
+**Note:** Tools are in the local agent-framework package, making them reusable across all agents in this monorepo.
 
 **Testing and Debugging:**
 
@@ -416,7 +424,7 @@ analysis = await analyze_website("https://blog.example.com/post", "seo")
 
 **Integrate Twitter API:**
 ```python
-# In agent-framework/agent_framework/tools/social_media.py
+# In packages/agent-framework/agent_framework/tools/social_media.py
 token = await oauth_handler.get_valid_token("twitter")
 headers = {"Authorization": f"Bearer {token.access_token}"}
 async with httpx.AsyncClient() as client:

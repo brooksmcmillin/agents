@@ -11,13 +11,12 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
   security-events: write
+  pull-requests: write
+  actions: read
 
 jobs:
   security:
     uses: brooksmcmillin/workflows/.github/workflows/python-security.yml@main
     with:
-      package-name: agents
-    secrets:
-      GH_PAT: ${{ secrets.GH_PAT }}
+      package-name: agent_framework

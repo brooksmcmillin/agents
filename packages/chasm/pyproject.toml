@@ -1,0 +1,27 @@
+[project]
+name = "chasm"
+version = "0.1.0"
+description = "Voice interface for agent-framework agents"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "agent-framework",
+    "cartesia>=1.0.0",
+    "deepgram-sdk>=3.0.0",
+    "pyaudio>=0.2.14",
+    "python-dotenv>=1.2.1",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.uv.sources]
+agent-framework = { path = "../agent-framework", editable = true }
+
+[dependency-groups]
+dev = [
+    "deptry>=0.24.0",
+]
