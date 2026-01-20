@@ -13,7 +13,6 @@ jobs:
     with:
       package-name: agents
       python-versions: '["3.12", "3.13"]'
-      pre-install-command: uv add agent-framework@git+https://github.com/brooksmcmillin/agent-framework chasm@git+https://github.com/brooksmcmillin/chasm
       run-build: false
     secrets:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
