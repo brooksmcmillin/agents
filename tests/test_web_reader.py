@@ -17,25 +17,25 @@ class TestURLValidation:
     @pytest.mark.asyncio
     async def test_invalid_url_no_protocol(self):
         """Test that URLs without protocol are rejected."""
-        with pytest.raises(ValueError, match="Invalid URL"):
+        with pytest.raises(ValueError, match="URL not allowed"):
             await fetch_web_content("example.com/page")
 
     @pytest.mark.asyncio
     async def test_invalid_url_file_protocol(self):
         """Test that file:// URLs are rejected (prevent local file access)."""
-        with pytest.raises(ValueError, match="Invalid URL"):
+        with pytest.raises(ValueError, match="URL not allowed"):
             await fetch_web_content("file:///etc/passwd")
 
     @pytest.mark.asyncio
     async def test_invalid_url_javascript_protocol(self):
         """Test that javascript: URLs are rejected."""
-        with pytest.raises(ValueError, match="Invalid URL"):
+        with pytest.raises(ValueError, match="URL not allowed"):
             await fetch_web_content("javascript:alert(1)")
 
     @pytest.mark.asyncio
     async def test_invalid_url_data_protocol(self):
         """Test that data: URLs are rejected."""
-        with pytest.raises(ValueError, match="Invalid URL"):
+        with pytest.raises(ValueError, match="URL not allowed"):
             await fetch_web_content("data:text/html,<script>alert(1)</script>")
 
     @pytest.mark.asyncio
@@ -438,30 +438,22 @@ class TestRedirects:
         mock_html = "<html><body><article>Content</article></body></html>"
 
         with patch("httpx.AsyncClient") as mock_client_class:
-            # First response: redirect
-            mock_redirect_response = AsyncMock()
-            mock_redirect_response.status_code = 302
-            mock_redirect_response.headers = {
-                "Location": "https://example.com/final-page"
-            }
-            mock_redirect_response.raise_for_status = MagicMock()
-
-            # Second response: final content
+            # Second response: final content (httpx follows redirects automatically)
             mock_final_response = AsyncMock()
             mock_final_response.status_code = 200
             mock_final_response.text = mock_html
+            mock_final_response.url = "https://example.com/final-page"
             mock_final_response.headers = {}
             mock_final_response.raise_for_status = MagicMock()
 
             mock_instance = AsyncMock()
-            mock_instance.get = AsyncMock(
-                side_effect=[mock_redirect_response, mock_final_response]
-            )
+            mock_instance.get = AsyncMock(return_value=mock_final_response)
             mock_client_class.return_value.__aenter__.return_value = mock_instance
 
             result = await fetch_web_content("https://example.com/redirect")
 
             # Should return the final URL after redirect
+            # httpx follows redirects by default, so we just get the final URL
             assert result["url"] == "https://example.com/final-page"
 
 
@@ -474,27 +466,27 @@ class TestSSRFProtection:
     @pytest.mark.asyncio
     async def test_rejects_file_protocol(self):
         """Test that file:// protocol is blocked."""
-        with pytest.raises(ValueError, match="Invalid URL"):
+        with pytest.raises(ValueError, match="URL not allowed"):
             await fetch_web_content("file:///etc/passwd")
 
     @pytest.mark.asyncio
     async def test_rejects_ftp_protocol(self):
         """Test that ftp:// protocol is blocked."""
-        with pytest.raises(ValueError, match="Invalid URL"):
+        with pytest.raises(ValueError, match="URL not allowed"):
             await fetch_web_content("ftp://example.com/file")
 
     @pytest.mark.asyncio
     async def test_localhost_blocked(self):
         """Test that localhost URLs are blocked (SSRF protection)."""
         # SSRF protection should block localhost access
-        with pytest.raises(ValueError, match="security reasons"):
+        with pytest.raises(ValueError, match="URL not allowed"):
             await fetch_web_content("http://localhost/admin")
 
     @pytest.mark.asyncio
     async def test_internal_ip_blocked(self):
         """Test that internal IPs are blocked (SSRF protection)."""
         # SSRF protection should block private IP addresses
-        with pytest.raises(ValueError, match="security reasons"):
+        with pytest.raises(ValueError, match="URL not allowed"):
             await fetch_web_content("http://192.168.1.1/admin")
 
 
