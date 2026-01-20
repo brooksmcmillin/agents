@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from mcp_server.tools.web_reader import fetch_web_content
+from agent_framework.tools import fetch_web_content
 
 
 class TestURLValidation:

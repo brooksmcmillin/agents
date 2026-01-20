@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from mcp_server.memory_store import Memory, MemoryStore
+from agent_framework.storage.memory_store import Memory, MemoryStore
 
 
 class TestMemory:

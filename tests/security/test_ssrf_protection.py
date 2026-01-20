@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import socket
 
-from shared.security_utils import SSRFValidator
+from agent_framework.security import SSRFValidator
 
 
 class TestSSRFValidator:
@@ -396,7 +396,7 @@ class TestSSRFIntegrationWithWebTools:
     @pytest.mark.asyncio
     async def test_web_analyzer_blocks_localhost(self):
         """Test that web_analyzer rejects localhost URLs."""
-        from mcp_server.tools.web_analyzer import analyze_website
+        from agent_framework.tools import analyze_website
 
         with pytest.raises(ValueError, match="(localhost|security)"):
             await analyze_website("http://localhost/admin", "tone")
@@ -404,7 +404,7 @@ class TestSSRFIntegrationWithWebTools:
     @pytest.mark.asyncio
     async def test_web_analyzer_blocks_private_ip(self):
         """Test that web_analyzer rejects private IP addresses."""
-        from mcp_server.tools.web_analyzer import analyze_website
+        from agent_framework.tools import analyze_website
 
         with pytest.raises(ValueError, match="(private|security)"):
             await analyze_website("http://192.168.1.1/router", "seo")
@@ -412,7 +412,7 @@ class TestSSRFIntegrationWithWebTools:
     @pytest.mark.asyncio
     async def test_web_reader_blocks_metadata_endpoint(self):
         """Test that web_reader rejects cloud metadata endpoints."""
-        from mcp_server.tools.web_reader import fetch_web_content
+        from agent_framework.tools import fetch_web_content
 
         with pytest.raises(ValueError, match="(metadata|private|security)"):
             await fetch_web_content("http://169.254.169.254/latest/meta-data/")
@@ -420,8 +420,8 @@ class TestSSRFIntegrationWithWebTools:
     @pytest.mark.asyncio
     async def test_web_tools_allow_public_urls(self):
         """Test that web tools allow legitimate public URLs."""
-        from mcp_server.tools.web_analyzer import analyze_website
-        from mcp_server.tools.web_reader import fetch_web_content
+        from agent_framework.tools import analyze_website
+        from agent_framework.tools import fetch_web_content
 
         # These should work (may fail if network unavailable, that's OK)
         try:
@@ -474,7 +474,7 @@ class TestSSRFDocumentation:
     def test_ssrf_protection_example_usage(self):
         """Document example usage of SSRF protection."""
         example_code = """
-        from shared.security_utils import SSRFValidator
+        from agent_framework.security import SSRFValidator
 
         async def safe_fetch(url: str):
             # Validate URL before fetching

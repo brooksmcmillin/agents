@@ -12,8 +12,12 @@ This is a multi-agent system built with Claude (Anthropic SDK) and Model Context
    - `task_manager/` - Interactive task management agent
    - `business_advisor/` - Business strategy and monetization advisor
    - `notifier/` - Lightweight task notification script (Slack)
-2. **MCP Server** (`mcp_server/`) - Shared tools for content analysis, social media analytics, and persistent memory
+2. **MCP Server** (`mcp_server/`) - Local MCP server configuration and OAuth infrastructure
 3. **Shared Utilities** (`shared/`) - Common code reusable across all agents
+4. **Agent Framework** (`../agent-framework/`) - Shared library containing:
+   - MCP tools (web analysis, social media, memory, etc.)
+   - Security utilities (SSRF protection)
+   - Base agent classes and MCP client
 
 ## Development Setup
 
@@ -56,7 +60,7 @@ User Input → Agent (agents/*/main.py) → Claude API (Sonnet 4.5) → agent-fr
                 ↑                                                          ↓
                 │                                                  MCP Server (stdio)
                 │                                                          ↓
-                └─────────────── Tool Results ←───────────────── Tools (mcp_server/tools/)
+                └─────────────── Tool Results ←───────────────── Tools (agent-framework/tools/)
 ```
 
 **Remote Setup (Optional):**
@@ -150,22 +154,24 @@ This tool is perfect for:
 
 **Adding a New Tool:**
 
-1. Create implementation in `mcp_server/tools/your_tool.py`:
+1. Create implementation in `../agent-framework/agent_framework/tools/your_tool.py`:
 ```python
 async def your_tool(param: str) -> dict[str, Any]:
     # Implementation
     return {"result": "data"}
 ```
 
-2. Export from `mcp_server/tools/__init__.py`:
+2. Export from `../agent-framework/agent_framework/tools/__init__.py`:
 ```python
 from .your_tool import your_tool
+
+__all__ = [..., "your_tool"]
 ```
 
 3. Register in `mcp_server/server.py`:
-   - Add to `list_tools()` function with schema
-   - Add handler in `call_tool()` function
-   - Tool automatically available to Claude on next reconnection
+   - Import the tool from `agent_framework.tools`
+   - Register with `server.register_tool()` in `setup_custom_tools()`
+   - Tool automatically available to all agents that use this MCP server
 
 ## Memory System
 
@@ -250,7 +256,7 @@ This creates a feedback loop where the agent helps improve itself based on real-
 **Token Storage Migration:**
 - File-based storage interface makes migration to database/vault straightforward
 - Same interface: `get_token()`, `save_token()`, `delete_token()`
-- SQL schema examples included in `mcp_server/memory_store.py` comments
+- SQL schema examples available in agent-framework documentation
 
 ## Key Files and Responsibilities
 
@@ -261,14 +267,15 @@ This creates a feedback loop where the agent helps improve itself based on real-
 
 **Shared Infrastructure:**
 - `shared/` - Common utilities and base classes for all agents
-- `agent-framework` - External package providing base Agent class, MCP client, and OAuth utilities
+- `../agent-framework/` - External library providing:
+  - `agent_framework/tools/` - MCP tools (web analysis, social media, memory, RAG, Slack)
+  - `agent_framework/security/` - Security utilities (SSRF protection)
+  - `agent_framework/server.py` - MCP server base classes
+  - `agent_framework/core/` - Base Agent class and MCP client
 
-**MCP Server (Shared Tools):**
-- `mcp_server/server.py` - MCP server (stdio transport) for local use
-- `mcp_server/server_http.py` - MCP server (HTTP/SSE transport) for remote use
-- `mcp_server/tools/` - Tool implementations (all async functions)
-- `mcp_server/memory_store.py` - Persistent memory storage
-- `mcp_server/auth/` - OAuth handler and token storage
+**MCP Server:**
+- `mcp_server/server.py` - MCP server configuration (registers agent-framework tools)
+- `mcp_server/auth/` - OAuth handler and token storage (for future social media API integration)
 - `mcp_server/config.py` - Configuration via pydantic-settings
 
 ## Development Workflow
@@ -276,12 +283,14 @@ This creates a feedback loop where the agent helps improve itself based on real-
 **Editing Tools Without Restarting:**
 
 1. Start agent: `uv run python -m agents.pr_agent.main`
-2. Edit tool code in `mcp_server/tools/*.py`
-3. Save changes
+2. Edit tool code in `../agent-framework/agent_framework/tools/*.py`
+3. Save changes (changes affect all agents using the framework)
 4. Next tool call automatically picks up changes
 5. Type `reload` to force reconnection if needed
 
 See `HOT_RELOAD.md` for details.
+
+**Note:** Tools are now in the agent-framework library, making them reusable across all agents and projects.
 
 **Testing and Debugging:**
 
@@ -391,7 +400,7 @@ To create a new agent:
    uv run python -m agents.your_agent.main
    ```
 
-All agents automatically have access to the shared MCP tools. You can add agent-specific tools to the MCP server as needed.
+All agents automatically have access to the agent-framework tools via the MCP server. You can add agent-specific tools to agent-framework or create a custom MCP server configuration as needed.
 
 ## Common Tasks
 
@@ -407,7 +416,7 @@ analysis = await analyze_website("https://blog.example.com/post", "seo")
 
 **Integrate Twitter API:**
 ```python
-# In mcp_server/tools/social_media.py
+# In agent-framework/agent_framework/tools/social_media.py
 token = await oauth_handler.get_valid_token("twitter")
 headers = {"Authorization": f"Bearer {token.access_token}"}
 async with httpx.AsyncClient() as client:
@@ -427,7 +436,8 @@ async with httpx.AsyncClient() as client:
 
 **Migrate memory to PostgreSQL:**
 ```python
-# Replace MemoryStore in mcp_server/memory_store.py
-# SQL schema examples in comments
-# Keep same interface: get_memory(), save_memory(), search_memories()
+# agent-framework already supports database memory backend
+# Set environment variable: MEMORY_BACKEND=database
+# Set database URL: MEMORY_DATABASE_URL=postgresql://user:pass@host:5432/dbname  # pragma: allowlist secret
+# See agent-framework documentation for details
 ```
