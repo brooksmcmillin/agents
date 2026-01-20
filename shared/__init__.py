@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ruff: noqa: E402 - imports after load_dotenv() is intentional
+from .agent_factory import create_simple_agent
 from .agent_runner import run_agent
 from .auth_utils import get_valid_token_for_mcp
 from .constants import (
@@ -45,6 +46,7 @@ __all__ = [
     "ENV_SLACK_WEBHOOK_URL",
     "SSRFValidator",
     "check_env_vars",
+    "create_simple_agent",
     "env_file_exists",
     "format_priority_emoji",
     "get_valid_token_for_mcp",
