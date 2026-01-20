@@ -12,7 +12,7 @@ To get a webhook URL:
 """
 
 import asyncio
-from mcp_server.tools import send_slack_message
+from agent_framework.tools import send_slack_message
 
 
 async def main():

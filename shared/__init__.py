@@ -30,8 +30,10 @@ from .constants import (
 )
 from .env_utils import check_env_vars, env_file_exists
 from .logging_config import setup_logging
-from .security_utils import SSRFValidator
 from .task_utils import format_priority_emoji, parse_priority, parse_task_result
+
+# Import SSRFValidator from agent-framework (moved from shared.security_utils)
+from agent_framework.security import SSRFValidator
 
 __all__ = [
     "DEFAULT_MCP_SERVER_URL",
