@@ -19,7 +19,7 @@ This is a multi-agent system built with Claude (Anthropic SDK) and Model Context
      - MCP tools (web analysis, social media, memory, etc.)
      - Security utilities (SSRF protection)
      - Base agent classes and MCP client
-   - `chasm/` - Voice interface for agent-framework agents (Deepgram + Cartesia)
+   - `chasm/` - Voice interface for agent-framework agents (Deepgram + Cartesia) - optional dependency
 
 ## Development Setup
 
@@ -28,6 +28,9 @@ This project uses `uv` for dependency management:
 ```bash
 # Install dependencies
 uv sync
+
+# Optional: Install voice interface dependencies (requires PortAudio system library)
+uv sync --group voice
 
 # Run the PR agent
 uv run python -m agents.pr_agent.main
@@ -274,7 +277,9 @@ This creates a feedback loop where the agent helps improve itself based on real-
   - `agent_framework/security/` - Security utilities (SSRF protection)
   - `agent_framework/server.py` - MCP server base classes
   - `agent_framework/core/` - Base Agent class and MCP client
-- `packages/chasm/` - Voice interface library (Deepgram STT + Cartesia TTS)
+- `packages/chasm/` - Voice interface library (Deepgram STT + Cartesia TTS) - optional dependency
+  - Install with: `uv sync --group voice`
+  - Requires PortAudio system library
 
 **MCP Server:**
 - `mcp_server/server.py` - MCP server configuration (registers agent-framework tools)

@@ -20,7 +20,6 @@ dependencies = [
     "lxml>=5.0.0",
     "html2text>=2024.2.26",
     "agent-framework",
-    "chasm",
 ]
 
 [tool.uv.sources]
@@ -35,6 +34,9 @@ dev = [
     "pytest-asyncio>=0.24.0",
     "pytest-cov>=7.0.0",
     "ruff>=0.14.10",
+]
+voice = [
+    "chasm",
 ]
 
 [tool.pytest.ini_options]

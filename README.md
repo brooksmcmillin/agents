@@ -29,6 +29,10 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 # Install dependencies
 uv sync
 
+# Optional: Install voice interface dependencies
+# Requires PortAudio system library (sudo apt-get install portaudio19-dev on Ubuntu)
+uv sync --group voice
+
 # Configure environment
 cp .env.example .env
 # Edit .env and add: ANTHROPIC_API_KEY=your_key_here
@@ -86,7 +90,7 @@ User Input → Agent → Claude API → MCP Client → MCP Server → Tools
 
 **4. Packages** (`packages/`)
 - `agent-framework/` - Shared library with MCP tools, base agent classes, and security utilities
-- `chasm/` - Voice interface library (Deepgram STT + Cartesia TTS)
+- `chasm/` - Voice interface library (Deepgram STT + Cartesia TTS) - optional dependency
 
 ### Agentic Loop
 
@@ -353,13 +357,19 @@ rm memories/memories.json
 - **Python 3.12+**
 - **anthropic** - Official Anthropic SDK for Claude
 - **agent-framework** - Base agent class and MCP client (local package)
-- **chasm** - Voice interface library (local package)
+- **chasm** - Voice interface library (local package, optional)
 - **mcp** - Model Context Protocol SDK
 - **httpx** - Async HTTP client
 - **authlib** - OAuth 2.0 implementation
 - **cryptography** - Token encryption (Fernet)
 - **pydantic** - Data validation and settings
 - **python-dotenv** - Environment management
+
+### Optional Dependencies
+
+- **voice** - Voice interface support via `chasm` (requires PortAudio system library)
+  - Install with: `uv sync --group voice`
+  - System requirements: `sudo apt-get install portaudio19-dev` (Ubuntu/Debian)
 
 ## Code Style
 
