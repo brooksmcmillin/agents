@@ -30,8 +30,8 @@ from dotenv import load_dotenv
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from mcp_server.auth.oauth_handler import OAuthHandler
-from mcp_server.auth.token_store import TokenStore
+from config.mcp_server.auth.oauth_handler import OAuthHandler
+from config.mcp_server.auth.token_store import TokenStore
 
 # Load environment variables
 load_dotenv()

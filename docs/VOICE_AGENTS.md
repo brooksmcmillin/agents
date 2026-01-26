@@ -6,7 +6,7 @@ This document describes how to run agents with voice I/O using the chasm audio p
 
 The agents repository now includes:
 1. **Chatbot Agent** (`agents/chatbot/`) - A simple, general-purpose Claude chatbot with all MCP tools enabled
-2. **Voice Agent Runner** (`run_voice_agent.py`) - Wraps any agent with the chasm VoiceAdapter for voice interaction
+2. **Voice Agent Runner** (`bin/run-voice-agent`) - Wraps any agent with the chasm VoiceAdapter for voice interaction
 
 ## Quick Start
 
@@ -14,24 +14,24 @@ The agents repository now includes:
 
 ```bash
 # List available agents
-uv run python run_agent.py --list
+uv run bin/run-agent --list
 
 # Run the chatbot with text I/O
-uv run python run_agent.py chatbot
+uv run bin/run-agent chatbot
 ```
 
 ### Running with Voice I/O
 
 ```bash
 # List agents available for voice mode
-uv run python run_voice_agent.py --list
+uv run bin/run-voice-agent --list
 
 # Run the chatbot with voice I/O
-uv run python run_voice_agent.py chatbot
+uv run bin/run-voice-agent chatbot
 
 # Or run any other agent with voice
-uv run python run_voice_agent.py pr
-uv run python run_voice_agent.py security
+uv run bin/run-voice-agent pr
+uv run bin/run-voice-agent security
 ```
 
 ## Requirements
@@ -89,7 +89,7 @@ User Voice → PyAudio → Deepgram (STT) → Agent (Claude + MCP Tools) → Car
    - Status indicators
    - Keyboard shortcuts (Space/Enter to talk)
 
-3. **Voice Runner** (`run_voice_agent.py`)
+3. **Voice Runner** (`bin/run-voice-agent`)
    - Instantiates agents from the AGENTS registry
    - Adds voice-optimized system prompt
    - Launches GUI with VoiceAdapter
@@ -105,7 +105,7 @@ When running in voice mode, agents receive additional guidance to optimize for T
 - Handle transcription disfluencies gracefully
 - Describe concepts rather than quoting exact syntax
 
-This guidance is automatically added by `run_voice_agent.py`.
+This guidance is automatically added by `bin/run-voice-agent`.
 
 ## Adding New Agents
 
@@ -113,8 +113,8 @@ To make a new agent available for voice mode:
 
 1. Create the agent in `agents/your_agent/`
 2. Add it to the AGENTS registry in both:
-   - `run_agent.py` (for text mode)
-   - `run_voice_agent.py` (for voice mode)
+   - `bin/run-agent` (for text mode)
+   - `bin/run-voice-agent` (for voice mode)
 
 Example:
 
@@ -130,7 +130,7 @@ AGENTS: dict[str, tuple[type, dict | None]] = {
 
 ### How Voice Wrapping Works
 
-The `run_voice_agent.py` script:
+The `bin/run-voice-agent` script:
 
 1. Looks up the agent class in the AGENTS registry
 2. Instantiates the agent with any required configuration
@@ -155,10 +155,10 @@ The voice wrapper preserves all agent functionality:
   - `__init__.py` - Package marker
   - `main.py` - ChatbotAgent implementation
   - `prompts.py` - System and greeting prompts
-- `run_voice_agent.py` - Voice-enabled agent runner
+- `bin/run-voice-agent` - Voice-enabled agent runner
 
 **Modified Files:**
-- `run_agent.py` - Added chatbot to registry
+- `bin/run-agent` - Added chatbot to registry
 
 ## Future Enhancements
 

@@ -69,7 +69,7 @@ class Agent(ABC):
 Agent(
     api_key: str | None = None,           # Anthropic API key
     model: str = "claude-sonnet-4-5-20250929",
-    mcp_server_path: str = "mcp_server/server.py",
+    mcp_server_path: str = "config.mcp_server.server",
     mcp_urls: list[str] | None = None,    # Remote MCP server URLs
     enable_web_search: bool = True,
     web_search_config: dict | None = None,

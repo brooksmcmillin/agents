@@ -181,6 +181,7 @@ Requirements:
     except Exception as e:
         print(f"\n❌ Error creating GUI: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 

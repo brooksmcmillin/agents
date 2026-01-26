@@ -23,38 +23,38 @@ DATABASE_URL=postgresql://user:password@host:5432/dbname
 
 ### Direct Memory Testing
 
-Use `scripts/test_memory.py` to test memory operations without running the full agent:
+Use `scripts/testing/test_memory.py` to test memory operations without running the full agent:
 
 ```bash
 # Get memory statistics
-uv run python scripts/test_memory.py stats
+uv run python scripts/testing/test_memory.py stats
 
 # Get all memories
-uv run python scripts/test_memory.py get
+uv run python scripts/testing/test_memory.py get
 
 # Get memories with filters
-uv run python scripts/test_memory.py get --category user_preference --min-importance 7 --limit 10
+uv run python scripts/testing/test_memory.py get --category user_preference --min-importance 7 --limit 10
 
 # Search memories by keyword
-uv run python scripts/test_memory.py search "user"
+uv run python scripts/testing/test_memory.py search "user"
 
 # Save a new memory
-uv run python scripts/test_memory.py save my_key "my value" --category fact --importance 7
+uv run python scripts/testing/test_memory.py save my_key "my value" --category fact --importance 7
 
 # Save with tags
-uv run python scripts/test_memory.py save blog_url "https://example.com" \
+uv run python scripts/testing/test_memory.py save blog_url "https://example.com" \
   --category user_preference \
   --tags seo content \
   --importance 8
 
 # Delete a memory
-uv run python scripts/test_memory.py delete my_key
+uv run python scripts/testing/test_memory.py delete my_key
 ```
 
 **Example Output:**
 
 ```bash
-$ uv run python scripts/test_memory.py stats
+$ uv run python scripts/testing/test_memory.py stats
 {
   "status": "success",
   "backend": "file",
@@ -84,17 +84,17 @@ $ uv run python scripts/test_memory.py stats
 
 ### Testing MCP Tools (Experimental)
 
-`scripts/test_mcp_tool.py` attempts to call MCP tools directly via stdio transport:
+`scripts/testing/test_mcp_tool.py` attempts to call MCP tools directly via stdio transport:
 
 ```bash
 # List available MCP tools
-uv run python scripts/test_mcp_tool.py --list
+uv run python scripts/testing/test_mcp_tool.py --list
 
 # Call a tool
-uv run python scripts/test_mcp_tool.py get_memories --args '{"limit": 5}' --pretty
+uv run python scripts/testing/test_mcp_tool.py get_memories --args '{"limit": 5}' --pretty
 
 # Call with verbose logging
-uv run python scripts/test_mcp_tool.py get_memories -v --pretty
+uv run python scripts/testing/test_mcp_tool.py get_memories -v --pretty
 ```
 
 **Status:** Currently has subprocess initialization issues with Python 3.13. Use `test_memory.py` instead for memory-related debugging.
@@ -211,7 +211,7 @@ psql postgresql://user:pass@host:5432/db -c "SELECT 1"
 
 4. **Test directly:**
    ```bash
-   uv run python scripts/test_memory.py stats
+   uv run python scripts/testing/test_memory.py stats
    ```
 
 5. **Check agent logs:**
@@ -255,7 +255,7 @@ psql postgresql://user:pass@host:5432/db -c "SELECT 1"
 
 Before committing changes or reporting issues:
 
-- [ ] Memory operations work: `uv run python scripts/test_memory.py stats`
+- [ ] Memory operations work: `uv run python scripts/testing/test_memory.py stats`
 - [ ] MCP server starts: `uv run python -m mcp_server.server` (Ctrl+C to stop)
 - [ ] Agent starts: `timeout 10s uv run python run_agent.py chatbot <<< "test"`
 - [ ] Check logs for errors: `tail ~/.agents/logs/agent_$(date +%Y-%m-%d).log`
@@ -267,7 +267,7 @@ Before committing changes or reporting issues:
 
 ```bash
 # Time a memory operation
-time uv run python scripts/test_memory.py stats
+time uv run python scripts/testing/test_memory.py stats
 
 # Should be < 0.1s for file backend
 # > 60s indicates database timeout issue
@@ -333,17 +333,17 @@ chmod 644 memories/memories.json
 
 ```bash
 # Test file backend
-MEMORY_BACKEND=file uv run python scripts/test_memory.py stats
+MEMORY_BACKEND=file uv run python scripts/testing/test_memory.py stats
 
 # Test database backend (requires valid DATABASE_URL)
-MEMORY_BACKEND=database DATABASE_URL=postgresql://... uv run python scripts/test_memory.py stats
+MEMORY_BACKEND=database DATABASE_URL=postgresql://... uv run python scripts/testing/test_memory.py stats
 ```
 
 ### Testing Memory Across Sessions
 
 ```bash
 # Save a memory
-uv run python scripts/test_memory.py save session_test "Value from script" --importance 9
+uv run python scripts/testing/test_memory.py save session_test "Value from script" --importance 9
 
 # Start agent and check if it can retrieve it
 uv run python run_agent.py chatbot
@@ -382,7 +382,7 @@ SELECT key, value, category, importance FROM memories ORDER BY updated_at DESC L
 If you encounter issues:
 
 1. Check the logs: `~/.agents/logs/agent_$(date +%Y-%m-%d).log`
-2. Test memory directly: `uv run python scripts/test_memory.py stats`
+2. Test memory directly: `uv run python scripts/testing/test_memory.py stats`
 3. Verify environment: `grep -v '^#' .env | grep -v '^$'`
 4. Check this guide for common issues
 5. Report with log excerpts and test script output

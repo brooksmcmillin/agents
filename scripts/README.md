@@ -205,7 +205,7 @@ uv run python scripts/deployment/install_notifier.py install
 
 ## Migration to Database
 
-The OAuth infrastructure is designed for easy migration from file-based storage to database. See comments in `mcp_server/auth/token_store.py` for SQL schema examples.
+The OAuth infrastructure is designed for easy migration from file-based storage to database. See comments in `config/mcp_server/auth/token_store.py` for SQL schema examples.
 
 ## Need Help?
 

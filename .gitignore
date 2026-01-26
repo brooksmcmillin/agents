@@ -29,11 +29,12 @@ ENV/
 # Environment variables
 .env
 
-# Token storage
+# Runtime data directory
+.data/
+
+# Legacy paths (kept for backwards compatibility)
 tokens/
 *.token
-
-# Memory storage
 memories/
 
 # Logs
@@ -47,6 +48,8 @@ htmlcov/
 .tox/
 .nox/
 coverage.xml
+coverage.json
+root_coverage.json
 *.cover
 
 # Type checking
