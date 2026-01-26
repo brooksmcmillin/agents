@@ -186,13 +186,30 @@ class RemoteMCPClient:
         # Discover OAuth config if not already done
         if not self.oauth_config:
             logger.info("Discovering OAuth configuration...")
-            self.oauth_config = await discover_oauth_config(self.base_url)
+            try:
+                self.oauth_config = await discover_oauth_config(self.base_url)
+            except Exception as e:
+                logger.error("❌ Failed to discover OAuth configuration")
+                logger.error(f"Server: {self.base_url}")
+                logger.error(f"Error: {e}")
+                logger.error(
+                    "Check that the server is running and has OAuth discovery enabled at "
+                    "/.well-known/oauth-authorization-server"
+                )
+                raise
+            logger.info("✅ OAuth discovery successful")
+            logger.debug(
+                f"OAuth endpoints: auth={self.oauth_config.authorization_endpoint}, "
+                f"token={self.oauth_config.token_endpoint}, "
+                f"device={self.oauth_config.device_authorization_endpoint}"
+            )
+            logger.debug(f"Supported grants: {self.oauth_config.grant_types_supported}")
 
             # Initialize appropriate flow handler based on preference and support
             use_device_flow = self.prefer_device_flow and self.oauth_config.supports_device_flow()
 
             if use_device_flow:
-                logger.info("Using Device Authorization Grant (RFC 8628)")
+                logger.info("✅ Using Device Authorization Grant (RFC 8628)")
                 self.device_flow = DeviceFlowHandler(
                     self.oauth_config,
                     scopes=self.oauth_scopes,
@@ -200,9 +217,14 @@ class RemoteMCPClient:
                 )
             else:
                 if self.prefer_device_flow:
-                    logger.info(
-                        "Device flow requested but not supported, falling back to browser flow"
+                    logger.warning(
+                        "⚠️  Device flow requested but not supported by server, falling back to browser flow"
                     )
+                    logger.info(
+                        f"Server supports: {', '.join(self.oauth_config.grant_types_supported or ['unknown'])}"
+                    )
+                else:
+                    logger.info("Using browser-based OAuth flow")
                 self.oauth_flow = OAuthFlowHandler(
                     self.oauth_config,
                     redirect_port=self.oauth_redirect_port,
@@ -244,15 +266,17 @@ class RemoteMCPClient:
                 # Device flow will display its own instructions
                 logger.info("🔐 No valid token found, starting device authorization...")
             else:
-                # Browser flow
+                # Browser flow - print to stdout so user sees it
                 logger.info("🔐 No valid token found, starting OAuth authentication...")
                 print("\n" + "=" * 60)
                 print("🔐 AUTHENTICATION REQUIRED")
                 print("=" * 60)
                 print(f"Server: {self.base_url}")
-                print("\nYour browser will open for authentication.")
+                print()
+                print("Your browser will open for authentication.")
                 print("Please complete the login process in your browser.")
-                print("=" * 60 + "\n")
+                print("=" * 60)
+                print()
 
             self.current_token = await flow_handler.authorize()
             self.token_storage.save_token(self.base_url, self.current_token)
@@ -270,6 +294,14 @@ class RemoteMCPClient:
         - Auth error detection into a dedicated AuthErrorHandler class
         See code optimizer report for detailed recommendations.
         """
+        logger.info(f"🔌 Connecting to remote MCP server: {self.base_url}")
+        if self.manual_token:
+            logger.debug("Using manual authentication token")
+        elif self.enable_oauth:
+            logger.debug(f"OAuth enabled (prefer_device_flow={self.prefer_device_flow})")
+        else:
+            logger.warning("⚠️  No authentication configured")
+
         max_retries = 1  # Only retry once for auth errors
         last_error = None
         last_http_status = None  # Track HTTP status from exception groups
@@ -381,11 +413,17 @@ class RemoteMCPClient:
                             ) from http_error
 
                     # Not a 401/403 or no more retries
-                    logger.error(f"Failed to connect to remote MCP server: {http_error}")
+                    logger.error(
+                        f"❌ Failed to connect to remote MCP server: HTTP {http_error.response.status_code}"
+                    )
+                    logger.error(f"URL: {self.base_url}")
+                    logger.error(f"Error: {http_error}")
                     raise http_error
                 else:
                     # No HTTP error in the group, re-raise
-                    logger.error(f"Failed to connect to remote MCP server: {eg}")
+                    logger.error(f"❌ Failed to connect to remote MCP server: {eg}")
+                    logger.error(f"URL: {self.base_url}")
+                    logger.debug(f"Exception group contained {len(eg.exceptions)} exceptions")
                     raise
 
             except httpx.HTTPStatusError as e:
@@ -466,11 +504,15 @@ class RemoteMCPClient:
                 # Not an auth error - re-raise the original HTTP error if available
                 if last_error and isinstance(last_error, httpx.HTTPStatusError):
                     logger.error(
-                        f"Failed to connect to remote MCP server: HTTP {last_error.response.status_code}"
+                        f"❌ Failed to connect to remote MCP server: HTTP {last_error.response.status_code}"
                     )
+                    logger.error(f"URL: {self.base_url}")
+                    logger.error(f"Error: {last_error}")
                     raise last_error
                 else:
-                    logger.error(f"Failed to connect to remote MCP server: {e}")
+                    logger.error(f"❌ Failed to connect to remote MCP server: {type(e).__name__}")
+                    logger.error(f"URL: {self.base_url}")
+                    logger.error(f"Error: {e}")
                     raise
 
             except Exception as e:
@@ -501,7 +543,13 @@ class RemoteMCPClient:
                         raise ValueError(_format_auth_error()) from e
 
                 # Not an auth error or no more retries
-                logger.error(f"Failed to connect to remote MCP server: {e}")
+                logger.error(f"❌ Failed to connect to remote MCP server: {type(e).__name__}")
+                logger.error(f"URL: {self.base_url}")
+                logger.error(f"Error: {e}")
+                if isinstance(e, (httpx.ConnectError, httpx.TimeoutException)):
+                    logger.error(
+                        "Check that the server is running and accessible from your network."
+                    )
                 raise
 
     async def disconnect(self) -> tuple[int | None, Exception | None]:

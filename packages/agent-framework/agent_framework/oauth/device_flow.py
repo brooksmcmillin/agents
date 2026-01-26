@@ -7,7 +7,6 @@ authorization without requiring a browser on the device.
 
 import asyncio
 import logging
-import sys
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -322,7 +321,16 @@ class DeviceFlowHandler(OAuthHandlerBase):
 
                 except httpx.HTTPError as e:
                     # Network error, wait and retry
-                    logger.warning(f"Network error during polling: {e}")
+                    logger.warning(f"Network error during polling: {type(e).__name__}: {e}")
+                    if isinstance(e, httpx.ConnectError):
+                        logger.error(
+                            f"Cannot connect to token endpoint: {self.oauth_config.token_endpoint}"
+                        )
+                        logger.error("Check that the OAuth server is running and accessible.")
+                    elif isinstance(e, httpx.TimeoutException):
+                        logger.warning(f"Request to {self.oauth_config.token_endpoint} timed out")
+                    else:
+                        logger.debug(f"Full error details: {repr(e)}")
                     await asyncio.sleep(current_interval)
                     continue
 
@@ -388,12 +396,17 @@ class DeviceFlowHandler(OAuthHandlerBase):
 
         # Poll for token
         logger.info("⏳ Waiting for user authorization...")
+        print("⏳ Waiting for authorization... (checking every 5 seconds)")
+        print()
         token_set = await self.poll_for_token(
             device_code=device_code,
             interval=interval,
             expires_in=expires_in,
         )
 
+        # Notify user of success
+        print("✅ Authorization successful!")
+        print()
         return token_set
 
     def _display_authorization_instructions(
@@ -413,25 +426,26 @@ class DeviceFlowHandler(OAuthHandlerBase):
         """
         expires_minutes = expires_in // 60
 
-        print("\n" + "=" * 60, file=sys.stderr)
-        print("🔐 DEVICE AUTHORIZATION REQUIRED", file=sys.stderr)
-        print("=" * 60, file=sys.stderr)
-        print(file=sys.stderr)
-        print("To authorize this device, please:", file=sys.stderr)
-        print(file=sys.stderr)
+        # Print to stdout so user can see the instructions
+        print("\n" + "=" * 60)
+        print("🔐 DEVICE AUTHORIZATION REQUIRED")
+        print("=" * 60)
+        print()
+        print("To authorize this device, please:")
+        print()
 
         if verification_uri_complete:
-            print(f"  1. Visit: {verification_uri_complete}", file=sys.stderr)
-            print(file=sys.stderr)
-            print("  OR", file=sys.stderr)
-            print(file=sys.stderr)
-            print(f"  1. Visit: {verification_uri}", file=sys.stderr)
-            print(f"  2. Enter code: {user_code}", file=sys.stderr)
+            print(f"  1. Visit: {verification_uri_complete}")
+            print()
+            print("  OR")
+            print()
+            print(f"  1. Visit: {verification_uri}")
+            print(f"  2. Enter code: {user_code}")
         else:
-            print(f"  1. Visit: {verification_uri}", file=sys.stderr)
-            print(f"  2. Enter code: {user_code}", file=sys.stderr)
+            print(f"  1. Visit: {verification_uri}")
+            print(f"  2. Enter code: {user_code}")
 
-        print(file=sys.stderr)
-        print(f"This code expires in {expires_minutes} minutes.", file=sys.stderr)
-        print("=" * 60, file=sys.stderr)
-        print(file=sys.stderr)
+        print()
+        print(f"This code expires in {expires_minutes} minutes.")
+        print("=" * 60)
+        print()
