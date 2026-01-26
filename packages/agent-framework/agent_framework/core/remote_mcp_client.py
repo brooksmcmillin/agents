@@ -12,6 +12,7 @@ import asyncio
 import logging
 import os
 from collections.abc import Generator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Self
 
@@ -51,6 +52,43 @@ def _format_auth_error(status_code: int | None = None) -> str:
     """
     status_info = f" (HTTP {status_code})" if status_code else ""
     return AUTH_FAILURE_MESSAGE_TEMPLATE.format(status_info=status_info)
+
+
+@dataclass
+class _ConnectionErrorTracker:
+    """Track errors across connection retry attempts.
+
+    This helper class consolidates error tracking for the connection retry loop,
+    making it easier to maintain error context across multiple exception handlers.
+    """
+
+    last_error: Exception | None = None
+    last_http_status: int | None = None
+
+    def update(self, error: Exception, status: int | None = None) -> None:
+        """Update tracked error and optionally HTTP status.
+
+        Args:
+            error: The exception that occurred
+            status: Optional HTTP status code
+        """
+        self.last_error = error
+        if status:
+            self.last_http_status = status
+
+    def update_from_cleanup(
+        self, cleanup_status: int | None, cleanup_error: Exception | None
+    ) -> None:
+        """Update from disconnect cleanup if it found a better error.
+
+        Args:
+            cleanup_status: HTTP status from cleanup, if any
+            cleanup_error: Exception from cleanup, if any
+        """
+        if cleanup_status and not self.last_http_status:
+            self.last_http_status = cleanup_status
+            if cleanup_error:
+                self.last_error = cleanup_error
 
 
 class RemoteMCPClient:
@@ -186,13 +224,30 @@ class RemoteMCPClient:
         # Discover OAuth config if not already done
         if not self.oauth_config:
             logger.info("Discovering OAuth configuration...")
-            self.oauth_config = await discover_oauth_config(self.base_url)
+            try:
+                self.oauth_config = await discover_oauth_config(self.base_url)
+            except Exception as e:
+                logger.error("❌ Failed to discover OAuth configuration")
+                logger.error(f"Server: {self.base_url}")
+                logger.error(f"Error: {e}")
+                logger.error(
+                    "Check that the server is running and has OAuth discovery enabled at "
+                    "/.well-known/oauth-authorization-server"
+                )
+                raise
+            logger.info("✅ OAuth discovery successful")
+            logger.debug(
+                f"OAuth endpoints: auth={self.oauth_config.authorization_endpoint}, "
+                f"token={self.oauth_config.token_endpoint}, "
+                f"device={self.oauth_config.device_authorization_endpoint}"
+            )
+            logger.debug(f"Supported grants: {self.oauth_config.grant_types_supported}")
 
             # Initialize appropriate flow handler based on preference and support
             use_device_flow = self.prefer_device_flow and self.oauth_config.supports_device_flow()
 
             if use_device_flow:
-                logger.info("Using Device Authorization Grant (RFC 8628)")
+                logger.info("✅ Using Device Authorization Grant (RFC 8628)")
                 self.device_flow = DeviceFlowHandler(
                     self.oauth_config,
                     scopes=self.oauth_scopes,
@@ -200,9 +255,14 @@ class RemoteMCPClient:
                 )
             else:
                 if self.prefer_device_flow:
-                    logger.info(
-                        "Device flow requested but not supported, falling back to browser flow"
+                    logger.warning(
+                        "⚠️  Device flow requested but not supported by server, falling back to browser flow"
                     )
+                    logger.info(
+                        f"Server supports: {', '.join(self.oauth_config.grant_types_supported or ['unknown'])}"
+                    )
+                else:
+                    logger.info("Using browser-based OAuth flow")
                 self.oauth_flow = OAuthFlowHandler(
                     self.oauth_config,
                     redirect_port=self.oauth_redirect_port,
@@ -244,15 +304,17 @@ class RemoteMCPClient:
                 # Device flow will display its own instructions
                 logger.info("🔐 No valid token found, starting device authorization...")
             else:
-                # Browser flow
+                # Browser flow - print to stdout so user sees it
                 logger.info("🔐 No valid token found, starting OAuth authentication...")
                 print("\n" + "=" * 60)
                 print("🔐 AUTHENTICATION REQUIRED")
                 print("=" * 60)
                 print(f"Server: {self.base_url}")
-                print("\nYour browser will open for authentication.")
+                print()
+                print("Your browser will open for authentication.")
                 print("Please complete the login process in your browser.")
-                print("=" * 60 + "\n")
+                print("=" * 60)
+                print()
 
             self.current_token = await flow_handler.authorize()
             self.token_storage.save_token(self.base_url, self.current_token)
@@ -260,249 +322,387 @@ class RemoteMCPClient:
 
         return self.current_token.access_token
 
+    def _log_connection_attempt(self) -> None:
+        """Log initial connection information."""
+        logger.info(f"🔌 Connecting to remote MCP server: {self.base_url}")
+        if self.manual_token:
+            logger.debug("Using manual authentication token")
+        elif self.enable_oauth:
+            logger.debug(f"OAuth enabled (prefer_device_flow={self.prefer_device_flow})")
+        else:
+            logger.warning("⚠️  No authentication configured")
+
+    def _create_bearer_auth(self, token: str) -> httpx.Auth:
+        """Create Bearer token authentication for httpx.
+
+        Args:
+            token: Access token to use
+
+        Returns:
+            httpx.Auth instance configured with Bearer token
+        """
+
+        class BearerAuth(httpx.Auth):
+            def __init__(self, token: str):
+                self.token = token
+
+            def auth_flow(
+                self, request: httpx.Request
+            ) -> Generator[httpx.Request, httpx.Response, None]:
+                request.headers["Authorization"] = f"Bearer {self.token}"
+                yield request
+
+        return BearerAuth(token)
+
+    def _log_connection_failure(self, error: BaseException, http_status: int | None) -> None:
+        """Log connection failure with consistent formatting.
+
+        Args:
+            error: The exception that occurred
+            http_status: HTTP status code if available
+        """
+        if http_status:
+            logger.error(f"❌ Failed to connect to remote MCP server: HTTP {http_status}")
+        else:
+            logger.error(f"❌ Failed to connect to remote MCP server: {type(error).__name__}")
+
+        logger.error(f"URL: {self.base_url}")
+        logger.error(f"Error: {error}")
+
+    def _check_auth_error(self, error: BaseException, http_status: int | None) -> bool:
+        """Check if error is auth-related based on status or message.
+
+        Args:
+            error: The exception to check
+            http_status: HTTP status code if available
+
+        Returns:
+            True if error appears to be authentication-related
+        """
+        if http_status in (401, 403):
+            return True
+
+        error_context = str(error).lower()
+        return any(
+            keyword in error_context for keyword in ["401", "403", "unauthorized", "authentication"]
+        )
+
+    async def _setup_streamable_connection(self, auth: httpx.Auth) -> None:
+        """Setup streamable HTTP connection with error extraction.
+
+        Args:
+            auth: httpx Auth instance for authentication
+
+        Raises:
+            BaseExceptionGroup: If setup fails with exception group
+            Exception: If setup fails with other error
+        """
+        try:
+            self._streamable_context = streamablehttp_client(self.base_url, auth=auth)
+            (
+                self._read_stream,
+                self._write_stream,
+                self._get_session_id,
+            ) = await self._streamable_context.__aenter__()
+        except BaseExceptionGroup as eg:
+            logger.debug(
+                f"Caught BaseExceptionGroup during streamable setup: {len(eg.exceptions)} exceptions"
+            )
+            self._streamable_context = None
+            for exc in eg.exceptions:
+                logger.debug(f"  Exception in group: {type(exc).__name__}")
+            raise
+        except Exception as stream_error:
+            # If streamable context failed to enter, clear it
+            self._streamable_context = None
+            raise stream_error
+
+    async def _initialize_mcp_session(self) -> None:
+        """Initialize MCP client session.
+
+        Raises:
+            ValueError: If streams are not initialized
+            Exception: If session initialization fails
+        """
+        from mcp import ClientSession
+
+        if self._read_stream is None or self._write_stream is None:
+            raise ValueError("Streams not initialized - call _setup_streamable_connection first")
+
+        logger.debug("Creating MCP session...")
+        self._session = ClientSession(self._read_stream, self._write_stream)
+
+        logger.debug("Initializing session...")
+        await self._session.__aenter__()
+
+        logger.debug("Sending MCP initialize request...")
+        await self._session.initialize()
+        logger.debug("MCP session initialized successfully")
+
+    async def _attempt_connection(self) -> Self:
+        """Single connection attempt with OAuth token.
+
+        Returns:
+            Self for use in async context manager
+
+        Raises:
+            Exception: If connection fails
+        """
+        # Get valid access token
+        access_token = await self._ensure_valid_token()
+
+        # Create auth and setup connection
+        auth = self._create_bearer_auth(access_token)
+        logger.debug(f"Connecting to {self.base_url} with OAuth token")
+
+        # Setup streamable connection
+        await self._setup_streamable_connection(auth)
+
+        # Initialize MCP session
+        await self._initialize_mcp_session()
+
+        logger.info(f"✅ Connected to remote MCP server at {self.base_url}")
+        return self
+
+    async def _handle_http_error(
+        self,
+        error: httpx.HTTPStatusError,
+        attempt: int,
+        max_retries: int,
+        tracker: _ConnectionErrorTracker,
+    ) -> bool:
+        """Handle HTTP status errors.
+
+        Args:
+            error: The HTTP status error
+            attempt: Current attempt number
+            max_retries: Maximum retries allowed
+            tracker: Error tracker instance
+
+        Returns:
+            True if the error was handled and caller should retry, False otherwise
+
+        Raises:
+            ValueError: If auth fails and OAuth is disabled
+            httpx.HTTPStatusError: If error is not retryable
+        """
+        tracker.update(error, error.response.status_code)
+
+        # Cleanup partial state
+        cleanup_status, cleanup_error = await self.disconnect()
+        tracker.update_from_cleanup(cleanup_status, cleanup_error)
+
+        # Check for auth errors and retry if possible
+        if error.response.status_code in (401, 403) and attempt < max_retries:
+            if self.enable_oauth:
+                logger.warning(
+                    f"Connection failed with HTTP {error.response.status_code} on attempt {attempt + 1}"
+                )
+                logger.info("Clearing token and retrying with reauthentication...")
+                self.current_token = None
+                return True  # Signal retry
+            else:
+                # OAuth disabled, can't retry
+                logger.error(
+                    f"Authentication failed with HTTP {error.response.status_code} and OAuth is disabled"
+                )
+                raise ValueError(_format_auth_error(error.response.status_code)) from error
+
+        # Not retryable, log and fail
+        self._log_connection_failure(error, error.response.status_code)
+        return False
+
+    async def _handle_exception_group(
+        self,
+        eg: BaseExceptionGroup,
+        attempt: int,
+        max_retries: int,
+        tracker: _ConnectionErrorTracker,
+    ) -> bool:
+        """Handle exception groups from anyio.
+
+        Args:
+            eg: The exception group
+            attempt: Current attempt number
+            max_retries: Maximum retries allowed
+            tracker: Error tracker instance
+
+        Returns:
+            True if handled and should retry, False otherwise
+
+        Raises:
+            ValueError: If auth fails and OAuth is disabled
+            BaseExceptionGroup: If error is not retryable
+        """
+        logger.debug(f"Caught BaseExceptionGroup with {len(eg.exceptions)} exceptions")
+
+        # Extract HTTP error if present
+        http_error = None
+        for exc in eg.exceptions:
+            logger.debug(f"  Exception type: {type(exc).__name__}")
+            if isinstance(exc, httpx.HTTPStatusError):
+                http_error = exc
+                break
+
+        if http_error:
+            # Delegate to HTTP error handler
+            return await self._handle_http_error(http_error, attempt, max_retries, tracker)
+        else:
+            # No HTTP error, just fail
+            self._log_connection_failure(eg, None)
+            logger.debug(f"Exception group contained {len(eg.exceptions)} exceptions")
+            return False
+
+    async def _handle_runtime_error(
+        self,
+        error: asyncio.CancelledError | RuntimeError,
+        attempt: int,
+        max_retries: int,
+        tracker: _ConnectionErrorTracker,
+    ) -> bool:
+        """Handle cancelled/runtime errors (often from cleanup after HTTPStatusError).
+
+        Args:
+            error: The runtime or cancelled error
+            attempt: Current attempt number
+            max_retries: Maximum retries allowed
+            tracker: Error tracker instance
+
+        Returns:
+            True if handled and should retry, False otherwise
+
+        Raises:
+            ValueError: If auth fails and OAuth is disabled
+            httpx.HTTPStatusError: If underlying HTTP error exists
+            Exception: If error is not retryable
+        """
+        logger.debug(f"Caught {type(error).__name__}: {error}")
+
+        # Cleanup and check for underlying HTTP error
+        cleanup_status, cleanup_error = await self.disconnect()
+        tracker.update_from_cleanup(cleanup_status, cleanup_error)
+
+        if cleanup_status:
+            logger.debug(f"Found HTTP {cleanup_status} error during disconnect cleanup")
+
+        # Check if this is an auth error
+        is_auth_error = self._check_auth_error(error, tracker.last_http_status)
+
+        # Manual token with auth error - provide helpful message
+        if not self.enable_oauth and is_auth_error:
+            logger.error(
+                f"Connection failed with manual token (HTTP {tracker.last_http_status or 'auth error'})"
+            )
+            raise ValueError(_format_auth_error(tracker.last_http_status)) from (
+                tracker.last_error if tracker.last_error else error
+            )
+
+        # OAuth enabled with auth error - retry
+        if self.enable_oauth and is_auth_error and attempt < max_retries:
+            logger.warning(
+                f"Connection cancelled/failed due to auth error (HTTP {tracker.last_http_status}) on attempt {attempt + 1}"
+            )
+            logger.info("Clearing token and retrying with reauthentication...")
+            self.current_token = None
+            return True
+
+        # Not auth error or can't retry - fail with best error
+        if tracker.last_error and isinstance(tracker.last_error, httpx.HTTPStatusError):
+            self._log_connection_failure(tracker.last_error, tracker.last_http_status)
+            raise tracker.last_error
+        else:
+            self._log_connection_failure(error, None)
+            return False
+
+    async def _handle_generic_error(
+        self,
+        error: Exception,
+        attempt: int,
+        max_retries: int,
+        tracker: _ConnectionErrorTracker,
+    ) -> bool:
+        """Handle generic exceptions.
+
+        Args:
+            error: The exception
+            attempt: Current attempt number
+            max_retries: Maximum retries allowed
+            tracker: Error tracker instance
+
+        Returns:
+            True if handled and should retry, False otherwise
+
+        Raises:
+            ValueError: If auth fails and OAuth is disabled
+            Exception: If error is not retryable
+        """
+        tracker.update(error)
+
+        # Cleanup
+        cleanup_status, cleanup_error = await self.disconnect()
+        tracker.update_from_cleanup(cleanup_status, cleanup_error)
+
+        # Check for auth errors
+        if self._is_auth_error(error) and attempt < max_retries:
+            if self.enable_oauth:
+                logger.warning(
+                    f"Connection failed with auth-related error on attempt {attempt + 1}: {error}"
+                )
+                logger.info("Clearing token and retrying with reauthentication...")
+                self.current_token = None
+                return True
+            else:
+                logger.error("Authentication failed with manual token and OAuth is disabled")
+                raise ValueError(_format_auth_error()) from error
+
+        # Not retryable
+        self._log_connection_failure(error, None)
+        if isinstance(error, (httpx.ConnectError, httpx.TimeoutException)):
+            logger.error("Check that the server is running and accessible from your network.")
+        return False
+
     async def connect(self) -> Self:
         """Connect to the remote MCP server with OAuth authentication.
 
-        TODO: Refactor this method - cyclomatic complexity is 29.
-        Consider extracting:
-        - Connection attempt logic into _attempt_connection()
-        - Error handling into _handle_connection_error()
-        - Auth error detection into a dedicated AuthErrorHandler class
-        See code optimizer report for detailed recommendations.
+        This method handles connection setup with automatic retry on auth errors.
+        Error handling has been refactored into focused helper methods to improve
+        maintainability and testability.
+
+        Returns:
+            Self for use in async context manager
+
+        Raises:
+            ValueError: If authentication fails
+            httpx.HTTPStatusError: If connection fails with HTTP error
+            Exception: For other connection errors
         """
+        self._log_connection_attempt()
+
         max_retries = 1  # Only retry once for auth errors
-        last_error = None
-        last_http_status = None  # Track HTTP status from exception groups
+        error_tracker = _ConnectionErrorTracker()
 
         for attempt in range(max_retries + 1):
             try:
-                # Get valid access token
-                access_token = await self._ensure_valid_token()
-
-                # Create Bearer token auth for httpx
-                # This is the proper way to add authentication without overriding Accept headers
-                class BearerAuth(httpx.Auth):
-                    def __init__(self, token: str):
-                        self.token = token
-
-                    def auth_flow(
-                        self, request: httpx.Request
-                    ) -> Generator[httpx.Request, None, None]:
-                        request.headers["Authorization"] = f"Bearer {self.token}"
-                        yield request
-
-                auth = BearerAuth(access_token)
-                logger.debug(f"Connecting to {self.base_url} with OAuth token")
-
-                # Create streamable HTTP client connection with auth parameter
-                try:
-                    self._streamable_context = streamablehttp_client(self.base_url, auth=auth)
-                    (
-                        self._read_stream,
-                        self._write_stream,
-                        self._get_session_id,
-                    ) = await self._streamable_context.__aenter__()
-                except BaseExceptionGroup as eg:
-                    # Extract HTTPStatusError from exception group
-                    logger.debug(
-                        f"Caught BaseExceptionGroup during streamable setup: {len(eg.exceptions)} exceptions"
-                    )
-                    self._streamable_context = None
-                    for exc in eg.exceptions:
-                        logger.debug(f"  Exception in group: {type(exc).__name__}")
-                        if isinstance(exc, httpx.HTTPStatusError):
-                            last_http_status = exc.response.status_code
-                            last_error = exc
-                            logger.debug(f"  Stored HTTP status: {last_http_status}")
-                    raise eg
-                except Exception as stream_error:
-                    # If streamable context failed to enter, clear it
-                    self._streamable_context = None
-                    raise stream_error
-
-                # Initialize MCP session
-                from mcp import ClientSession
-
-                logger.debug("Creating MCP session...")
-                self._session = ClientSession(self._read_stream, self._write_stream)
-
-                # Enter the session context
-                logger.debug("Initializing session...")
-                await self._session.__aenter__()
-
-                # Send MCP initialize request (required by protocol)
-                logger.debug("Sending MCP initialize request...")
-                await self._session.initialize()
-                logger.debug("MCP session initialized successfully")
-
-                logger.info(f"✅ Connected to remote MCP server at {self.base_url}")
-
-                return self
+                return await self._attempt_connection()
 
             except BaseExceptionGroup as eg:
-                # Handle exception groups from anyio task groups
-                logger.debug(f"Caught BaseExceptionGroup with {len(eg.exceptions)} exceptions")
-                # Extract HTTPStatusError if present
-                http_error = None
-                for exc in eg.exceptions:
-                    logger.debug(f"  Exception type: {type(exc).__name__}")
-                    if isinstance(exc, httpx.HTTPStatusError):
-                        http_error = exc
-                        break
-
-                if http_error:
-                    last_error = http_error
-                    last_http_status = http_error.response.status_code
-
-                    # Clean up any partial connection state
-                    cleanup_status, cleanup_error = await self.disconnect()
-                    # Update if we found a better error during cleanup
-                    if cleanup_status and not last_http_status:
-                        last_http_status = cleanup_status
-                        last_error = cleanup_error
-
-                    # Check if this is an auth error (401/403)
-                    if http_error.response.status_code in (401, 403) and attempt < max_retries:
-                        if self.enable_oauth:
-                            logger.warning(
-                                f"Connection failed with HTTP {http_error.response.status_code} on attempt {attempt + 1}"
-                            )
-                            logger.info("Clearing token and retrying with reauthentication...")
-                            # Clear token to force reauthentication
-                            self.current_token = None
-                            continue  # Retry the connection
-                        else:
-                            # OAuth disabled, can't auto-reauthenticate
-                            logger.error(
-                                f"Authentication failed with HTTP {http_error.response.status_code} and OAuth is disabled"
-                            )
-                            raise ValueError(
-                                _format_auth_error(http_error.response.status_code)
-                            ) from http_error
-
-                    # Not a 401/403 or no more retries
-                    logger.error(f"Failed to connect to remote MCP server: {http_error}")
-                    raise http_error
-                else:
-                    # No HTTP error in the group, re-raise
-                    logger.error(f"Failed to connect to remote MCP server: {eg}")
+                if not await self._handle_exception_group(eg, attempt, max_retries, error_tracker):
                     raise
 
             except httpx.HTTPStatusError as e:
-                # HTTP status errors (including 401/403) from the server
-                last_error = e
-                last_http_status = e.response.status_code
-
-                # Clean up any partial connection state
-                cleanup_status, cleanup_error = await self.disconnect()
-                # Update if we found a better error during cleanup
-                if cleanup_status and not last_http_status:
-                    last_http_status = cleanup_status
-                    last_error = cleanup_error
-
-                # Check if this is an auth error (401/403)
-                if e.response.status_code in (401, 403) and attempt < max_retries:
-                    if self.enable_oauth:
-                        logger.warning(
-                            f"Connection failed with HTTP {e.response.status_code} on attempt {attempt + 1}"
-                        )
-                        logger.info("Clearing token and retrying with reauthentication...")
-                        # Clear token to force reauthentication
-                        self.current_token = None
-                        continue  # Retry the connection
-                    else:
-                        # OAuth disabled, can't auto-reauthenticate
-                        logger.error(
-                            f"Authentication failed with HTTP {e.response.status_code} and OAuth is disabled"
-                        )
-                        raise ValueError(_format_auth_error(e.response.status_code)) from e
-
-                # Not a 401/403 or no more retries
-                logger.error(f"Failed to connect to remote MCP server: {e}")
-                raise
+                if not await self._handle_http_error(e, attempt, max_retries, error_tracker):
+                    raise
 
             except (asyncio.CancelledError, RuntimeError) as e:
-                # Cancelled errors or runtime errors from anyio/asyncio cleanup
-                # These often occur after a BaseException Group with HTTPStatusError
-                logger.debug(f"Caught {type(e).__name__}: {e}")
-
-                # Clean up any partial connection state and extract HTTP error
-                cleanup_status, cleanup_error = await self.disconnect()
-                if cleanup_status and not last_http_status:
-                    last_http_status = cleanup_status
-                    last_error = cleanup_error
-                    logger.debug(f"Found HTTP {cleanup_status} error during disconnect cleanup")
-
-                # Check if we detected an HTTP error
-                is_auth_error = last_http_status in (401, 403) if last_http_status else False
-
-                # If no HTTP status, check error message
-                if not is_auth_error:
-                    error_context = str(e).lower()
-                    is_auth_error = any(
-                        keyword in error_context
-                        for keyword in ["401", "403", "unauthorized", "authentication"]
-                    )
-
-                # For manual tokens with auth errors, provide helpful message
-                if not self.enable_oauth and is_auth_error:
-                    logger.error(
-                        f"Connection failed with manual token (HTTP {last_http_status or 'auth error'})"
-                    )
-                    raise ValueError(_format_auth_error(last_http_status)) from (
-                        last_error if last_error else e
-                    )
-
-                # For OAuth-enabled clients with auth errors, retry
-                if self.enable_oauth and is_auth_error and attempt < max_retries:
-                    logger.warning(
-                        f"Connection cancelled/failed due to auth error (HTTP {last_http_status}) on attempt {attempt + 1}"
-                    )
-                    logger.info("Clearing token and retrying with reauthentication...")
-                    # Clear token to force reauthentication
-                    self.current_token = None
-                    continue  # Retry the connection
-
-                # Not an auth error - re-raise the original HTTP error if available
-                if last_error and isinstance(last_error, httpx.HTTPStatusError):
-                    logger.error(
-                        f"Failed to connect to remote MCP server: HTTP {last_error.response.status_code}"
-                    )
-                    raise last_error
-                else:
-                    logger.error(f"Failed to connect to remote MCP server: {e}")
+                if not await self._handle_runtime_error(e, attempt, max_retries, error_tracker):
                     raise
 
             except Exception as e:
-                # Other exceptions (network errors, etc.)
-                last_error = e
+                if not await self._handle_generic_error(e, attempt, max_retries, error_tracker):
+                    raise
 
-                # Clean up any partial connection state and extract HTTP error
-                cleanup_status, cleanup_error = await self.disconnect()
-                if cleanup_status and not last_http_status:
-                    last_http_status = cleanup_status
-                    last_error = cleanup_error
-
-                # Check if error message suggests auth issue
-                if self._is_auth_error(e) and attempt < max_retries:
-                    if self.enable_oauth:
-                        logger.warning(
-                            f"Connection failed with auth-related error on attempt {attempt + 1}: {e}"
-                        )
-                        logger.info("Clearing token and retrying with reauthentication...")
-                        # Clear token to force reauthentication
-                        self.current_token = None
-                        continue  # Retry the connection
-                    else:
-                        # OAuth disabled, can't auto-reauthenticate
-                        logger.error(
-                            "Authentication failed with manual token and OAuth is disabled"
-                        )
-                        raise ValueError(_format_auth_error()) from e
-
-                # Not an auth error or no more retries
-                logger.error(f"Failed to connect to remote MCP server: {e}")
-                raise
+        # This line should never be reached - all exception handlers either retry or raise
+        raise RuntimeError("Connection retry loop exhausted without resolution")
 
     async def disconnect(self) -> tuple[int | None, Exception | None]:
         """Disconnect from the remote MCP server.

@@ -81,19 +81,19 @@ async def main():
 
 ### Two OAuth Handler Implementations
 **Files:**
-- `mcp_server/auth/oauth_handler.py` (289 lines) - For Twitter/LinkedIn OAuth
+- `config/mcp_server/auth/oauth_handler.py` (289 lines) - For Twitter/LinkedIn OAuth
 - `shared/oauth_flow.py` (350 lines) - For MCP server OAuth
 
 **Problem:** ~640 lines total for OAuth handling with similar methods (`refresh_token()`, token storage integration).
 
-**Solution:** Keep `shared/oauth_flow.py` as the primary implementation, make `mcp_server/auth/oauth_handler.py` a thin wrapper that delegates to shared flow.
+**Solution:** Keep `shared/oauth_flow.py` as the primary implementation, make `config/mcp_server/auth/oauth_handler.py` a thin wrapper that delegates to shared flow.
 
 **Effort:** Medium (2-3 hours)
 
 ---
 
 ### Complex Function in web_analyzer.py
-**File:** `mcp_server/tools/web_analyzer.py:369-555`
+**File:** `packages/agent-framework/agent_framework/tools/web_analyzer.py:369-555`
 
 **Problem:** `analyze_website()` is 186 lines with:
 - Three large conditional branches (tone, seo, engagement)
@@ -126,7 +126,7 @@ strategies = {
 
 ### Token Storage Interface Duplication
 **Files:**
-- `mcp_server/auth/token_store.py` (217 lines) - Uses Fernet encryption
+- `config/mcp_server/auth/token_store.py` (217 lines) - Uses Fernet encryption
 - `shared/oauth_tokens.py` (188 lines) - Uses plain JSON
 
 **Problem:** Two token storage implementations with similar interfaces but different encryption approaches.
@@ -213,7 +213,7 @@ Current coverage is critically low (17%). Tests have been added for critical sec
 ### Pending Test Files (This Sprint)
 
 #### test_web_analyzer.py - Content Analysis Tests
-**File:** `mcp_server/tools/web_analyzer.py`
+**File:** `packages/agent-framework/agent_framework/tools/web_analyzer.py`
 **Priority:** High
 **Areas to test:**
 - Readability calculations (`_calculate_readability`)
@@ -224,7 +224,7 @@ Current coverage is critically low (17%). Tests have been added for critical sec
 - Edge cases: empty content, malformed HTML, very long content
 
 #### test_server.py - MCP Tool Registration Tests
-**File:** `mcp_server/server.py`
+**File:** `config/mcp_server/server.py`
 **Priority:** High
 **Areas to test:**
 - Tool registration in `list_tools()`
@@ -288,7 +288,7 @@ uv run pytest --cov=. --cov-report=html
 ### High Priority
 
 #### SSRF Protection for Web Tools
-**Files:** `mcp_server/tools/web_analyzer.py`, `mcp_server/tools/web_reader.py`
+**Files:** `packages/agent-framework/agent_framework/tools/web_analyzer.py`, `packages/agent-framework/agent_framework/tools/web_reader.py`
 
 Add IP/hostname validation to prevent Server-Side Request Forgery:
 - Block private IP ranges (10.x, 172.16-31.x, 192.168.x)
@@ -350,7 +350,7 @@ Prevent abuse of web fetching for DoS attacks:
 Add `token_file.chmod(0o600)` after saving tokens.
 
 #### Strengthen Slack Webhook Validation
-**File:** `mcp_server/tools/slack.py`
+**File:** `packages/agent-framework/agent_framework/tools/slack.py`
 
 Use regex to validate full webhook URL structure, not just prefix.
 
@@ -376,7 +376,7 @@ Use regex to validate full webhook URL structure, not just prefix.
 **Replace html2text with markdownify**
 - **Current:** html2text (GPL-3.0 license - strong copyleft)
 - **Replacement:** markdownify (MIT license - permissive)
-- **File to update:** `mcp_server/tools/web_reader.py`
+- **File to update:** `packages/agent-framework/agent_framework/tools/web_reader.py`
 - **Reason:** GPL-3.0 creates potential licensing complications for distribution
 - **Steps:**
   1. Add markdownify to pyproject.toml

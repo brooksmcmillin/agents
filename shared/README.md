@@ -19,7 +19,7 @@ Examples of code that belongs in `shared/`:
 ## What NOT to Put Here
 
 - Agent-specific logic (belongs in `agents/*/`)
-- MCP tools (belongs in `mcp_server/tools/`)
+- MCP tools (belongs in `packages/agent-framework/agent_framework/tools/`)
 - Configuration specific to one agent
 
 ## Current Contents

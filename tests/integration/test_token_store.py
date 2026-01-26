@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from cryptography.fernet import Fernet
 
-from mcp_server.auth.token_store import TokenData, TokenStore
+from config.mcp_server.auth.token_store import TokenData, TokenStore
 
 
 class TestTokenData:

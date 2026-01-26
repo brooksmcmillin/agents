@@ -24,6 +24,7 @@ from pathlib import Path
 # Ensure we're in the project root
 project_root = Path(__file__).parent.parent
 import os
+
 os.chdir(project_root)
 
 from agent_framework.tools.memory import (
@@ -60,7 +61,9 @@ async def main():
     save_parser.add_argument("value", help="Memory value")
     save_parser.add_argument("--category", help="Category")
     save_parser.add_argument("--tags", nargs="+", help="Tags")
-    save_parser.add_argument("--importance", type=int, default=5, help="Importance (1-10)")
+    save_parser.add_argument(
+        "--importance", type=int, default=5, help="Importance (1-10)"
+    )
 
     # Delete memory
     delete_parser = subparsers.add_parser("delete", help="Delete a memory")
@@ -105,6 +108,7 @@ async def main():
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 

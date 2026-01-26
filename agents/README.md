@@ -20,5 +20,5 @@ See the main [CLAUDE.md](../CLAUDE.md#adding-new-agents) for instructions on cre
 ## Shared Resources
 
 All agents have access to:
-- **MCP Server** (`../mcp_server/`) - Shared tools for content analysis, memory, etc.
+- **MCP Server** (`../config/mcp_server/`) - Shared tools for content analysis, memory, etc.
 - **Shared utilities** (`../shared/`) - Common code reusable across agents

@@ -9,8 +9,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from mcp_server.auth.oauth_handler import OAuthHandler
-from mcp_server.auth.token_store import TokenData, TokenStore
+from config.mcp_server.auth.oauth_handler import OAuthHandler
+from config.mcp_server.auth.token_store import TokenData, TokenStore
 
 
 class TestOAuthHandler:

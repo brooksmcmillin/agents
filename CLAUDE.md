@@ -12,14 +12,18 @@ This is a multi-agent system built with Claude (Anthropic SDK) and Model Context
    - `task_manager/` - Interactive task management agent
    - `business_advisor/` - Business strategy and monetization advisor
    - `notifier/` - Lightweight task notification script (Slack)
-2. **MCP Server** (`mcp_server/`) - Local MCP server configuration and OAuth infrastructure
-3. **Shared Utilities** (`shared/`) - Common code reusable across all agents
-4. **Packages** (`packages/`) - Internal libraries in monorepo structure:
+2. **Entry Points** (`bin/`) - Executable scripts for running agents and services
+3. **Configuration** (`config/`) - Server configuration and infrastructure
+   - `mcp_server/` - Local MCP server configuration and OAuth infrastructure
+4. **Documentation** (`docs/`) - Project documentation and guides
+5. **Shared Utilities** (`shared/`) - Common code reusable across all agents
+6. **Packages** (`packages/`) - Internal libraries in monorepo structure:
    - `agent-framework/` - Shared library containing:
      - MCP tools (web analysis, social media, memory, etc.)
      - Security utilities (SSRF protection)
      - Base agent classes and MCP client
    - `chasm/` - Voice interface for agent-framework agents (Deepgram + Cartesia) - optional dependency
+7. **Runtime Data** (`.data/`) - Runtime data (logs, memories, tokens)
 
 ## Development Setup
 
@@ -45,7 +49,7 @@ uv run python -m agents.business_advisor.main
 uv run python -m agents.notifier.main
 
 # Run the MCP server standalone (for testing)
-uv run python -m mcp_server.server
+uv run python -m config.mcp_server.server
 
 # Run the demo (tests MCP tools without agent)
 uv run python demo.py
@@ -116,7 +120,7 @@ while not done:
 
 ## MCP Tools
 
-The MCP server exposes 7 tools (defined in `mcp_server/server.py`):
+The MCP server exposes 7 tools (defined in `config/mcp_server/server.py`):
 
 ### Content Analysis Tools
 - `analyze_website` - Web content analysis (tone, SEO, engagement) - uses real web scraping
@@ -173,7 +177,7 @@ from .your_tool import your_tool
 __all__ = [..., "your_tool"]
 ```
 
-3. Register in `mcp_server/server.py`:
+3. Register in `config/mcp_server/server.py`:
    - Import the tool from `agent_framework.tools`
    - Register with `server.register_tool()` in `setup_custom_tools()`
    - Tool automatically available to all agents that use this MCP server
@@ -236,8 +240,8 @@ This creates a feedback loop where the agent helps improve itself based on real-
 **Current State:** Complete OAuth 2.0 implementation with mock data for testing
 
 **Components:**
-- `mcp_server/auth/oauth_handler.py` - Authorization Code Flow & Client Credentials Flow
-- `mcp_server/auth/token_store.py` - Encrypted token storage using Fernet
+- `config/mcp_server/auth/oauth_handler.py` - Authorization Code Flow & Client Credentials Flow
+- `config/mcp_server/auth/token_store.py` - Encrypted token storage using Fernet
 
 **To Enable Real APIs:**
 
@@ -249,7 +253,7 @@ This creates a feedback loop where the agent helps improve itself based on real-
    LINKEDIN_CLIENT_ID=...
    LINKEDIN_CLIENT_SECRET=...
    ```
-3. Uncomment OAuth check in `mcp_server/server.py` `call_tool()`:
+3. Uncomment OAuth check in `config/mcp_server/server.py` `call_tool()`:
    ```python
    token = await oauth_handler.get_valid_token(platform)
    if not token:
@@ -282,9 +286,9 @@ This creates a feedback loop where the agent helps improve itself based on real-
   - Requires PortAudio system library
 
 **MCP Server:**
-- `mcp_server/server.py` - MCP server configuration (registers agent-framework tools)
-- `mcp_server/auth/` - OAuth handler and token storage (for future social media API integration)
-- `mcp_server/config.py` - Configuration via pydantic-settings
+- `config/mcp_server/server.py` - MCP server configuration (registers agent-framework tools)
+- `config/mcp_server/auth/` - OAuth handler and token storage (for future social media API integration)
+- `config/mcp_server/config.py` - Configuration via pydantic-settings
 
 ## Development Workflow
 
@@ -302,8 +306,8 @@ See `HOT_RELOAD.md` for details.
 
 **Testing and Debugging:**
 
-See [TESTING.md](TESTING.md) for comprehensive testing and debugging guide, including:
-- Memory system testing with `scripts/test_memory.py`
+See [docs/TESTING.md](docs/TESTING.md) for comprehensive testing and debugging guide, including:
+- Memory system testing with `scripts/testing/test_memory.py`
 - Backend configuration (file vs database)
 - Log file locations and common error patterns
 - Database connectivity testing
@@ -313,13 +317,13 @@ See [TESTING.md](TESTING.md) for comprehensive testing and debugging guide, incl
 
 ```bash
 # Test memory system
-uv run python scripts/test_memory.py stats
+uv run python scripts/testing/test_memory.py stats
 
 # View agent logs
 tail -f ~/.agents/logs/agent_$(date +%Y-%m-%d).log
 
 # Test MCP server standalone
-uv run python -m mcp_server.server
+uv run python -m config.mcp_server.server
 ```
 
 **Interactive Commands:**

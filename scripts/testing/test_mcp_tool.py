@@ -72,7 +72,7 @@ async def call_tool(
     pretty: bool = False,
 ) -> None:
     """Call an MCP tool with the given arguments."""
-    print(f"🔧 Connecting to MCP server...")
+    print("🔧 Connecting to MCP server...")
 
     async with create_mcp_client(mcp_server_path) as mcp_client:
         # Check if tool exists
@@ -123,6 +123,7 @@ async def call_tool(
         except Exception as e:
             print(f"\n❌ Tool execution failed: {e}")
             import traceback
+
             traceback.print_exc()
 
 
@@ -131,6 +132,7 @@ def main():
     # The MCP server needs to be run as a module from the project root
     project_root = Path(__file__).parent.parent
     import os
+
     os.chdir(project_root)
 
     parser = argparse.ArgumentParser(
@@ -218,7 +220,9 @@ Examples:
     if not module_file.exists():
         print(f"❌ MCP server not found at: {module_file}")
         print(f"   (Looking for module: {module_path})")
-        print("Specify path with --server flag (use relative path like 'mcp_server/server.py')")
+        print(
+            "Specify path with --server flag (use relative path like 'mcp_server/server.py')"
+        )
         sys.exit(1)
 
     print(f"📂 Using MCP server module: {module_path}")
