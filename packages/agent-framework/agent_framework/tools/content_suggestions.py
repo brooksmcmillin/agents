@@ -362,3 +362,43 @@ def _generate_cta(topic: str) -> str:
 #    - Keyword research via SEO tools
 #    - Search volume and competition analysis
 #    - Related queries and topics
+
+
+# ---------------------------------------------------------------------------
+# Tool schema for MCP server auto-registration
+# ---------------------------------------------------------------------------
+
+TOOL_SCHEMAS = [
+    {
+        "name": "suggest_content_topics",
+        "description": (
+            "Generate content topic suggestions based on existing content analysis, "
+            "trending topics, and audience engagement. Provides detailed suggestions "
+            "with reasoning, outlines, and metadata."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "content_type": {
+                    "type": "string",
+                    "enum": ["blog", "twitter", "linkedin"],
+                    "description": (
+                        "Type of content to suggest:\n"
+                        "- blog: Long-form blog post ideas\n"
+                        "- twitter: Short-form tweet ideas\n"
+                        "- linkedin: Professional LinkedIn post ideas"
+                    ),
+                },
+                "count": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10,
+                    "default": 5,
+                    "description": "Number of suggestions to generate (1-10)",
+                },
+            },
+            "required": ["content_type"],
+        },
+        "handler": suggest_content_topics,
+    },
+]

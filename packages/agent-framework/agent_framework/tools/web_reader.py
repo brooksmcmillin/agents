@@ -209,3 +209,38 @@ async def fetch_web_content(url: str, max_length: int = 50000) -> dict[str, Any]
     except Exception as e:
         logger.error(f"Content extraction failed for {url}: {e}")
         raise
+
+
+# ---------------------------------------------------------------------------
+# Tool schema for MCP server auto-registration
+# ---------------------------------------------------------------------------
+
+TOOL_SCHEMAS = [
+    {
+        "name": "fetch_web_content",
+        "description": (
+            "Fetch web content and convert to clean, LLM-readable markdown format. "
+            "Extracts the main content from a webpage, removes navigation and ads, "
+            "and returns it as markdown. Useful for reading articles, blog posts, "
+            "documentation, or any web content you want to analyze or comment on."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "The URL to fetch (must start with http:// or https://)",
+                },
+                "max_length": {
+                    "type": "integer",
+                    "minimum": 1000,
+                    "maximum": 100000,
+                    "default": 50000,
+                    "description": "Maximum content length in characters (default: 50000)",
+                },
+            },
+            "required": ["url"],
+        },
+        "handler": fetch_web_content,
+    },
+]

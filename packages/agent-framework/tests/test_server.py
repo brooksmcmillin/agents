@@ -1,8 +1,7 @@
 """Tests for the MCP server module."""
 
-from unittest.mock import patch
-
-from agent_framework.server.server import MCPServerBase, create_mcp_server, setup_default_tools
+from agent_framework.server.server import MCPServerBase, create_mcp_server
+from agent_framework.tools import ALL_TOOL_SCHEMAS
 
 
 class TestMCPServerBase:
@@ -10,8 +9,7 @@ class TestMCPServerBase:
 
     def test_mcp_server_initialization(self):
         """Test MCPServerBase initialization."""
-        with patch("agent_framework.server.server.setup_default_tools"):
-            server = MCPServerBase(name="test-server", setup_defaults=False)
+        server = MCPServerBase(name="test-server", setup_defaults=False)
 
         assert server.app.name == "test-server"
         assert server.tools == {}
@@ -19,14 +17,15 @@ class TestMCPServerBase:
 
     def test_mcp_server_initialization_with_defaults(self):
         """Test MCPServerBase initialization sets up default tools."""
-        with patch("agent_framework.server.server.setup_default_tools") as mock_setup:
-            server = MCPServerBase(name="test-server", setup_defaults=True)
-            mock_setup.assert_called_once_with(server)
+        server = MCPServerBase(name="test-server", setup_defaults=True)
+
+        # All tools from ALL_TOOL_SCHEMAS should be registered
+        for schema in ALL_TOOL_SCHEMAS:
+            assert schema["name"] in server.tools
 
     def test_register_tool(self):
         """Test registering a tool with the server."""
-        with patch("agent_framework.server.server.setup_default_tools"):
-            server = MCPServerBase(name="test-server", setup_defaults=False)
+        server = MCPServerBase(name="test-server", setup_defaults=False)
 
         async def test_handler(arg: str) -> dict:
             return {"result": arg}
@@ -50,8 +49,7 @@ class TestMCPServerBase:
 
     def test_register_multiple_tools(self):
         """Test registering multiple tools."""
-        with patch("agent_framework.server.server.setup_default_tools"):
-            server = MCPServerBase(name="test-server", setup_defaults=False)
+        server = MCPServerBase(name="test-server", setup_defaults=False)
 
         async def handler1():
             return {}
@@ -64,6 +62,38 @@ class TestMCPServerBase:
 
         assert len(server.tools) == 2
         assert len(server._tool_handlers) == 2
+
+    def test_register_tools_from_schemas(self):
+        """Test registering tools from a list of schema dicts."""
+        server = MCPServerBase(name="test-server", setup_defaults=False)
+
+        async def handler_a():
+            return {}
+
+        async def handler_b():
+            return {}
+
+        schemas = [
+            {
+                "name": "tool_a",
+                "description": "Tool A",
+                "input_schema": {"type": "object", "properties": {}, "required": []},
+                "handler": handler_a,
+            },
+            {
+                "name": "tool_b",
+                "description": "Tool B",
+                "input_schema": {"type": "object", "properties": {}, "required": []},
+                "handler": handler_b,
+            },
+        ]
+
+        server.register_tools_from_schemas(schemas)
+
+        assert "tool_a" in server.tools
+        assert "tool_b" in server.tools
+        assert server._tool_handlers["tool_a"] == handler_a
+        assert server._tool_handlers["tool_b"] == handler_b
 
 
 class TestCreateMCPServer:
@@ -88,16 +118,12 @@ class TestCreateMCPServer:
         assert "send_slack_message" in server.tools
 
 
-class TestSetupDefaultTools:
-    """Tests for setup_default_tools function."""
+class TestDefaultToolSchemas:
+    """Tests for default tool schemas registered from ALL_TOOL_SCHEMAS."""
 
-    def test_setup_default_tools_registers_all_tools(self):
-        """Test setup_default_tools registers all expected tools."""
-        with patch("agent_framework.server.server.setup_default_tools"):
-            server = MCPServerBase(name="test", setup_defaults=False)
-
-        # Call setup_default_tools directly
-        setup_default_tools(server)
+    def test_default_tools_registers_all_expected(self):
+        """Test default tools include all expected tool names."""
+        server = MCPServerBase(name="test", setup_defaults=True)
 
         expected_tools = [
             "fetch_web_content",
@@ -111,12 +137,9 @@ class TestSetupDefaultTools:
             assert tool_name in server.tools
             assert tool_name in server._tool_handlers
 
-    def test_setup_default_tools_has_correct_schemas(self):
+    def test_default_tools_have_correct_schemas(self):
         """Test default tools have proper input schemas."""
-        with patch("agent_framework.server.server.setup_default_tools"):
-            server = MCPServerBase(name="test", setup_defaults=False)
-
-        setup_default_tools(server)
+        server = MCPServerBase(name="test", setup_defaults=True)
 
         # Check fetch_web_content schema
         fetch_schema = server.tools["fetch_web_content"]["input_schema"]
@@ -152,8 +175,7 @@ class TestMCPServerHandlers:
 
     def test_setup_handlers_creates_list_tools_handler(self):
         """Test setup_handlers creates list_tools handler."""
-        with patch("agent_framework.server.server.setup_default_tools"):
-            server = MCPServerBase(name="test", setup_defaults=False)
+        server = MCPServerBase(name="test", setup_defaults=False)
 
         # Register a test tool
         server.register_tool("test", "Test tool", {}, lambda: {})

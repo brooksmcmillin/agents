@@ -17,3 +17,36 @@ DEFAULT_MCP_SERVER_URL = "https://mcp.brooksmcmillin.com/mcp"
 # Service identifiers
 SERVICE_NAME_SLACK_ADAPTER = "slack-adapter"
 SERVICE_NAME_TASK_NOTIFIER = "task-notifier"
+
+# ---------------------------------------------------------------------------
+# Tool group constants
+#
+# Named groups of MCP tools for composing agent allowlists. Agents combine
+# these groups instead of maintaining raw string lists independently.
+# ---------------------------------------------------------------------------
+
+MEMORY_TOOLS = [
+    "get_memories",
+    "save_memory",
+    "search_memories",
+]
+
+RAG_TOOLS = [
+    "add_document",
+    "delete_document",
+    "get_document",
+    "get_rag_stats",
+    "list_documents",
+    "search_documents",
+]
+
+CONTENT_TOOLS = [
+    "analyze_website",
+    "fetch_web_content",
+    "get_social_media_stats",
+    "suggest_content_topics",
+]
+
+COMMUNICATION_TOOLS = [
+    "send_slack_message",
+]

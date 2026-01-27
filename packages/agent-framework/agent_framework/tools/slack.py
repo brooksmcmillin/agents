@@ -117,3 +117,47 @@ async def send_slack_message(
     except Exception as e:
         logger.error(f"Error sending Slack message: {e}")
         raise
+
+
+# ---------------------------------------------------------------------------
+# Tool schema for MCP server auto-registration
+# ---------------------------------------------------------------------------
+
+TOOL_SCHEMAS = [
+    {
+        "name": "send_slack_message",
+        "description": (
+            "Send a message to Slack using an incoming webhook. "
+            "Useful for posting content, notifications, and updates to Slack channels. "
+            "The webhook URL can be provided or will use SLACK_WEBHOOK_URL from environment. "
+            "Supports custom usernames, emoji icons, and channel overrides."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "text": {
+                    "type": "string",
+                    "description": "The message text to send (supports Slack markdown formatting)",
+                },
+                "webhook_url": {
+                    "type": "string",
+                    "description": "Optional Slack webhook URL. If not provided, uses SLACK_WEBHOOK_URL from environment",
+                },
+                "username": {
+                    "type": "string",
+                    "description": "Optional custom username for the message",
+                },
+                "icon_emoji": {
+                    "type": "string",
+                    "description": "Optional emoji icon (e.g., 'robot_face', 'tada', ':rocket:')",
+                },
+                "channel": {
+                    "type": "string",
+                    "description": "Optional channel override (e.g., '#general', '@username')",
+                },
+            },
+            "required": ["text"],
+        },
+        "handler": send_slack_message,
+    },
+]

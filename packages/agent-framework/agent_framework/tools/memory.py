@@ -359,3 +359,112 @@ def reset_memory_stores() -> None:
     global _file_memory_store, _database_memory_store
     _file_memory_store = None
     _database_memory_store = None
+
+
+# ---------------------------------------------------------------------------
+# Tool schemas for MCP server auto-registration
+# ---------------------------------------------------------------------------
+
+TOOL_SCHEMAS = [
+    {
+        "name": "save_memory",
+        "description": (
+            "Save important information to persistent memory. Use this to remember "
+            "user preferences, goals, insights from analyses, brand voice, and any "
+            "other details that should be recalled in future conversations."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "key": {
+                    "type": "string",
+                    "description": "Unique identifier (e.g., 'user_blog_url', 'brand_voice', 'twitter_goal')",
+                },
+                "value": {
+                    "type": "string",
+                    "description": "The information to remember",
+                },
+                "category": {
+                    "type": "string",
+                    "description": "Optional category: 'user_preference', 'fact', 'goal', 'insight', etc.",
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional tags for organization (e.g., ['seo', 'twitter'])",
+                },
+                "importance": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10,
+                    "default": 5,
+                    "description": "Importance level 1-10 (1=low, 5=medium, 10=critical)",
+                },
+            },
+            "required": ["key", "value"],
+        },
+        "handler": save_memory,
+    },
+    {
+        "name": "get_memories",
+        "description": (
+            "Retrieve stored memories from previous conversations. Returns memories "
+            "sorted by importance. Use this at the start of conversations to recall "
+            "context about the user."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "type": "string",
+                    "description": "Filter by category (e.g., 'user_preference', 'goal')",
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Filter by tags (returns memories with any matching tag)",
+                },
+                "min_importance": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10,
+                    "description": "Only return memories with importance >= this value",
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100,
+                    "default": 20,
+                    "description": "Maximum number of memories to return",
+                },
+            },
+            "required": [],
+        },
+        "handler": get_memories,
+    },
+    {
+        "name": "search_memories",
+        "description": (
+            "Search for memories by keyword. Searches both keys and values. "
+            "Useful when you don't know the exact memory key."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search term (case-insensitive)",
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 50,
+                    "default": 10,
+                    "description": "Maximum number of results",
+                },
+            },
+            "required": ["query"],
+        },
+        "handler": search_memories,
+    },
+]
