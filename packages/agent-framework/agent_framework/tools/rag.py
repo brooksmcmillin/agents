@@ -500,3 +500,164 @@ async def get_rag_stats() -> dict[str, Any]:
             "status": "error",
             "message": f"Failed to get stats: {e}",
         }
+
+
+# ---------------------------------------------------------------------------
+# Tool schemas for MCP server auto-registration
+# ---------------------------------------------------------------------------
+
+TOOL_SCHEMAS = [
+    {
+        "name": "add_document",
+        "description": (
+            "Add a document to the RAG knowledge base for semantic search. "
+            "Documents are converted to vector embeddings and stored in PostgreSQL. "
+            "Supports direct text content OR automatic extraction from PDF files. "
+            "Use this to build a searchable knowledge base from articles, docs, notes, etc."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string",
+                    "description": "The document text content to store (required if file_path not provided)",
+                },
+                "file_path": {
+                    "type": "string",
+                    "description": "Path to a PDF file to extract text from. Auto-populates metadata with file info.",
+                },
+                "metadata": {
+                    "type": "object",
+                    "description": "Optional metadata: source, title, author, category, etc.",
+                    "additionalProperties": True,
+                },
+                "document_id": {
+                    "type": "string",
+                    "description": "Optional custom ID. Auto-generated if not provided. Updates existing doc if ID exists.",
+                },
+            },
+            "required": [],
+        },
+        "handler": add_document,
+    },
+    {
+        "name": "search_documents",
+        "description": (
+            "Search the RAG knowledge base using semantic similarity. "
+            "Finds documents based on meaning, not just keywords. "
+            "Returns the most relevant documents with similarity scores."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The search query - describe what you're looking for",
+                },
+                "top_k": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 20,
+                    "default": 5,
+                    "description": "Maximum number of results (default: 5)",
+                },
+                "min_score": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                    "default": 0,
+                    "description": "Minimum similarity score 0-1 (0.7+ is highly related)",
+                },
+                "metadata_filter": {
+                    "type": "object",
+                    "description": 'Optional filter on metadata fields, e.g., {"category": "blog"}',
+                    "additionalProperties": True,
+                },
+            },
+            "required": ["query"],
+        },
+        "handler": search_documents,
+    },
+    {
+        "name": "get_document",
+        "description": (
+            "Retrieve a specific document from the RAG knowledge base by its ID. "
+            "Use when you know the exact document ID."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "document_id": {
+                    "type": "string",
+                    "description": "The unique identifier of the document",
+                },
+            },
+            "required": ["document_id"],
+        },
+        "handler": get_document,
+    },
+    {
+        "name": "delete_document",
+        "description": (
+            "Delete a document from the RAG knowledge base. "
+            "Use to remove outdated or incorrect documents."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "document_id": {
+                    "type": "string",
+                    "description": "The unique identifier of the document to delete",
+                },
+            },
+            "required": ["document_id"],
+        },
+        "handler": delete_document,
+    },
+    {
+        "name": "list_documents",
+        "description": (
+            "List documents in the RAG knowledge base. "
+            "Browse stored documents with optional filtering and pagination."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100,
+                    "default": 20,
+                    "description": "Maximum number of documents to return",
+                },
+                "offset": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "default": 0,
+                    "description": "Number of documents to skip for pagination",
+                },
+                "metadata_filter": {
+                    "type": "object",
+                    "description": "Optional filter on metadata fields",
+                    "additionalProperties": True,
+                },
+            },
+            "required": [],
+        },
+        "handler": list_documents,
+    },
+    {
+        "name": "get_rag_stats",
+        "description": (
+            "Get statistics and summary of the RAG knowledge base. "
+            "Returns document count, categories breakdown, sources, and recent documents. "
+            "Use this to understand what topics are covered before deciding to search."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+        "handler": get_rag_stats,
+    },
+]

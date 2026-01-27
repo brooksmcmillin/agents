@@ -265,3 +265,45 @@ async def get_social_media_stats(
 #    - Implement backoff/retry logic
 #    - Cache responses where appropriate
 #    - Batch requests when possible
+
+
+# ---------------------------------------------------------------------------
+# Tool schema for MCP server auto-registration
+# ---------------------------------------------------------------------------
+
+TOOL_SCHEMAS = [
+    {
+        "name": "get_social_media_stats",
+        "description": (
+            "Retrieve performance metrics from social media platforms. "
+            "Provides engagement data, follower growth, top-performing posts, "
+            "and actionable insights. Requires OAuth authentication."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "platform": {
+                    "type": "string",
+                    "enum": ["twitter", "linkedin"],
+                    "description": (
+                        "Social media platform:\n"
+                        "- twitter: X/Twitter metrics\n"
+                        "- linkedin: LinkedIn metrics"
+                    ),
+                },
+                "timeframe": {
+                    "type": "string",
+                    "enum": ["7d", "30d", "90d"],
+                    "description": (
+                        "Time period for metrics:\n"
+                        "- 7d: Last 7 days\n"
+                        "- 30d: Last 30 days\n"
+                        "- 90d: Last 90 days"
+                    ),
+                },
+            },
+            "required": ["platform", "timeframe"],
+        },
+        "handler": get_social_media_stats,
+    },
+]

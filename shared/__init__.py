@@ -20,7 +20,10 @@ load_dotenv()
 from .agent_factory import create_simple_agent
 from .agent_runner import run_agent
 from .auth_utils import get_valid_token_for_mcp
+from .batch_agent import BatchAgent
 from .constants import (
+    COMMUNICATION_TOOLS,
+    CONTENT_TOOLS,
     DEFAULT_MCP_SERVER_URL,
     ENV_ANTHROPIC_API_KEY,
     ENV_MCP_AUTH_TOKEN,
@@ -28,6 +31,8 @@ from .constants import (
     ENV_SLACK_APP_TOKEN,
     ENV_SLACK_BOT_TOKEN,
     ENV_SLACK_WEBHOOK_URL,
+    MEMORY_TOOLS,
+    RAG_TOOLS,
 )
 from .env_utils import check_env_vars, env_file_exists
 from .logging_config import setup_logging
@@ -37,6 +42,9 @@ from .task_utils import format_priority_emoji, parse_priority, parse_task_result
 from agent_framework.security import SSRFValidator
 
 __all__ = [
+    "BatchAgent",
+    "COMMUNICATION_TOOLS",
+    "CONTENT_TOOLS",
     "DEFAULT_MCP_SERVER_URL",
     "ENV_ANTHROPIC_API_KEY",
     "ENV_MCP_AUTH_TOKEN",
@@ -44,6 +52,8 @@ __all__ = [
     "ENV_SLACK_APP_TOKEN",
     "ENV_SLACK_BOT_TOKEN",
     "ENV_SLACK_WEBHOOK_URL",
+    "MEMORY_TOOLS",
+    "RAG_TOOLS",
     "SSRFValidator",
     "check_env_vars",
     "create_simple_agent",

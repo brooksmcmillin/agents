@@ -18,8 +18,8 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
-    "anthropic>=0.39.0",
-    "mcp>=1.1.0",
+    "anthropic>=0.40.0",
+    "mcp>=1.23.0",
     "httpx>=0.27.0",
     "python-dotenv>=1.0.0",
     "pydantic>=2.10.0",
@@ -27,7 +27,7 @@ dependencies = [
     "cryptography>=44.0.0",
     "beautifulsoup4>=4.12.0",
     "html2text>=2024.2.26",
-    "aiohttp>=3.13.2",
+    "aiohttp>=3.13.3",
     "slack-bolt>=1.18.0",
     "slack-sdk>=3.27.0",
     # Database dependencies (shared by memory and RAG)
@@ -52,7 +52,7 @@ packages = ["agent_framework"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = [
@@ -84,29 +84,10 @@ quote-style = "double"
 indent-style = "space"
 
 [tool.pyright]
-# Use strict mode to enforce return type annotations and comprehensive type checking
-typeCheckingMode = "strict"
-pythonVersion = "3.11"
+typeCheckingMode = "standard"
+pythonVersion = "3.12"
 include = ["agent_framework"]
 exclude = ["tests"]
-# Relax some overly strict rules while keeping return type requirement
-reportMissingTypeStubs = false
-reportUnknownMemberType = false
-reportUnknownArgumentType = false
-reportUnknownVariableType = false
-reportPrivateUsage = false
-reportUnusedFunction = false
-reportUnknownParameterType = false
-reportMissingParameterType = false
-reportMissingTypeArgument = false
-reportArgumentType = false
-reportDeprecated = false
-reportUnnecessaryIsInstance = false
-reportReturnType = false
-reportIncompatibleMethodOverride = false
-reportOptionalSubscript = false
-reportUnusedImport = false
-reportConstantRedefinition = false
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

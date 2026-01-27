@@ -17,9 +17,26 @@ dependencies = [
     "cryptography>=44.0.0",
     "python-json-logger>=2.0.7",
     "beautifulsoup4>=4.12.0",
-    "lxml>=5.0.0",
+    "lxml>=6.0.2",
     "html2text>=2024.2.26",
     "agent-framework",
+]
+
+[tool.uv]
+# Single source of truth for minimum dependency versions across the workspace.
+# uv enforces these during resolution so root and agent-framework stay in sync.
+constraint-dependencies = [
+    "anthropic>=0.40.0",
+    "mcp>=1.23.0",
+    "httpx>=0.27.0",
+    "aiohttp>=3.13.3",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.6.0",
+    "python-dotenv>=1.0.0",
+    "cryptography>=44.0.0",
+    "beautifulsoup4>=4.12.0",
+    "html2text>=2024.2.26",
+    "lxml>=6.0.2",
 ]
 
 [tool.uv.sources]

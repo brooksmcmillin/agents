@@ -557,3 +557,40 @@ async def analyze_website(
     except Exception as e:
         logger.error(f"Analysis failed for {url}: {e}")
         raise
+
+
+# ---------------------------------------------------------------------------
+# Tool schema for MCP server auto-registration
+# ---------------------------------------------------------------------------
+
+TOOL_SCHEMAS = [
+    {
+        "name": "analyze_website",
+        "description": (
+            "Fetch and analyze web content for tone, style, SEO, and engagement. "
+            "Useful for understanding the characteristics of existing content "
+            "and identifying opportunities for improvement."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "The URL to analyze (must start with http:// or https://)",
+                },
+                "analysis_type": {
+                    "type": "string",
+                    "enum": ["tone", "seo", "engagement"],
+                    "description": (
+                        "Type of analysis to perform:\n"
+                        "- tone: Analyze writing style and tone\n"
+                        "- seo: Analyze SEO optimization\n"
+                        "- engagement: Analyze engagement potential"
+                    ),
+                },
+            },
+            "required": ["url", "analysis_type"],
+        },
+        "handler": analyze_website,
+    },
+]
