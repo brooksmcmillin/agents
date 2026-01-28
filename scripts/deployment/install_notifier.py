@@ -10,7 +10,6 @@ Usage:
     uv run python -m scripts.deployment.install_notifier test      # Test notification
 """
 
-import os
 import socket
 import subprocess
 import sys
@@ -46,16 +45,6 @@ def get_service_content() -> str:
     project_root = get_project_root()
     uv_path = get_uv_path()
 
-    # Build environment lines for NixOS compatibility
-    env_lines = []
-    ld_library_path = os.environ.get("LD_LIBRARY_PATH", "")
-    if ld_library_path:
-        env_lines.append(f"Environment=LD_LIBRARY_PATH={ld_library_path}")
-
-    env_section = "\n".join(env_lines)
-    if env_section:
-        env_section += "\n"
-
     return f"""[Unit]
 Description=Task Notifier - sends Slack notifications about open tasks
 After=network-online.target
@@ -64,7 +53,7 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 WorkingDirectory={project_root}
-{env_section}ExecStart={uv_path} run python -m agents.notifier.main
+ExecStart={uv_path} run python -m agents.notifier.main
 StandardOutput=append:{LOG_FILE}
 StandardError=append:{LOG_FILE}
 
