@@ -197,10 +197,14 @@ app = FastAPI(
 
 # Configure CORS for web UI
 # Allow any origin in development, specific origins in production
-allow_origins = ["*"] if os.getenv("DEV_MODE", "false").lower() == "true" else [
-    "http://localhost:5173",  # Vite dev server
-    "http://localhost:8080",  # Production (same origin)
-]
+allow_origins = (
+    ["*"]
+    if os.getenv("DEV_MODE", "false").lower() == "true"
+    else [
+        "http://localhost:5173",  # Vite dev server
+        "http://localhost:8080",  # Production (same origin)
+    ]
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -360,7 +364,9 @@ async def list_conversations(
     Use the agent query parameter to filter by specific agent type.
     """
     store = _get_conversation_store()
-    conversations = await store.list_conversations(agent_name=agent, limit=limit, offset=offset)
+    conversations = await store.list_conversations(
+        agent_name=agent, limit=limit, offset=offset
+    )
 
     # Get total count for pagination
     stats = await store.get_stats()
@@ -652,7 +658,9 @@ if WEBUI_DIST.exists():
     async def serve_spa(full_path: str):
         """Serve the React SPA for all non-API routes."""
         # Don't catch API routes
-        if full_path.startswith(("agents/", "sessions/", "conversations/", "health", "assets/")):
+        if full_path.startswith(
+            ("agents/", "sessions/", "conversations/", "health", "assets/")
+        ):
             raise HTTPException(status_code=404, detail="Not found")
 
         # Serve index.html for all other routes (SPA routing)
@@ -660,6 +668,11 @@ if WEBUI_DIST.exists():
         if index_file.exists():
             return FileResponse(index_file)
 
-        raise HTTPException(status_code=404, detail="Web UI not built. Run 'npm run build' in agents/webui/frontend/")
+        raise HTTPException(
+            status_code=404,
+            detail="Web UI not built. Run 'npm run build' in agents/webui/frontend/",
+        )
 else:
-    logger.info("Web UI not built. To enable, run 'npm run build' in agents/webui/frontend/")
+    logger.info(
+        "Web UI not built. To enable, run 'npm run build' in agents/webui/frontend/"
+    )
