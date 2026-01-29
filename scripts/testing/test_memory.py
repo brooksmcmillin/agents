@@ -23,11 +23,11 @@ from pathlib import Path
 
 # Ensure we're in the project root
 project_root = Path(__file__).parent.parent
-import os
+import os  # noqa: E402
 
 os.chdir(project_root)
 
-from agent_framework.tools.memory import (
+from agent_framework.tools.memory import (  # noqa: E402
     get_memories,
     save_memory,
     search_memories,
