@@ -205,7 +205,7 @@ curl http://localhost:8080/conversations/stats
 2. Rebuild: `docker-compose build --no-cache frontend`
 
 ### Database connection errors
-1. Verify DATABASE_URL format: `postgresql://user:password@host:port/dbname`
+1. Verify DATABASE_URL format: `postgresql://user:password@host:port/dbname`  <!-- pragma: allowlist secret -->
 2. Check remote database is accessible: `ping your-db-host`
 3. Verify firewall rules allow connection from Docker container
 4. Check database credentials are correct
@@ -339,7 +339,7 @@ cp .env.test.example .env.test
 # Edit .env.test to use agents_test database
 
 # Run tests against test database
-DATABASE_URL=postgresql://user:pass@host:5432/agents_test pytest
+DATABASE_URL=postgresql://user:pass@host:5432/agents_test pytest  # pragma: allowlist secret
 ```
 
 ## Clean Installation
