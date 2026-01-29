@@ -1,0 +1,29 @@
+{
+  "include": [
+    "agents",
+    "config",
+    "shared",
+    "packages/agent-framework/agent_framework",
+    "packages/chasm/chasm"
+  ],
+  "exclude": [
+    "**/__pycache__",
+    "**/*.pyc",
+    ".venv",
+    "tests",
+    "examples",
+    "scripts",
+    "bin",
+    "memories",
+    "tokens",
+    "nixos",
+    "docs"
+  ],
+  "venvPath": ".",
+  "venv": ".venv",
+  "reportMissingImports": true,
+  "reportMissingTypeStubs": false,
+  "pythonVersion": "3.14",
+  "typeCheckingMode": "basic",
+  "useLibraryCodeForTypes": true
+}
