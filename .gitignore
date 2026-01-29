@@ -50,6 +50,7 @@ htmlcov/
 coverage.xml
 coverage.json
 root_coverage.json
+coverage/
 *.cover
 
 # Type checking
