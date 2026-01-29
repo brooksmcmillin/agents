@@ -1,6 +1,6 @@
 """Tests for the token storage module."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from agent_framework.storage.token_store import TokenData, TokenStore
@@ -45,14 +45,14 @@ class TestTokenData:
         # Token expires in 3 minutes (within the 5-minute buffer)
         token = TokenData(
             access_token="test",
-            expires_at=datetime.now(timezone.utc) + timedelta(minutes=3),
+            expires_at=datetime.now(UTC) + timedelta(minutes=3),
         )
         assert token.is_expired() is True
 
         # Token expires in 10 minutes (outside the 5-minute buffer)
         token2 = TokenData(
             access_token="test",
-            expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+            expires_at=datetime.now(UTC) + timedelta(minutes=10),
         )
         assert token2.is_expired() is False
 

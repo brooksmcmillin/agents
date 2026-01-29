@@ -6,7 +6,7 @@ Currently uses mock data; real implementation would use NLP and trend analysis.
 
 import logging
 import random  # nosec B311 - mock data only
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 logger = logging.getLogger(__name__)
@@ -189,7 +189,7 @@ async def suggest_content_topics(
     result = {
         "content_type": content_type,
         "suggestions_count": len(suggestions),
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "suggestions": suggestions,
         "meta": {
             "data_sources": [

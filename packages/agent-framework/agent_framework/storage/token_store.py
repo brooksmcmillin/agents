@@ -7,7 +7,7 @@ implementing the same interface.
 
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from cryptography.fernet import Fernet
@@ -30,13 +30,13 @@ class TokenData(BaseModel):
         if not self.expires_at:
             return False
         # Add 5-minute buffer to avoid race conditions
-        return datetime.now(timezone.utc) >= (self.expires_at - timedelta(minutes=5))
+        return datetime.now(UTC) >= (self.expires_at - timedelta(minutes=5))
 
     def time_until_expiry(self) -> timedelta | None:
         """Get time until token expires."""
         if not self.expires_at:
             return None
-        return self.expires_at - datetime.now(timezone.utc)
+        return self.expires_at - datetime.now(UTC)
 
 
 class TokenStore:

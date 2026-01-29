@@ -11,7 +11,7 @@ import logging
 import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import asyncpg
@@ -214,7 +214,7 @@ class DatabaseMemoryStore:
         # Note: _get_connection() handles initialization automatically
         tags = tags or []
         tags_json = json.dumps(tags)  # Convert list to JSON string for JSONB
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         async with self._get_connection() as conn:
             # Check if exists to determine created_at
