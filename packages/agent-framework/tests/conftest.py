@@ -1,7 +1,7 @@
 """Pytest configuration and fixtures for agent-framework tests."""
 
 import tempfile
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -56,7 +56,7 @@ def sample_token_data() -> TokenData:
         access_token="test_access_token_12345",
         refresh_token="test_refresh_token_67890",
         token_type="Bearer",
-        expires_at=datetime.utcnow() + timedelta(hours=1),
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
         scope="read write",
     )
 
@@ -68,7 +68,7 @@ def expired_token_data() -> TokenData:
         access_token="expired_access_token",
         refresh_token="expired_refresh_token",
         token_type="Bearer",
-        expires_at=datetime.utcnow() - timedelta(hours=1),
+        expires_at=datetime.now(timezone.utc) - timedelta(hours=1),
         scope="read",
     )
 

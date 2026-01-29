@@ -8,6 +8,7 @@ These tests verify that:
 """
 
 import os
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -166,8 +167,8 @@ class TestMemoryToolsRouting:
             category=None,
             tags=[],
             importance=5,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
         )
         mock_db_store.save_memory.return_value = mock_memory
 

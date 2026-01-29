@@ -5,7 +5,7 @@ token refresh. It supports both service-to-service auth and user-delegated auth.
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 from urllib.parse import urlencode
 
@@ -260,7 +260,7 @@ class OAuthHandler:
         # Calculate expiration time
         expires_at = None
         if "expires_in" in response:
-            expires_at = datetime.utcnow() + timedelta(seconds=response["expires_in"])
+            expires_at = datetime.now(timezone.utc) + timedelta(seconds=response["expires_in"])
 
         return TokenData(
             access_token=response["access_token"],

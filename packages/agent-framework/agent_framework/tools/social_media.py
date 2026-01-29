@@ -6,7 +6,7 @@ Currently uses mock data; real implementation would use platform APIs with OAuth
 
 import logging
 import random  # nosec B311 - mock data only
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
 logger = logging.getLogger(__name__)
@@ -53,7 +53,7 @@ async def get_social_media_stats(
 
     # Calculate date range
     days = int(timeframe.rstrip("d"))
-    end_date = datetime.utcnow()
+    end_date = datetime.now(timezone.utc)
     start_date = end_date - timedelta(days=days)
 
     # Mock data based on platform
