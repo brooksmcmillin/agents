@@ -13,6 +13,13 @@ from .claude_code import (
     list_claude_code_workspaces,
     run_claude_code,
 )
+from .markdown_files import TOOL_SCHEMAS as _markdown_files_schemas
+from .markdown_files import (
+    delete_markdown_file,
+    list_markdown_files,
+    read_markdown_file,
+    write_markdown_file,
+)
 from .content_suggestions import TOOL_SCHEMAS as _content_suggestions_schemas
 from .content_suggestions import suggest_content_topics
 from .fastmail import TOOL_SCHEMAS as _fastmail_schemas
@@ -63,6 +70,7 @@ ALL_TOOL_SCHEMAS: list[dict] = [
     *_rag_schemas,
     *_fastmail_schemas,
     *_claude_code_schemas,
+    *_markdown_files_schemas,
 ]
 
 __all__ = [
@@ -100,4 +108,9 @@ __all__ = [
     "create_claude_code_workspace",
     "delete_claude_code_workspace",
     "get_claude_code_workspace_status",
+    # Markdown file tools
+    "list_markdown_files",
+    "read_markdown_file",
+    "write_markdown_file",
+    "delete_markdown_file",
 ]
