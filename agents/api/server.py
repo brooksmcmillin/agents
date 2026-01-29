@@ -29,9 +29,13 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from agent_framework import Agent
 from agent_framework.storage import DatabaseConversationStore
@@ -189,6 +193,21 @@ app = FastAPI(
     description="REST interface for calling agents as stateless endpoints or multi-turn sessions.",
     version="0.1.0",
     lifespan=lifespan,
+)
+
+# Configure CORS for web UI
+# Allow any origin in development, specific origins in production
+allow_origins = ["*"] if os.getenv("DEV_MODE", "false").lower() == "true" else [
+    "http://localhost:5173",  # Vite dev server
+    "http://localhost:8080",  # Production (same origin)
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allow_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
@@ -615,3 +634,32 @@ async def get_conversation_messages(
         "limit": limit,
         "offset": offset,
     }
+
+
+# ---------------------------------------------------------------------------
+# Web UI static file serving (production mode)
+# ---------------------------------------------------------------------------
+
+WEBUI_DIST = Path(__file__).parent.parent / "webui" / "dist"
+
+if WEBUI_DIST.exists():
+    # Serve static assets (JS, CSS, images)
+    app.mount("/assets", StaticFiles(directory=WEBUI_DIST / "assets"), name="assets")
+    logger.info(f"Serving Web UI static assets from {WEBUI_DIST / 'assets'}")
+
+    # SPA catch-all route - must be LAST route
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        """Serve the React SPA for all non-API routes."""
+        # Don't catch API routes
+        if full_path.startswith(("agents/", "sessions/", "conversations/", "health", "assets/")):
+            raise HTTPException(status_code=404, detail="Not found")
+
+        # Serve index.html for all other routes (SPA routing)
+        index_file = WEBUI_DIST / "index.html"
+        if index_file.exists():
+            return FileResponse(index_file)
+
+        raise HTTPException(status_code=404, detail="Web UI not built. Run 'npm run build' in agents/webui/frontend/")
+else:
+    logger.info("Web UI not built. To enable, run 'npm run build' in agents/webui/frontend/")

@@ -1,0 +1,74 @@
+name: Deploy
+
+# Only run on main branch pushes and tags
+on:
+  push:
+    branches: [ main ]
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-publish:
+    name: Build and Publish Artifacts
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: agents/webui/frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: agents/webui/frontend
+        run: npm ci
+
+      - name: Build production frontend
+        working-directory: agents/webui/frontend
+        run: npm run build
+
+      - name: Create build info
+        run: |
+          echo "Build Date: $(date -u +"%Y-%m-%dT%H:%M:%SZ")" > agents/webui/dist/build-info.txt
+          echo "Git SHA: ${{ github.sha }}" >> agents/webui/dist/build-info.txt
+          echo "Git Ref: ${{ github.ref }}" >> agents/webui/dist/build-info.txt
+
+      - name: Upload production build
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-build
+          path: agents/webui/dist/
+          retention-days: 30
+
+      - name: Create release archive (on tags)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          cd agents/webui
+          tar -czf ../../webui-${{ github.ref_name }}.tar.gz dist/
+          cd ../..
+
+      - name: Create GitHub Release (on tags)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: webui-${{ github.ref_name }}.tar.gz
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  notify-success:
+    name: Notify Success
+    runs-on: ubuntu-latest
+    needs: build-and-publish
+    if: success()
+
+    steps:
+      - name: Success message
+        run: |
+          echo "✅ Build and deployment successful!"
+          echo "Build artifacts uploaded and ready for deployment"

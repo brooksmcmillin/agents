@@ -14,6 +14,7 @@ This is a multi-agent system built with Claude (Anthropic SDK) and Model Context
    - `business_advisor/` - Business strategy and monetization advisor
    - `task_manager/` - Interactive task management agent
    - `api/` - REST API server providing HTTP access to agents
+   - `webui/` - Modern React web interface for agents (requires Node.js)
    - `notifier/` - Lightweight task notification script (Slack)
 2. **Entry Points** (`bin/`) - Executable scripts for running agents and services
 3. **Configuration** (`config/`) - Server configuration and infrastructure
@@ -70,6 +71,44 @@ uv run python demo.py
 **Environment Configuration:**
 - Copy `.env.example` to `.env`
 - Add `ANTHROPIC_API_KEY=your_key_here`
+
+## Web UI
+
+The project includes a modern React web interface for interacting with agents:
+
+```bash
+# Development mode (requires Node.js 18+)
+cd agents/webui/frontend
+npm install
+npm run dev
+# Opens on http://localhost:5173 (dev server with hot reload)
+
+# Production build
+cd agents/webui/frontend
+npm run build
+# Output: agents/webui/dist/
+
+# Start server (serves both API and web UI)
+uv run python -m agents.api
+# Visit http://localhost:8080
+```
+
+**Features:**
+- Choose from 5 agents (chatbot, PR, tasks, security, business)
+- Persistent conversations backed by PostgreSQL
+- Create, rename, delete conversations
+- Real-time chat with token usage tracking
+- Dark mode with localStorage persistence
+- Responsive design
+
+**Tech Stack:**
+- React 18 + TypeScript + Vite
+- Tailwind CSS 3 with typography and forms plugins
+- Zustand for state management
+- Headless UI for accessible components
+- Heroicons for icons
+
+See [agents/webui/README.md](agents/webui/README.md) for detailed documentation.
 
 ## REST API Server
 
