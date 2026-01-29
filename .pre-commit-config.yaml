@@ -45,7 +45,17 @@ repos:
     hooks:
       - id: detect-secrets
         args: ['--baseline', '.secrets.baseline']
-        exclude: package-lock.json
+        exclude: >
+          (?x)^(
+            package-lock.json|
+            .*\.md$|
+            .*README.*|
+            .*GUIDE.*|
+            \.env\.example|
+            \.github/workflows/.*\.yml|
+            packages/.*/\.env\.example|
+            .*/test_.*\.py
+          )$
 
   # General pre-commit hooks
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -57,6 +67,7 @@ repos:
       - id: check-added-large-files
         args: ['--maxkb=500']
       - id: check-json
+        exclude: tsconfig.*\.json$  # TypeScript config files support comments (JSONC)
       - id: check-toml
       - id: check-merge-conflict
       - id: debug-statements

@@ -83,9 +83,7 @@ class BatchAgent(ABC):
         self._auth_token = token
         return token
 
-    async def call_tool(
-        self, name: str, arguments: dict[str, Any] | None = None
-    ) -> Any:
+    async def call_tool(self, name: str, arguments: dict[str, Any] | None = None) -> Any:
         """Call a tool on the connected remote MCP server.
 
         Args:
@@ -115,9 +113,7 @@ class BatchAgent(ABC):
         token = await self._ensure_token()
 
         logger.info(f"Connecting to MCP server at {self.mcp_url}...")
-        async with RemoteMCPClient(
-            self.mcp_url, auth_token=token, enable_oauth=False
-        ) as client:
+        async with RemoteMCPClient(self.mcp_url, auth_token=token, enable_oauth=False) as client:
             self._client = client
             logger.info("Connected successfully")
             try:

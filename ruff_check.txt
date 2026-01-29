@@ -1,0 +1,201 @@
+E722 Do not use bare `except`
+  --> agents/webui/frontend/node_modules/flatted/python/flatted.py:91:9
+   |
+89 |         try:
+90 |             return known.value[known.key.index(value)]
+91 |         except:
+   |         ^^^^^^
+92 |             return _index(known, input, value)
+   |
+
+F841 Local variable `original_cwd` is assigned to but never used
+  --> packages/agent-framework/tests/test_config.py:45:13
+   |
+43 |         with monkeypatch.context() as m:
+44 |             # Temporarily change the current directory to a temp location without .env
+45 |             original_cwd = os.getcwd()
+   |             ^^^^^^^^^^^^
+46 |             m.chdir(str(temp_dir))
+   |
+help: Remove assignment to unused variable `original_cwd`
+
+F841 Local variable `storage` is assigned to but never used
+  --> packages/agent-framework/tests/test_oauth_error_paths.py:74:13
+   |
+72 |         """Test token exchange when network fails mid-request."""
+73 |         with tempfile.TemporaryDirectory() as tmpdir:
+74 |             storage = TokenStorage(Path(tmpdir))
+   |             ^^^^^^^
+75 |             oauth_config = create_mock_oauth_config()
+76 |             flow_handler = OAuthFlowHandler(oauth_config=oauth_config)
+   |
+help: Remove assignment to unused variable `storage`
+
+F841 Local variable `storage` is assigned to but never used
+  --> packages/agent-framework/tests/test_oauth_error_paths.py:92:13
+   |
+90 |         """Test token refresh with connection timeout."""
+91 |         with tempfile.TemporaryDirectory() as tmpdir:
+92 |             storage = TokenStorage(Path(tmpdir))
+   |             ^^^^^^^
+93 |             oauth_config = create_mock_oauth_config()
+94 |             flow_handler = OAuthFlowHandler(oauth_config=oauth_config)
+   |
+help: Remove assignment to unused variable `storage`
+
+F841 Local variable `storage` is assigned to but never used
+   --> packages/agent-framework/tests/test_oauth_error_paths.py:108:13
+    |
+106 |         """Test client registration with network failure."""
+107 |         with tempfile.TemporaryDirectory() as tmpdir:
+108 |             storage = TokenStorage(Path(tmpdir))
+    |             ^^^^^^^
+109 |             oauth_config = create_mock_oauth_config()
+110 |             flow_handler = OAuthFlowHandler(oauth_config=oauth_config)
+    |
+help: Remove assignment to unused variable `storage`
+
+F841 Local variable `storage` is assigned to but never used
+   --> packages/agent-framework/tests/test_oauth_error_paths.py:122:13
+    |
+120 |         """Test device flow polling with intermittent network failures."""
+121 |         with tempfile.TemporaryDirectory() as tmpdir:
+122 |             storage = TokenStorage(Path(tmpdir))
+    |             ^^^^^^^
+123 |             oauth_config = create_mock_oauth_config()
+    |
+help: Remove assignment to unused variable `storage`
+
+F841 Local variable `storage` is assigned to but never used
+   --> packages/agent-framework/tests/test_oauth_error_paths.py:189:13
+    |
+187 |         """Test token exchange with malformed server response."""
+188 |         with tempfile.TemporaryDirectory() as tmpdir:
+189 |             storage = TokenStorage(Path(tmpdir))
+    |             ^^^^^^^
+190 |             oauth_config = create_mock_oauth_config()
+191 |             flow_handler = OAuthFlowHandler(oauth_config=oauth_config)
+    |
+help: Remove assignment to unused variable `storage`
+
+F841 Local variable `storage` is assigned to but never used
+   --> packages/agent-framework/tests/test_oauth_error_paths.py:214:13
+    |
+212 |         """Test token exchange with invalid token_type."""
+213 |         with tempfile.TemporaryDirectory() as tmpdir:
+214 |             storage = TokenStorage(Path(tmpdir))
+    |             ^^^^^^^
+215 |             oauth_config = create_mock_oauth_config()
+216 |             flow_handler = OAuthFlowHandler(oauth_config=oauth_config)
+    |
+help: Remove assignment to unused variable `storage`
+
+F841 Local variable `storage` is assigned to but never used
+   --> packages/agent-framework/tests/test_oauth_error_paths.py:241:13
+    |
+239 |         """Test token refresh with non-JSON error response."""
+240 |         with tempfile.TemporaryDirectory() as tmpdir:
+241 |             storage = TokenStorage(Path(tmpdir))
+    |             ^^^^^^^
+242 |             oauth_config = create_mock_oauth_config()
+243 |             flow_handler = OAuthFlowHandler(oauth_config=oauth_config)
+    |
+help: Remove assignment to unused variable `storage`
+
+F841 Local variable `storage` is assigned to but never used
+   --> packages/agent-framework/tests/test_oauth_error_paths.py:263:13
+    |
+261 |         """Test device authorization with missing device/user codes."""
+262 |         with tempfile.TemporaryDirectory() as tmpdir:
+263 |             storage = TokenStorage(Path(tmpdir))
+    |             ^^^^^^^
+264 |             oauth_config = create_mock_oauth_config()
+265 |             device_handler = DeviceFlowHandler(oauth_config=oauth_config)
+    |
+help: Remove assignment to unused variable `storage`
+
+F841 Local variable `storage` is assigned to but never used
+   --> packages/agent-framework/tests/test_oauth_error_paths.py:292:13
+    |
+290 |         """Test refresh when refresh token itself is expired."""
+291 |         with tempfile.TemporaryDirectory() as tmpdir:
+292 |             storage = TokenStorage(Path(tmpdir))
+    |             ^^^^^^^
+293 |             oauth_config = create_mock_oauth_config()
+294 |             flow_handler = OAuthFlowHandler(oauth_config=oauth_config)
+    |
+help: Remove assignment to unused variable `storage`
+
+F841 Local variable `storage` is assigned to but never used
+   --> packages/agent-framework/tests/test_oauth_error_paths.py:313:13
+    |
+311 |         """Test refresh when refresh token has been revoked."""
+312 |         with tempfile.TemporaryDirectory() as tmpdir:
+313 |             storage = TokenStorage(Path(tmpdir))
+    |             ^^^^^^^
+314 |             oauth_config = create_mock_oauth_config()
+315 |             flow_handler = OAuthFlowHandler(oauth_config=oauth_config)
+    |
+help: Remove assignment to unused variable `storage`
+
+F841 Local variable `storage` is assigned to but never used
+   --> packages/agent-framework/tests/test_oauth_error_paths.py:334:13
+    |
+332 |         """Test refresh when server returns invalid token format."""
+333 |         with tempfile.TemporaryDirectory() as tmpdir:
+334 |             storage = TokenStorage(Path(tmpdir))
+    |             ^^^^^^^
+335 |             oauth_config = create_mock_oauth_config()
+336 |             flow_handler = OAuthFlowHandler(oauth_config=oauth_config)
+    |
+help: Remove assignment to unused variable `storage`
+
+F841 Local variable `storage` is assigned to but never used
+   --> packages/agent-framework/tests/test_oauth_error_paths.py:360:13
+    |
+358 |         """Test behavior when multiple token refreshes happen concurrently."""
+359 |         with tempfile.TemporaryDirectory() as tmpdir:
+360 |             storage = TokenStorage(Path(tmpdir))
+    |             ^^^^^^^
+361 |             oauth_config = create_mock_oauth_config()
+362 |             flow_handler = OAuthFlowHandler(oauth_config=oauth_config)
+    |
+help: Remove assignment to unused variable `storage`
+
+F841 Local variable `storage` is assigned to but never used
+   --> packages/agent-framework/tests/test_oauth_error_paths.py:431:13
+    |
+429 |         """Test device flow with very rapid polling (should respect interval)."""
+430 |         with tempfile.TemporaryDirectory() as tmpdir:
+431 |             storage = TokenStorage(Path(tmpdir))
+    |             ^^^^^^^
+432 |             oauth_config = create_mock_oauth_config()
+433 |             device_handler = DeviceFlowHandler(oauth_config=oauth_config)
+    |
+help: Remove assignment to unused variable `storage`
+
+F841 Local variable `storage` is assigned to but never used
+   --> packages/agent-framework/tests/test_oauth_error_paths.py:468:13
+    |
+466 |         """Test OAuth flow with empty client ID."""
+467 |         with tempfile.TemporaryDirectory() as tmpdir:
+468 |             storage = TokenStorage(Path(tmpdir))
+    |             ^^^^^^^
+469 |             oauth_config = create_mock_oauth_config()
+    |
+help: Remove assignment to unused variable `storage`
+
+F841 Local variable `storage` is assigned to but never used
+   --> packages/agent-framework/tests/test_oauth_error_paths.py:481:13
+    |
+479 |         """Test handling of very long access token (e.g., JWT with many claims)."""
+480 |         with tempfile.TemporaryDirectory() as tmpdir:
+481 |             storage = TokenStorage(Path(tmpdir))
+    |             ^^^^^^^
+482 |             oauth_config = create_mock_oauth_config()
+483 |             flow_handler = OAuthFlowHandler(oauth_config=oauth_config)
+    |
+help: Remove assignment to unused variable `storage`
+
+Found 17 errors.
+No fixes available (16 hidden fixes can be enabled with the `--unsafe-fixes` option).

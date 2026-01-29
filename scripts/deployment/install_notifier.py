@@ -137,9 +137,7 @@ def install() -> bool:
     # Check if systemd is available
     if not is_systemd_available():
         print("❌ systemd user session not available!")
-        print(
-            "\nMake sure you're running in a systemd-based system with user sessions."
-        )
+        print("\nMake sure you're running in a systemd-based system with user sessions.")
         return False
 
     # Check if already installed
@@ -386,9 +384,7 @@ def status() -> None:
     print("=" * 60)
 
     if not installed:
-        print(
-            "\nTo install: uv run python -m scripts.deployment.install_notifier install"
-        )
+        print("\nTo install: uv run python -m scripts.deployment.install_notifier install")
 
 
 def test() -> bool:

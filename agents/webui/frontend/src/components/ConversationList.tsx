@@ -14,7 +14,7 @@ export function ConversationList() {
 
   useEffect(() => {
     loadConversations();
-  }, []);
+  }, [loadConversations]);
 
   if (isLoadingConversations) {
     return (

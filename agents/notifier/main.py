@@ -77,9 +77,7 @@ class TaskNotifier(BatchAgent):
         return overdue_tasks, today_tasks, upcoming_tasks
 
 
-def _format_task_message(
-    overdue: list[dict], today: list[dict], upcoming: list[dict]
-) -> str:
+def _format_task_message(overdue: list[dict], today: list[dict], upcoming: list[dict]) -> str:
     """Format task data into a Slack message."""
     parts = []
 
@@ -87,9 +85,7 @@ def _format_task_message(
     parts.append(f"*Task Update - {now.strftime('%A, %B %d, %Y at %I:%M %p')}*\n")
 
     if overdue:
-        parts.append(
-            f"\n:warning: *{len(overdue)} Overdue Task{'s' if len(overdue) != 1 else ''}*"
-        )
+        parts.append(f"\n:warning: *{len(overdue)} Overdue Task{'s' if len(overdue) != 1 else ''}*")
         for task in overdue[:5]:
             title = task.get("title", "Untitled")
             due = task.get("due_date", "No due date")
@@ -100,9 +96,7 @@ def _format_task_message(
             parts.append(f"...and {len(overdue) - 5} more")
 
     if today:
-        parts.append(
-            f"\n:calendar: *{len(today)} Task{'s' if len(today) != 1 else ''} Due Today*"
-        )
+        parts.append(f"\n:calendar: *{len(today)} Task{'s' if len(today) != 1 else ''} Due Today*")
         for task in today[:5]:
             title = task.get("title", "Untitled")
             priority = parse_priority(task.get("priority"))

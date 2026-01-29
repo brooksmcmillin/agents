@@ -23,7 +23,7 @@ Modern React web interface for the multi-agent system with persistent conversati
 
 ## Prerequisites
 
-- Node.js 18+ and npm
+- Node.js 20.19+ or 22.12+ and npm (required for Vite 7+)
 - Python 3.11+ with `uv`
 - PostgreSQL database (for persistent conversations)
 
@@ -50,7 +50,7 @@ Set up PostgreSQL and configure the connection:
 
 ```bash
 # In project root
-export DATABASE_URL=postgresql://user:password@localhost:5432/agents
+export DATABASE_URL=postgresql://user:password@localhost:5432/agents  # pragma: allowlist secret
 ```
 
 ## Development

@@ -64,6 +64,7 @@ class JMAPClient:
             self._session = response.json()
 
         # Extract primary account ID and API URL
+        assert self._session is not None  # Guaranteed by line 52-53
         accounts = self._session.get("accounts", {})
         primary_accounts = self._session.get("primaryAccounts", {})
 
@@ -92,6 +93,7 @@ class JMAPClient:
             JMAP response with methodResponses
         """
         await self._ensure_session()
+        assert self._api_url is not None  # Guaranteed by _ensure_session
 
         request_body = {
             "using": list(JMAP_CAPABILITIES.values()),
@@ -1165,7 +1167,9 @@ async def move_email(
         current_mailboxes = emails[0].get("mailboxIds", {})
 
         # Build update: remove from all current, add to target
-        mailbox_update = {target_mailbox_id: True}
+        # Ensure target_mailbox_id is str for type checking
+        target_mailbox_id = str(target_mailbox_id)
+        mailbox_update: dict[str, bool | None] = {target_mailbox_id: True}
         for mailbox_id in current_mailboxes:
             if mailbox_id != target_mailbox_id:
                 mailbox_update[mailbox_id] = None  # Remove

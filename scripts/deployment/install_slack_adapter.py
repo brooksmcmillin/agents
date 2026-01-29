@@ -93,9 +93,7 @@ def install() -> bool:
     # Check if root
     if not is_root():
         print("❌ This script must be run as root!")
-        print(
-            "   Try: sudo uv run python scripts/deployment/install_slack_adapter.py install"
-        )
+        print("   Try: sudo uv run python scripts/deployment/install_slack_adapter.py install")
         return False
 
     project_root = get_project_root()
@@ -256,9 +254,7 @@ def status() -> None:
     # Show systemctl status
     if is_service_installed():
         print("\n--- systemctl status ---")
-        result = run_cmd(
-            ["systemctl", "status", SERVICE_NAME, "--no-pager"], check=False
-        )
+        result = run_cmd(["systemctl", "status", SERVICE_NAME, "--no-pager"], check=False)
         print(result.stdout)
         if result.stderr:
             print(result.stderr)

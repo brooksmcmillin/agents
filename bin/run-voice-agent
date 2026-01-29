@@ -26,19 +26,19 @@ if chasm_path.exists():
 
 try:
     from chasm.gui import create_gui
-    from chasm.voice_adapter import VoiceAdapter
 except ImportError as e:
     print(f"Error: Could not import chasm library: {e}")
     print("\nMake sure chasm is installed:")
     print("  cd ../chasm && uv pip install -e .")
     sys.exit(1)
 
-from agents.business_advisor.main import BusinessAdvisorAgent
-from agents.chatbot.main import ChatbotAgent
-from agents.pr_agent.main import PRAgent
-from agents.security_researcher.main import SecurityResearcherAgent
-from agents.task_manager.main import TaskManagerAgent
-from shared import DEFAULT_MCP_SERVER_URL, ENV_MCP_SERVER_URL
+# Import after chasm check to avoid import errors  # noqa: E402
+from agents.business_advisor.main import BusinessAdvisorAgent  # noqa: E402
+from agents.chatbot.main import ChatbotAgent  # noqa: E402
+from agents.pr_agent.main import PRAgent  # noqa: E402
+from agents.security_researcher.main import SecurityResearcherAgent  # noqa: E402
+from agents.task_manager.main import TaskManagerAgent  # noqa: E402
+from shared import DEFAULT_MCP_SERVER_URL, ENV_MCP_SERVER_URL  # noqa: E402
 
 # Registry of available agents (same as run_agent.py)
 AGENTS: dict[str, tuple[type, dict | None]] = {

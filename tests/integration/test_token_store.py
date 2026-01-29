@@ -104,9 +104,7 @@ class TestTokenStore:
     def encrypted_store(self, tmp_path: Path) -> TokenStore:
         """Create a temporary encrypted token store."""
         key = Fernet.generate_key().decode()
-        return TokenStore(
-            storage_path=tmp_path / "tokens_encrypted", encryption_key=key
-        )
+        return TokenStore(storage_path=tmp_path / "tokens_encrypted", encryption_key=key)
 
     def test_store_creates_directory(self, tmp_path: Path):
         """Test that store creates storage directory if it doesn't exist."""

@@ -20,9 +20,7 @@ SecurityResearcherAgent = create_simple_agent(
     name="SecurityResearcherAgent",
     system_prompt=SYSTEM_PROMPT,
     greeting=USER_GREETING_PROMPT,
-    allowed_tools=(
-        ["fetch_web_content"] + RAG_TOOLS + MEMORY_TOOLS + COMMUNICATION_TOOLS
-    ),
+    allowed_tools=(["fetch_web_content"] + RAG_TOOLS + MEMORY_TOOLS + COMMUNICATION_TOOLS),
 )
 
 

@@ -176,7 +176,7 @@ class DatabaseConversationStore:
             logger.debug("Database tables and indexes ensured")
 
     @asynccontextmanager
-    async def _get_connection(self) -> AsyncGenerator[asyncpg.Connection, None]:
+    async def _get_connection(self) -> AsyncGenerator[Any, None]:
         """Get a connection from the pool."""
         if not self._initialized:
             await self.initialize()

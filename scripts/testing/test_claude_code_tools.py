@@ -39,9 +39,7 @@ async def test_list_workspaces():
 async def test_create_workspace(folder_name: str, git_repo_url: str | None = None):
     """Test creating a workspace."""
     print(f"\n=== Testing create_claude_code_workspace: {folder_name} ===")
-    result = await create_claude_code_workspace(
-        folder_name=folder_name, git_repo_url=git_repo_url
-    )
+    result = await create_claude_code_workspace(folder_name=folder_name, git_repo_url=git_repo_url)
     print(f"Success: {result['success']}")
     print(f"Path: {result['workspace_path']}")
     print(f"Git repo: {result['is_git_repo']}")
@@ -119,9 +117,7 @@ async def run_basic_tests():
                 timeout=60,
             )
         except Exception as e:
-            print(
-                f"Note: Claude Code execution failed (expected if CLI not installed): {e}"
-            )
+            print(f"Note: Claude Code execution failed (expected if CLI not installed): {e}")
 
         # Delete workspace
         await test_delete_workspace(test_ws_name, force=True)

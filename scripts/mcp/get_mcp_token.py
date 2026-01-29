@@ -78,9 +78,7 @@ async def get_oauth_token() -> str | None:
             )
         else:
             error = request.query.get("error", "Unknown error")
-            return web.Response(
-                text=f"❌ Authorization failed: {error}", content_type="text/html"
-            )
+            return web.Response(text=f"❌ Authorization failed: {error}", content_type="text/html")
 
     app.router.add_get("/callback", callback)
 

@@ -220,9 +220,7 @@ Examples:
     if not module_file.exists():
         print(f"❌ MCP server not found at: {module_file}")
         print(f"   (Looking for module: {module_path})")
-        print(
-            "Specify path with --server flag (use relative path like 'mcp_server/server.py')"
-        )
+        print("Specify path with --server flag (use relative path like 'mcp_server/server.py')")
         sys.exit(1)
 
     print(f"📂 Using MCP server module: {module_path}")

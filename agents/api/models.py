@@ -9,9 +9,7 @@ from pydantic import BaseModel, Field
 class MessageRequest(BaseModel):
     """Request body for sending a message to an agent."""
 
-    message: str = Field(
-        ..., min_length=1, description="The user message to send to the agent"
-    )
+    message: str = Field(..., min_length=1, description="The user message to send to the agent")
 
 
 class TokenUsage(BaseModel):
@@ -186,9 +184,7 @@ class ClaudeCodeCreateWorkspaceRequest(BaseModel):
 class ClaudeCodeDeleteWorkspaceRequest(BaseModel):
     """Request body for deleting a workspace."""
 
-    force: bool = Field(
-        False, description="Force deletion even with uncommitted changes"
-    )
+    force: bool = Field(False, description="Force deletion even with uncommitted changes")
 
 
 class ClaudeCodeInputRequest(BaseModel):
