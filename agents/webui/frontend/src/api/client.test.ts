@@ -4,7 +4,7 @@ import { apiClient } from './client';
 describe('ApiClient', () => {
   beforeEach(() => {
     // Reset fetch mock before each test
-    global.fetch = vi.fn();
+    globalThis.fetch = vi.fn() as any;
   });
 
   describe('listAgents', () => {
@@ -16,14 +16,14 @@ describe('ApiClient', () => {
         ],
       };
 
-      (global.fetch as any).mockResolvedValueOnce({
+      (globalThis.fetch as any).mockResolvedValueOnce({
         ok: true,
         json: async () => mockResponse,
       });
 
       const result = await apiClient.listAgents();
 
-      expect(global.fetch).toHaveBeenCalledWith(
+      expect(globalThis.fetch).toHaveBeenCalledWith(
         '/agents',
         expect.objectContaining({
           headers: expect.objectContaining({
@@ -35,7 +35,7 @@ describe('ApiClient', () => {
     });
 
     it('should handle API errors', async () => {
-      (global.fetch as any).mockResolvedValueOnce({
+      (globalThis.fetch as any).mockResolvedValueOnce({
         ok: false,
         status: 500,
         statusText: 'Internal Server Error',
@@ -64,7 +64,7 @@ describe('ApiClient', () => {
         offset: 0,
       };
 
-      (global.fetch as any).mockResolvedValueOnce({
+      (globalThis.fetch as any).mockResolvedValueOnce({
         ok: true,
         json: async () => mockResponse,
       });
@@ -88,7 +88,7 @@ describe('ApiClient', () => {
         message_count: 0,
       };
 
-      (global.fetch as any).mockResolvedValueOnce({
+      (globalThis.fetch as any).mockResolvedValueOnce({
         ok: true,
         json: async () => mockConversation,
       });
@@ -98,7 +98,7 @@ describe('ApiClient', () => {
         title: 'New Chat',
       });
 
-      expect(global.fetch).toHaveBeenCalledWith(
+      expect(globalThis.fetch).toHaveBeenCalledWith(
         '/conversations',
         expect.objectContaining({
           method: 'POST',
@@ -123,14 +123,14 @@ describe('ApiClient', () => {
         },
       };
 
-      (global.fetch as any).mockResolvedValueOnce({
+      (globalThis.fetch as any).mockResolvedValueOnce({
         ok: true,
         json: async () => mockResponse,
       });
 
       const result = await apiClient.sendMessage('conv-1', { message: 'Hello' });
 
-      expect(global.fetch).toHaveBeenCalledWith(
+      expect(globalThis.fetch).toHaveBeenCalledWith(
         '/conversations/conv-1/message',
         expect.objectContaining({
           method: 'POST',
@@ -143,14 +143,14 @@ describe('ApiClient', () => {
 
   describe('deleteConversation', () => {
     it('should delete a conversation', async () => {
-      (global.fetch as any).mockResolvedValueOnce({
+      (globalThis.fetch as any).mockResolvedValueOnce({
         ok: true,
         json: async () => ({ status: 'deleted' }),
       });
 
       const result = await apiClient.deleteConversation('conv-1');
 
-      expect(global.fetch).toHaveBeenCalledWith(
+      expect(globalThis.fetch).toHaveBeenCalledWith(
         '/conversations/conv-1',
         expect.objectContaining({
           method: 'DELETE',
