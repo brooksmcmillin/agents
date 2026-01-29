@@ -173,7 +173,7 @@ class DatabaseMemoryStore:
             logger.debug("Database table and indexes ensured")
 
     @asynccontextmanager
-    async def _get_connection(self) -> AsyncGenerator[asyncpg.Connection, None]:
+    async def _get_connection(self) -> AsyncGenerator[Any, None]:
         """Get a connection from the pool."""
         if not self._initialized:
             await self.initialize()
@@ -429,8 +429,12 @@ class DatabaseMemoryStore:
         return {
             "total_memories": total,
             "categories": categories,
-            "oldest_memory": dates["oldest"].replace(tzinfo=None) if dates["oldest"] else None,
-            "newest_memory": dates["newest"].replace(tzinfo=None) if dates["newest"] else None,
+            "oldest_memory": dates["oldest"].replace(tzinfo=None)
+            if dates and dates["oldest"]
+            else None,
+            "newest_memory": dates["newest"].replace(tzinfo=None)
+            if dates and dates["newest"]
+            else None,
         }
 
     def _row_to_memory(self, row: asyncpg.Record) -> Memory:

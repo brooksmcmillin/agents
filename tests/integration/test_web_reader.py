@@ -388,9 +388,7 @@ class TestErrorHandling:
         """Test handling of connection errors."""
         with patch("httpx.AsyncClient") as mock_client_class:
             mock_instance = AsyncMock()
-            mock_instance.get = AsyncMock(
-                side_effect=httpx.ConnectError("Connection refused")
-            )
+            mock_instance.get = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
             mock_client_class.return_value.__aenter__.return_value = mock_instance
 
             with pytest.raises(ValueError, match="Failed to fetch URL"):

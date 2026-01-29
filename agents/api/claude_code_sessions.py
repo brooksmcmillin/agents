@@ -81,7 +81,7 @@ class SessionEvent:
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to JSON-serializable dictionary."""
-        result = {
+        result: dict[str, Any] = {
             "type": self.type.value,
             "timestamp": self.timestamp.isoformat(),
         }
@@ -217,9 +217,7 @@ class ClaudeCodeSession:
         # Start reading output in background
         self._read_task = asyncio.create_task(self._read_output())
 
-        logger.info(
-            f"Started Claude Code session {self.session_id} in {self.workspace_path}"
-        )
+        logger.info(f"Started Claude Code session {self.session_id} in {self.workspace_path}")
 
     async def _read_output(self) -> None:
         """Continuously read output from PTY and emit events."""
@@ -228,9 +226,7 @@ class ClaudeCodeSession:
         while not self._terminated and self.master_fd is not None:
             try:
                 # Read from PTY (non-blocking via executor)
-                data = await loop.run_in_executor(
-                    None, self._read_pty_chunk
-                )
+                data = await loop.run_in_executor(None, self._read_pty_chunk)
 
                 if data is None:
                     # EOF or error
@@ -246,9 +242,7 @@ class ClaudeCodeSession:
                         self._pending_permission = permission
                         self.state = SessionState.WAITING_PERMISSION
                         self._emit_event(EventType.PERMISSION_REQUEST, permission)
-                        self._emit_event(
-                            EventType.STATE_CHANGE, {"state": self.state.value}
-                        )
+                        self._emit_event(EventType.STATE_CHANGE, {"state": self.state.value})
                         self._output_buffer = ""
                     else:
                         # Emit output event
@@ -298,7 +292,9 @@ class ClaudeCodeSession:
                     tool_type=tool_type,
                     description=match.group(0).strip(),
                     command=match.group(1) if match.lastindex and tool_type == "bash" else None,
-                    file_path=match.group(1) if match.lastindex and tool_type in ("edit", "write") else None,
+                    file_path=match.group(1)
+                    if match.lastindex and tool_type in ("edit", "write")
+                    else None,
                     raw_text=clean_text[-500:],  # Last 500 chars for context
                 )
 
@@ -333,10 +329,7 @@ class ClaudeCodeSession:
         """
         response = "y" if approved else "n"
         await self.send_input(response)
-        logger.info(
-            f"Session {self.session_id}: Permission "
-            f"{'approved' if approved else 'denied'}"
-        )
+        logger.info(f"Session {self.session_id}: Permission {'approved' if approved else 'denied'}")
 
     async def resize_terminal(self, rows: int, cols: int) -> None:
         """Resize the PTY terminal.
@@ -366,9 +359,7 @@ class ClaudeCodeSession:
         """Async iterator for session events."""
         while not self._terminated:
             try:
-                event = await asyncio.wait_for(
-                    self._event_queue.get(), timeout=30.0
-                )
+                event = await asyncio.wait_for(self._event_queue.get(), timeout=30.0)
                 yield event
 
                 if event.type in (EventType.COMPLETED, EventType.ERROR):
@@ -495,8 +486,7 @@ class ClaudeCodeSessionManager:
         """
         if len(self._sessions) >= self.max_sessions:
             raise ValueError(
-                f"Maximum sessions ({self.max_sessions}) reached. "
-                "Please close an existing session."
+                f"Maximum sessions ({self.max_sessions}) reached. Please close an existing session."
             )
 
         # Validate workspace
@@ -597,16 +587,14 @@ class ClaudeCodeSessionManager:
                         content = branch_file.read_text().strip()
                         if content.startswith("ref: refs/heads/"):
                             current_branch = content[16:]
-                except Exception:
-                    pass
+                except Exception:  # nosec B110
+                    pass  # Intentional fallback for discovery
 
             # Calculate size and file count
             try:
                 files = list(item.rglob("*"))
                 file_count = sum(1 for f in files if f.is_file())
-                size_bytes = sum(
-                    f.stat().st_size for f in files if f.is_file()
-                )
+                size_bytes = sum(f.stat().st_size for f in files if f.is_file())
                 size_mb = round(size_bytes / (1024 * 1024), 2)
             except Exception as e:
                 logger.warning(f"Failed to calculate size for {item}: {e}")
@@ -654,7 +642,10 @@ class ClaudeCodeSessionManager:
         if git_url:
             # Clone repository
             process = await asyncio.create_subprocess_exec(
-                "git", "clone", git_url, str(workspace_path),
+                "git",
+                "clone",
+                git_url,
+                str(workspace_path),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -666,7 +657,9 @@ class ClaudeCodeSessionManager:
             # Create empty directory with git init
             workspace_path.mkdir(parents=True)
             process = await asyncio.create_subprocess_exec(
-                "git", "init", str(workspace_path),
+                "git",
+                "init",
+                str(workspace_path),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -699,7 +692,9 @@ class ClaudeCodeSessionManager:
         # Check for uncommitted changes
         if not force and (workspace_path / ".git").exists():
             process = await asyncio.create_subprocess_exec(
-                "git", "status", "--porcelain",
+                "git",
+                "status",
+                "--porcelain",
                 cwd=str(workspace_path),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -707,9 +702,7 @@ class ClaudeCodeSessionManager:
             stdout, _ = await process.communicate()
 
             if stdout.strip():
-                raise ValueError(
-                    "Workspace has uncommitted changes. Use force=True to delete."
-                )
+                raise ValueError("Workspace has uncommitted changes. Use force=True to delete.")
 
         # Terminate any sessions using this workspace
         for session in list(self._sessions.values()):

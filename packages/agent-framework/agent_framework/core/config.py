@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     # RAG (Retrieval-Augmented Generation) Storage
     rag_database_url: str | None = Field(
         default=None,
-        description="PostgreSQL connection URL for RAG storage (e.g., postgresql://user:pass@localhost:5432/dbname)",
+        description="PostgreSQL connection URL for RAG storage (e.g., postgresql://user:pass@localhost:5432/dbname)",  # pragma: allowlist secret
     )
     openai_api_key: str | None = Field(
         default=None, description="OpenAI API key for generating embeddings"

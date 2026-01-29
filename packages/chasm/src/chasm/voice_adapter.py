@@ -14,7 +14,7 @@ import asyncio
 import io
 import os
 import queue
-import subprocess
+import subprocess  # nosec B404
 import threading
 import wave
 from collections.abc import Callable, Generator, Mapping
@@ -104,12 +104,8 @@ class VoiceAdapter:
 
     def _log_device_info(self) -> None:
         """Log audio device information."""
-        input_name = (
-            self._get_pulse_device_name("source") or self.input_device_info["name"]
-        )
-        output_name = (
-            self._get_pulse_device_name("sink") or self.output_device_info["name"]
-        )
+        input_name = self._get_pulse_device_name("source") or self.input_device_info["name"]
+        output_name = self._get_pulse_device_name("sink") or self.output_device_info["name"]
         print(f"Audio input:  {input_name}")
         print(f"Audio output: {output_name}")
 
@@ -117,7 +113,7 @@ class VoiceAdapter:
         """Get the actual device description from PulseAudio/PipeWire."""
         try:
             if device_type == "source":
-                result = subprocess.run(
+                result = subprocess.run(  # nosec B603 B607
                     ["pactl", "get-default-source"],
                     capture_output=True,
                     text=True,
@@ -126,7 +122,7 @@ class VoiceAdapter:
                 if result.returncode != 0:
                     return None
                 source_name = result.stdout.strip()
-                result = subprocess.run(
+                result = subprocess.run(  # nosec B603 B607
                     ["pactl", "list", "sources"],
                     capture_output=True,
                     text=True,
@@ -143,7 +139,7 @@ class VoiceAdapter:
                     elif in_target and line.startswith("Source #"):
                         break
             elif device_type == "sink":
-                result = subprocess.run(
+                result = subprocess.run(  # nosec B603 B607
                     ["pactl", "get-default-sink"],
                     capture_output=True,
                     text=True,
@@ -152,7 +148,7 @@ class VoiceAdapter:
                 if result.returncode != 0:
                     return None
                 sink_name = result.stdout.strip()
-                result = subprocess.run(
+                result = subprocess.run(  # nosec B603 B607
                     ["pactl", "list", "sinks"],
                     capture_output=True,
                     text=True,
@@ -174,15 +170,11 @@ class VoiceAdapter:
 
     def get_input_device_name(self) -> str:
         """Get the name of the current audio input device."""
-        return self._get_pulse_device_name("source") or str(
-            self.input_device_info["name"]
-        )
+        return self._get_pulse_device_name("source") or str(self.input_device_info["name"])
 
     def get_output_device_name(self) -> str:
         """Get the name of the current audio output device."""
-        return self._get_pulse_device_name("sink") or str(
-            self.output_device_info["name"]
-        )
+        return self._get_pulse_device_name("sink") or str(self.output_device_info["name"])
 
     def _get_event_loop(self) -> asyncio.AbstractEventLoop:
         """Get or create an event loop for async operations."""
@@ -266,9 +258,7 @@ class VoiceAdapter:
             # Process with agent (handles Claude + tools)
             self.on_status_change("Thinking...")
             loop = self._get_event_loop()
-            response_text = loop.run_until_complete(
-                self.agent.process_message(transcript)
-            )
+            response_text = loop.run_until_complete(self.agent.process_message(transcript))
 
             self.on_assistant_response(response_text)
 

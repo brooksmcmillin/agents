@@ -125,9 +125,7 @@ async def refresh_token(platform: str, user_id: str = "default"):
 
     if not client_id or not client_secret:
         print(f"❌ Missing OAuth credentials for {platform}")
-        print(
-            f"   Please set {platform.upper()}_CLIENT_ID and {platform.upper()}_CLIENT_SECRET"
-        )
+        print(f"   Please set {platform.upper()}_CLIENT_ID and {platform.upper()}_CLIENT_SECRET")
         return
 
     oauth_handler = OAuthHandler(
@@ -189,9 +187,7 @@ def main():
 
     elif command == "show":
         if len(sys.argv) < 3:
-            print(
-                "Usage: uv run python scripts/manage_tokens.py show <platform> [user_id]"
-            )
+            print("Usage: uv run python scripts/manage_tokens.py show <platform> [user_id]")
             sys.exit(1)
         platform = sys.argv[2]
         user_id = sys.argv[3] if len(sys.argv) > 3 else "default"
@@ -199,9 +195,7 @@ def main():
 
     elif command == "refresh":
         if len(sys.argv) < 3:
-            print(
-                "Usage: uv run python scripts/manage_tokens.py refresh <platform> [user_id]"
-            )
+            print("Usage: uv run python scripts/manage_tokens.py refresh <platform> [user_id]")
             sys.exit(1)
         platform = sys.argv[2]
         user_id = sys.argv[3] if len(sys.argv) > 3 else "default"
@@ -209,9 +203,7 @@ def main():
 
     elif command == "delete":
         if len(sys.argv) < 3:
-            print(
-                "Usage: uv run python scripts/manage_tokens.py delete <platform> [user_id]"
-            )
+            print("Usage: uv run python scripts/manage_tokens.py delete <platform> [user_id]")
             sys.exit(1)
         platform = sys.argv[2]
         user_id = sys.argv[3] if len(sys.argv) > 3 else "default"

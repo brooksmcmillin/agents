@@ -132,9 +132,7 @@ class TestConversationEndpoints:
         assert response.status_code == 503
         assert "not configured" in response.json()["detail"]
 
-    @pytest.mark.skip(
-        reason="Requires database configuration - tested in integration tests"
-    )
+    @pytest.mark.skip(reason="Requires database configuration - tested in integration tests")
     def test_list_conversations(self, client):
         """Test listing conversations with database."""
         pass
@@ -173,9 +171,7 @@ class TestConversationEndpoints:
 
     def test_update_conversation(self, client, mock_conversation_store):
         """Test updating conversation title."""
-        response = client.patch(
-            "/conversations/conv-1", json={"title": "Updated Title"}
-        )
+        response = client.patch("/conversations/conv-1", json={"title": "Updated Title"})
         assert response.status_code == 200
         data = response.json()
         assert data["title"] == "Updated Title"
@@ -193,9 +189,7 @@ class TestCORSConfiguration:
         """Test that CORS headers are properly configured."""
         # With DEV_MODE, should allow any origin
         with patch.dict(os.environ, {"DEV_MODE": "true"}):
-            response = client.options(
-                "/conversations", headers={"Origin": "http://example.com"}
-            )
+            response = client.options("/conversations", headers={"Origin": "http://example.com"})
             # In test mode, CORS may not be fully enabled
             # This is more of a configuration check
             assert response.status_code in [200, 405]
@@ -243,9 +237,7 @@ class TestMessageSending:
         # Mock conversation with messages
         mock_conversation_store.add_messages_batch = AsyncMock()
 
-        response = client.post(
-            "/conversations/conv-1/message", json={"message": "Hello"}
-        )
+        response = client.post("/conversations/conv-1/message", json={"message": "Hello"})
 
         assert response.status_code == 200
         data = response.json()
@@ -283,9 +275,8 @@ async def test_conversation_persistence_workflow():
     assert len(retrieved.messages) == 2
 
     # Update conversation
-    updated = await _conversation_store.update_conversation(
-        conv.id, title="Updated Title"
-    )
+    updated = await _conversation_store.update_conversation(conv.id, title="Updated Title")
+    assert updated is not None
     assert updated.title == "Updated Title"
 
     # Delete conversation

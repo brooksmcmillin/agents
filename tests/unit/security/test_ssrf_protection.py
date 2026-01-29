@@ -83,9 +83,7 @@ class TestSSRFValidator:
 
     def test_blocks_aws_metadata_endpoint(self):
         """Test that AWS metadata endpoint (169.254.169.254) is blocked."""
-        is_safe, reason = SSRFValidator.is_safe_url(
-            "http://169.254.169.254/latest/meta-data/"
-        )
+        is_safe, reason = SSRFValidator.is_safe_url("http://169.254.169.254/latest/meta-data/")
         assert not is_safe
         # Can be blocked as either "metadata" or "private" (link-local range)
         assert "metadata" in reason.lower() or "private" in reason.lower()

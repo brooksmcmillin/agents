@@ -22,9 +22,7 @@ class TokenData(BaseModel):
     access_token: str = Field(..., description="OAuth access token")
     refresh_token: str | None = Field(None, description="OAuth refresh token")
     token_type: str = Field(default="Bearer", description="Token type")
-    expires_at: datetime | None = Field(
-        None, description="Token expiration timestamp"
-    )
+    expires_at: datetime | None = Field(None, description="Token expiration timestamp")
     scope: str | None = Field(None, description="Token scopes")
 
     def is_expired(self) -> bool:
@@ -76,9 +74,7 @@ class TokenStore:
                     f"Failed to initialize encryption: {e}. Tokens will be stored unencrypted."
                 )
         else:
-            logger.warning(
-                "No encryption key provided. Tokens will be stored unencrypted."
-            )
+            logger.warning("No encryption key provided. Tokens will be stored unencrypted.")
 
     def _get_token_path(self, platform: str, user_id: str = "default") -> Path:
         """Get file path for storing token."""
@@ -125,9 +121,7 @@ class TokenStore:
             logger.error(f"Failed to retrieve token for {platform}:{user_id}: {e}")
             return None
 
-    def save_token(
-        self, platform: str, token_data: TokenData, user_id: str = "default"
-    ) -> bool:
+    def save_token(self, platform: str, token_data: TokenData, user_id: str = "default") -> bool:
         """
         Save token to storage.
 

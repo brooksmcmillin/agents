@@ -240,10 +240,7 @@ async def health() -> HealthResponse:
 async def list_agents() -> AgentListResponse:
     registry = _get_registry()
     return AgentListResponse(
-        agents=[
-            AgentInfo(name=name, description=desc)
-            for name, (_, _, desc) in registry.items()
-        ]
+        agents=[AgentInfo(name=name, description=desc) for name, (_, _, desc) in registry.items()]
     )
 
 
@@ -375,9 +372,7 @@ async def list_conversations(
     Use the agent query parameter to filter by specific agent type.
     """
     store = _get_conversation_store()
-    conversations = await store.list_conversations(
-        agent_name=agent, limit=limit, offset=offset
-    )
+    conversations = await store.list_conversations(agent_name=agent, limit=limit, offset=offset)
 
     # Get total count for pagination
     stats = await store.get_stats()
@@ -483,9 +478,7 @@ async def get_conversation(conversation_id: str) -> ConversationDetail:
 
 
 @app.post("/conversations/{conversation_id}/message", response_model=MessageResponse)
-async def conversation_message(
-    conversation_id: str, body: MessageRequest
-) -> MessageResponse:
+async def conversation_message(conversation_id: str, body: MessageRequest) -> MessageResponse:
     """Send a message to a persistent conversation.
 
     This loads the conversation history, creates a fresh agent instance,
@@ -947,6 +940,4 @@ if WEBUI_DIST.exists():
             detail="Web UI not built. Run 'npm run build' in agents/webui/frontend/",
         )
 else:
-    logger.info(
-        "Web UI not built. To enable, run 'npm run build' in agents/webui/frontend/"
-    )
+    logger.info("Web UI not built. To enable, run 'npm run build' in agents/webui/frontend/")

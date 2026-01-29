@@ -61,9 +61,7 @@ async def main():
     save_parser.add_argument("value", help="Memory value")
     save_parser.add_argument("--category", help="Category")
     save_parser.add_argument("--tags", nargs="+", help="Tags")
-    save_parser.add_argument(
-        "--importance", type=int, default=5, help="Importance (1-10)"
-    )
+    save_parser.add_argument("--importance", type=int, default=5, help="Importance (1-10)")
 
     # Delete memory
     delete_parser = subparsers.add_parser("delete", help="Delete a memory")

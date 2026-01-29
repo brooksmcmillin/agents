@@ -122,9 +122,7 @@ You would:
 5. Update saved information as needed"""
 
 
-def build_tool_feedback_example(
-    scenario: str, analysis_steps: list[str], feedback: str
-) -> str:
+def build_tool_feedback_example(scenario: str, analysis_steps: list[str], feedback: str) -> str:
     """Build a tool feedback workflow example.
 
     Args:
@@ -135,9 +133,7 @@ def build_tool_feedback_example(
     Returns:
         Formatted example workflow with tool feedback
     """
-    steps_text = "\n".join(
-        [f"{i + 1}. {step}" for i, step in enumerate(analysis_steps)]
-    )
+    steps_text = "\n".join([f"{i + 1}. {step}" for i, step in enumerate(analysis_steps)])
 
     return f"""### Example with Tool Feedback
 User: "{scenario}"

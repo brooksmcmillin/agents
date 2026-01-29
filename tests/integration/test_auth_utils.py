@@ -123,9 +123,7 @@ class TestGetValidTokenForMCP:
 
     @pytest.mark.asyncio
     @patch("shared.auth_utils.TokenStorage")
-    async def test_valid_token_returned_immediately(
-        self, mock_storage_class, valid_token
-    ):
+    async def test_valid_token_returned_immediately(self, mock_storage_class, valid_token):
         """Test that valid (non-expired) token is returned without refresh."""
         mock_storage = MagicMock()
         mock_storage.load_token.return_value = valid_token
@@ -155,9 +153,7 @@ class TestGetValidTokenForMCP:
 
     @pytest.mark.asyncio
     @patch("shared.auth_utils.TokenStorage")
-    async def test_expired_token_no_client_id(
-        self, mock_storage_class, expired_token_no_client_id
-    ):
+    async def test_expired_token_no_client_id(self, mock_storage_class, expired_token_no_client_id):
         """Test expired token without client_id returns None."""
         mock_storage = MagicMock()
         mock_storage.load_token.return_value = expired_token_no_client_id
@@ -213,9 +209,7 @@ class TestGetValidTokenForMCP:
         )
 
         # Check token was saved
-        mock_storage.save_token.assert_called_once_with(
-            "https://mcp.example.com/", refreshed_token
-        )
+        mock_storage.save_token.assert_called_once_with("https://mcp.example.com/", refreshed_token)
 
     @pytest.mark.asyncio
     @patch("shared.auth_utils.OAuthFlowHandler")
@@ -233,9 +227,7 @@ class TestGetValidTokenForMCP:
         mock_discover.return_value = mock_oauth_config
 
         mock_oauth_handler = MagicMock()
-        mock_oauth_handler.refresh_token = AsyncMock(
-            side_effect=httpx.HTTPError("Server error")
-        )
+        mock_oauth_handler.refresh_token = AsyncMock(side_effect=httpx.HTTPError("Server error"))
         mock_oauth_handler_class.return_value = mock_oauth_handler
 
         result = await get_valid_token_for_mcp("https://mcp.example.com")
@@ -259,9 +251,7 @@ class TestGetValidTokenForMCP:
         mock_discover.return_value = mock_oauth_config
 
         mock_oauth_handler = MagicMock()
-        mock_oauth_handler.refresh_token = AsyncMock(
-            side_effect=ValueError("Invalid token format")
-        )
+        mock_oauth_handler.refresh_token = AsyncMock(side_effect=ValueError("Invalid token format"))
         mock_oauth_handler_class.return_value = mock_oauth_handler
 
         result = await get_valid_token_for_mcp("https://mcp.example.com")
@@ -285,9 +275,7 @@ class TestGetValidTokenForMCP:
         mock_discover.return_value = mock_oauth_config
 
         mock_oauth_handler = MagicMock()
-        mock_oauth_handler.refresh_token = AsyncMock(
-            side_effect=KeyError("access_token")
-        )
+        mock_oauth_handler.refresh_token = AsyncMock(side_effect=KeyError("access_token"))
         mock_oauth_handler_class.return_value = mock_oauth_handler
 
         result = await get_valid_token_for_mcp("https://mcp.example.com")
@@ -311,9 +299,7 @@ class TestGetValidTokenForMCP:
         mock_discover.return_value = mock_oauth_config
 
         mock_oauth_handler = MagicMock()
-        mock_oauth_handler.refresh_token = AsyncMock(
-            side_effect=RuntimeError("Unexpected error")
-        )
+        mock_oauth_handler.refresh_token = AsyncMock(side_effect=RuntimeError("Unexpected error"))
         mock_oauth_handler_class.return_value = mock_oauth_handler
 
         with pytest.raises(RuntimeError, match="Unexpected error"):
@@ -324,9 +310,7 @@ class TestGetValidTokenForMCP:
     @pytest.mark.asyncio
     @patch("shared.auth_utils.discover_oauth_config")
     @patch("shared.auth_utils.TokenStorage")
-    async def test_oauth_discovery_failure(
-        self, mock_storage_class, mock_discover, expired_token
-    ):
+    async def test_oauth_discovery_failure(self, mock_storage_class, mock_discover, expired_token):
         """Test token refresh when OAuth discovery fails."""
         mock_storage = MagicMock()
         mock_storage.load_token.return_value = expired_token
@@ -423,9 +407,7 @@ class TestGetValidTokenForMCP:
         mock_discover.return_value = mock_oauth_config
 
         mock_oauth_handler = MagicMock()
-        mock_oauth_handler.refresh_token = AsyncMock(
-            side_effect=httpx.HTTPError("Network error")
-        )
+        mock_oauth_handler.refresh_token = AsyncMock(side_effect=httpx.HTTPError("Network error"))
         mock_oauth_handler_class.return_value = mock_oauth_handler
 
         await get_valid_token_for_mcp("https://mcp.example.com")

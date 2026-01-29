@@ -60,6 +60,7 @@ voice = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+addopts = "--import-mode=importlib"
 testpaths = [
     "tests",
     "packages/agent-framework/tests"
@@ -91,3 +92,4 @@ ignore = [
 
 [tool.bandit]
 exclude_dirs = ["tests", "scripts/deployment"]
+skips = ["B101"]  # Allow assert statements (legitimate in tests and type narrowing)

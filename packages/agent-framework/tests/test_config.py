@@ -10,16 +10,43 @@ class TestSettings:
 
     def test_settings_defaults(self, temp_dir: Path, monkeypatch):
         """Test Settings with default values."""
-        # Clear any existing API key from environment
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        # Use temp directory for storage paths
+        # Create an isolated environment without .env file
+        # Save and clear all environment variables that Settings uses
+        env_vars_to_clear = [
+            "ANTHROPIC_API_KEY",
+            "anthropic_api_key",
+            "SLACK_WEBHOOK_URL",
+            "slack_webhook_url",
+            "TOKEN_ENCRYPTION_KEY",
+            "token_encryption_key",
+            "OPENAI_API_KEY",
+            "openai_api_key",
+            "SLACK_BOT_TOKEN",
+            "slack_bot_token",
+            "SLACK_APP_TOKEN",
+            "slack_app_token",
+            "LAKERA_API_KEY",
+            "lakera_api_key",
+        ]
+
+        for key in env_vars_to_clear:
+            monkeypatch.delenv(key, raising=False)
+
+        # Patch _env_file to prevent loading from .env
         monkeypatch.setenv("TOKEN_STORAGE_PATH", str(temp_dir / "tokens"))
         monkeypatch.setenv("MEMORY_STORAGE_PATH", str(temp_dir / "memories"))
 
-        settings = Settings(
-            token_storage_path=temp_dir / "tokens",
-            memory_storage_path=temp_dir / "memories",
-        )
+        # Create settings with explicit _env_file=None to skip .env loading
+
+        with monkeypatch.context() as m:
+            # Temporarily change the current directory to a temp location without .env
+            m.chdir(str(temp_dir))
+
+            settings = Settings(
+                token_storage_path=temp_dir / "tokens",
+                memory_storage_path=temp_dir / "memories",
+                _env_file=None,  # Disable .env file loading
+            )
 
         assert settings.anthropic_api_key is None
         assert settings.mcp_server_host == "localhost"

@@ -147,9 +147,7 @@ class MCPAuth:
                 </body>
             </html>
             """
-            return web.Response(
-                text=response_html, content_type="text/html", status=400
-            )
+            return web.Response(text=response_html, content_type="text/html", status=400)
         else:
             return web.Response(text="❌ Missing authorization code", status=400)
 
@@ -208,9 +206,7 @@ class MCPAuth:
                         env_path = Path(".env")
                         if not env_path.exists():
                             env_path.touch()
-                        set_key(
-                            env_path, "MCP_CLIENT_ID", client_id, quote_mode="never"
-                        )
+                        set_key(env_path, "MCP_CLIENT_ID", client_id, quote_mode="never")
 
                         return client_id
                     else:
@@ -354,9 +350,7 @@ class MCPAuth:
                 # Use quote_mode='never' to avoid wrapping in quotes
                 set_key(env_path, "MCP_AUTH_TOKEN", access_token, quote_mode="never")
                 if refresh_token:
-                    set_key(
-                        env_path, "MCP_REFRESH_TOKEN", refresh_token, quote_mode="never"
-                    )
+                    set_key(env_path, "MCP_REFRESH_TOKEN", refresh_token, quote_mode="never")
                     print("✅ Refresh token also saved!")
 
                 print("\n💾 Token saved to .env file as MCP_AUTH_TOKEN")
@@ -407,9 +401,7 @@ async def test_connection():
         from agent_framework.core.remote_mcp_client import RemoteMCPClient
 
         # Try to connect and list tools
-        async with RemoteMCPClient(
-            MCP_SERVER_BASE, auth_token=token, enable_oauth=False
-        ) as client:
+        async with RemoteMCPClient(MCP_SERVER_BASE, auth_token=token, enable_oauth=False) as client:
             tools = await client.list_tools()
 
             print("✅ Connection successful!")
@@ -454,9 +446,7 @@ def show_config():
     print("  Auth Method: PKCE (no client secret needed)")
     print(f"  Redirect URI: {MCP_OAUTH_CONFIG['redirect_uri']}")
     print(f"  Scope: {MCP_OAUTH_CONFIG['scope']}")
-    print(
-        f"  Current Token: {'✅ Set' if os.getenv('MCP_AUTH_TOKEN') else '❌ Not set'}"
-    )
+    print(f"  Current Token: {'✅ Set' if os.getenv('MCP_AUTH_TOKEN') else '❌ Not set'}")
     print()
 
 

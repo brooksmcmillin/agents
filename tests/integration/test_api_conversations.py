@@ -4,7 +4,7 @@ These tests use FastAPI's TestClient and require a PostgreSQL database.
 Tests are skipped if no database URL is provided.
 
 To run these tests:
-    DATABASE_URL=postgresql://user:pass@host:5432/dbname pytest tests/integration/test_api_conversations.py -v
+    DATABASE_URL=postgresql://user:pass@host:5432/dbname pytest tests/integration/test_api_conversations.py -v  # pragma: allowlist secret
 """
 
 import os
@@ -73,9 +73,7 @@ class TestConversationEndpointsWithoutDatabase:
         # Create client without DATABASE_URL
         with patch.dict(os.environ, {}, clear=False):
             # Remove DATABASE_URL if it exists
-            env_without_db = {
-                k: v for k, v in os.environ.items() if k != "DATABASE_URL"
-            }
+            env_without_db = {k: v for k, v in os.environ.items() if k != "DATABASE_URL"}
             with patch.dict(os.environ, env_without_db, clear=True):
                 # Need to reset the conversation store
                 import agents.api.server as server_module
@@ -265,9 +263,7 @@ class TestConversationListing:
     def test_list_conversations_filter_by_agent(self, client, unique_id):
         """Test filtering conversations by agent."""
         # Create conversations with different agents
-        client.post(
-            "/conversations", json={"agent": "chatbot", "title": f"{unique_id}_chatbot"}
-        )
+        client.post("/conversations", json={"agent": "chatbot", "title": f"{unique_id}_chatbot"})
         client.post("/conversations", json={"agent": "pr", "title": f"{unique_id}_pr"})
 
         response = client.get("/conversations?agent=chatbot")
@@ -276,7 +272,8 @@ class TestConversationListing:
         data = response.json()
         # All returned should be chatbot
         for conv in data["conversations"]:
-            if unique_id in conv.get("title", ""):
+            title = conv.get("title") or ""
+            if unique_id in title:
                 assert conv["agent"] == "chatbot"
 
     def test_list_conversations_pagination(self, client, unique_id):
@@ -404,9 +401,7 @@ class TestConversationMessageManagement:
 
         # Send 3 messages (creates 6 messages total: 3 user + 3 assistant)
         for i in range(3):
-            client.post(
-                f"/conversations/{conv_id}/message", json={"message": f"Message {i}"}
-            )
+            client.post(f"/conversations/{conv_id}/message", json={"message": f"Message {i}"})
 
         # Get first 2 messages
         response = client.get(f"/conversations/{conv_id}/messages?limit=2&offset=0")
@@ -456,9 +451,7 @@ class TestConversationStats:
     def test_get_stats(self, client, unique_id):
         """Test getting conversation statistics."""
         # Create some conversations
-        client.post(
-            "/conversations", json={"agent": "chatbot", "title": f"{unique_id}_1"}
-        )
+        client.post("/conversations", json={"agent": "chatbot", "title": f"{unique_id}_1"})
         client.post("/conversations", json={"agent": "pr", "title": f"{unique_id}_2"})
 
         response = client.get("/conversations/stats")
