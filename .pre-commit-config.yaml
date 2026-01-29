@@ -13,11 +13,13 @@ repos:
       - id: ruff-format
 
   # Type checking
+  # NOTE: Pyright runs on entire codebase (~3.5s). For faster commits, run manually.
+  # To skip: SKIP=pyright git commit
   - repo: local
     hooks:
       - id: pyright
         name: pyright
-        entry: uv run pyright
+        entry: .venv/bin/pyright
         language: system
         types: [python]
         pass_filenames: false
