@@ -6,7 +6,7 @@ Uses real web scraping with BeautifulSoup and text analysis.
 
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 import httpx
@@ -468,7 +468,7 @@ async def analyze_website(
             result = {
                 "url": url,
                 "analysis_type": "tone",
-                "analyzed_at": datetime.now(timezone.utc).isoformat(),
+                "analyzed_at": datetime.now(UTC).isoformat(),
                 "results": tone_analysis,
                 "recommendations": recommendations
                 if recommendations
@@ -509,7 +509,7 @@ async def analyze_website(
             result = {
                 "url": url,
                 "analysis_type": "seo",
-                "analyzed_at": datetime.now(timezone.utc).isoformat(),
+                "analyzed_at": datetime.now(UTC).isoformat(),
                 "results": seo_analysis,
                 "recommendations": recommendations
                 if recommendations
@@ -537,7 +537,7 @@ async def analyze_website(
             result = {
                 "url": url,
                 "analysis_type": "engagement",
-                "analyzed_at": datetime.now(timezone.utc).isoformat(),
+                "analyzed_at": datetime.now(UTC).isoformat(),
                 "results": engagement_analysis,
                 "recommendations": recommendations
                 if recommendations

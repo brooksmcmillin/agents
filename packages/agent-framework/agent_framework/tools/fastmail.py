@@ -1317,7 +1317,7 @@ async def update_email_flags(
                 "message": f"JMAP error: {result[1].get('description')}",
             }
 
-        updated = result[1].get("updated", {})
+        _updated = result[1].get("updated", {})  # Reserved for future validation
         not_updated = result[1].get("notUpdated", {})
 
         if email_id in not_updated:

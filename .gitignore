@@ -50,6 +50,7 @@ htmlcov/
 coverage.xml
 coverage.json
 root_coverage.json
+coverage/
 *.cover
 
 # Type checking
@@ -85,3 +86,8 @@ Thumbs.db
 demo_output/
 test_output/
 scratch/
+
+# Web UI
+agents/webui/dist/
+agents/webui/frontend/node_modules/
+agents/webui/frontend/.env

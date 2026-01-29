@@ -119,7 +119,9 @@ async def run_basic_tests():
                 timeout=60,
             )
         except Exception as e:
-            print(f"Note: Claude Code execution failed (expected if CLI not installed): {e}")
+            print(
+                f"Note: Claude Code execution failed (expected if CLI not installed): {e}"
+            )
 
         # Delete workspace
         await test_delete_workspace(test_ws_name, force=True)

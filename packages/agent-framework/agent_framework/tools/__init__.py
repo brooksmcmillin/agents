@@ -1,5 +1,11 @@
 """Generic tools for agents."""
 
+# Collect all tool schemas from every tool module.  Each module exposes a
+# ``TOOL_SCHEMAS`` list of dicts with ``name``, ``description``,
+# ``input_schema``, and ``handler`` keys.  Importing them here gives server
+# code a single ``ALL_TOOL_SCHEMAS`` to iterate instead of manually
+# registering each tool inline.
+from .claude_code import TOOL_SCHEMAS as _claude_code_schemas
 from .claude_code import (
     create_claude_code_workspace,
     delete_claude_code_workspace,
@@ -7,7 +13,9 @@ from .claude_code import (
     list_claude_code_workspaces,
     run_claude_code,
 )
+from .content_suggestions import TOOL_SCHEMAS as _content_suggestions_schemas
 from .content_suggestions import suggest_content_topics
+from .fastmail import TOOL_SCHEMAS as _fastmail_schemas
 from .fastmail import (
     delete_email,
     get_email,
@@ -18,6 +26,7 @@ from .fastmail import (
     send_email,
     update_email_flags,
 )
+from .memory import TOOL_SCHEMAS as _memory_schemas
 from .memory import (
     configure_memory_store,
     delete_memory,
@@ -26,6 +35,7 @@ from .memory import (
     save_memory,
     search_memories,
 )
+from .rag import TOOL_SCHEMAS as _rag_schemas
 from .rag import (
     add_document,
     delete_document,
@@ -34,25 +44,14 @@ from .rag import (
     list_documents,
     search_documents,
 )
-from .slack import send_slack_message
-from .social_media import get_social_media_stats
-from .web_analyzer import analyze_website
-from .web_reader import fetch_web_content
-
-# Collect all tool schemas from every tool module.  Each module exposes a
-# ``TOOL_SCHEMAS`` list of dicts with ``name``, ``description``,
-# ``input_schema``, and ``handler`` keys.  Importing them here gives server
-# code a single ``ALL_TOOL_SCHEMAS`` to iterate instead of manually
-# registering each tool inline.
-from .claude_code import TOOL_SCHEMAS as _claude_code_schemas
-from .content_suggestions import TOOL_SCHEMAS as _content_suggestions_schemas
-from .fastmail import TOOL_SCHEMAS as _fastmail_schemas
-from .memory import TOOL_SCHEMAS as _memory_schemas
-from .rag import TOOL_SCHEMAS as _rag_schemas
 from .slack import TOOL_SCHEMAS as _slack_schemas
+from .slack import send_slack_message
 from .social_media import TOOL_SCHEMAS as _social_media_schemas
+from .social_media import get_social_media_stats
 from .web_analyzer import TOOL_SCHEMAS as _web_analyzer_schemas
+from .web_analyzer import analyze_website
 from .web_reader import TOOL_SCHEMAS as _web_reader_schemas
+from .web_reader import fetch_web_content
 
 ALL_TOOL_SCHEMAS: list[dict] = [
     *_web_reader_schemas,

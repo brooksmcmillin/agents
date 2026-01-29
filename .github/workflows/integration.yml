@@ -1,0 +1,120 @@
+name: Integration Tests
+
+# Run on main branch and PRs, but allow manual triggering
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  integration-tests:
+    name: Full Integration Tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: agents_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install Python dependencies
+        run: uv sync
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: agents/webui/frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: agents/webui/frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: agents/webui/frontend
+        run: npm run build
+
+      - name: Run database integration tests
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/agents_test
+        run: |
+          uv run pytest agents/api/test_server.py::test_conversation_persistence_workflow -v
+
+      - name: Start API server in background
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/agents_test
+          DEV_MODE: "true"
+        run: |
+          uv run python -m agents.api &
+          echo $! > api.pid
+          sleep 5
+
+      - name: Check API health
+        run: |
+          curl -f http://localhost:8080/health || exit 1
+          echo "✅ API server is healthy"
+
+      - name: Check API endpoints
+        run: |
+          # Test agent listing
+          curl -f http://localhost:8080/agents | jq '.agents | length' || exit 1
+
+          # Test conversation creation
+          CONV_ID=$(curl -f -X POST http://localhost:8080/conversations \
+            -H "Content-Type: application/json" \
+            -d '{"agent":"chatbot","title":"Test"}' | jq -r '.id')
+
+          echo "Created conversation: $CONV_ID"
+
+          # Test conversation retrieval
+          curl -f http://localhost:8080/conversations/$CONV_ID || exit 1
+
+          echo "✅ API integration tests passed"
+
+      - name: Stop API server
+        if: always()
+        run: |
+          if [ -f api.pid ]; then
+            kill $(cat api.pid) || true
+          fi
+
+  # Placeholder for future E2E tests
+  e2e-tests:
+    name: End-to-End Tests (Placeholder)
+    runs-on: ubuntu-latest
+    if: false  # Disabled until E2E tests are implemented
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Playwright
+        uses: microsoft/playwright-github-action@v1
+
+      # Future: Add Playwright E2E tests here
+      - name: Run E2E tests
+        run: echo "E2E tests not yet implemented"

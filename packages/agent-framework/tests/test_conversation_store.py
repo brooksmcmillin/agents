@@ -335,7 +335,9 @@ class TestConversationListing:
         )
 
         # Update the first conversation to make it newer
-        await conversation_store.update_conversation(conv1.id, title=f"test_{unique_id}_first_updated")
+        await conversation_store.update_conversation(
+            conv1.id, title=f"test_{unique_id}_first_updated"
+        )
 
         conversations = await conversation_store.list_conversations()
 
@@ -344,8 +346,12 @@ class TestConversationListing:
         assert len(test_convs) >= 2
 
         # First updated should come first (most recently updated)
-        first_idx = next(i for i, c in enumerate(test_convs) if c.title == f"test_{unique_id}_first_updated")
-        second_idx = next(i for i, c in enumerate(test_convs) if c.title == f"test_{unique_id}_second")
+        first_idx = next(
+            i for i, c in enumerate(test_convs) if c.title == f"test_{unique_id}_first_updated"
+        )
+        second_idx = next(
+            i for i, c in enumerate(test_convs) if c.title == f"test_{unique_id}_second"
+        )
         assert first_idx < second_idx
 
 

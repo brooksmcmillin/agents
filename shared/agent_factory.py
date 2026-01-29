@@ -59,6 +59,9 @@ def create_simple_agent(
             """Initialize the agent with configured tools."""
             if allowed_tools:
                 kwargs["allowed_tools"] = allowed_tools
+            # Set correct MCP server path for this project structure
+            if "mcp_server_path" not in kwargs:
+                kwargs["mcp_server_path"] = "config/mcp_server/server.py"
             super().__init__(**kwargs)
 
         def get_system_prompt(self) -> str:

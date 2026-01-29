@@ -83,7 +83,9 @@ class BatchAgent(ABC):
         self._auth_token = token
         return token
 
-    async def call_tool(self, name: str, arguments: dict[str, Any] | None = None) -> Any:
+    async def call_tool(
+        self, name: str, arguments: dict[str, Any] | None = None
+    ) -> Any:
         """Call a tool on the connected remote MCP server.
 
         Args:

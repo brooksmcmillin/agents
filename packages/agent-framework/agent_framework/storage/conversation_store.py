@@ -38,7 +38,7 @@ import logging
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import asyncpg
@@ -96,7 +96,7 @@ class DatabaseConversationStore:
 
         Args:
             database_url: PostgreSQL connection URL
-                         (e.g., postgresql://user:pass@host:5432/dbname)
+                         (e.g., postgresql://user:pass@host:5432/dbname)  # pragma: allowlist secret
             min_pool_size: Minimum connection pool size
             max_pool_size: Maximum connection pool size
         """
@@ -218,7 +218,7 @@ class DatabaseConversationStore:
         """
         conv_id = conversation_id or str(uuid.uuid4())
         metadata = metadata or {}
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         async with self._get_connection() as conn:
             await conn.execute(
@@ -331,7 +331,9 @@ class DatabaseConversationStore:
 
         limit_param = len(params) + 1
         offset_param = len(params) + 2
-        query += f" GROUP BY c.id ORDER BY c.updated_at DESC LIMIT ${limit_param} OFFSET ${offset_param}"
+        query += (
+            f" GROUP BY c.id ORDER BY c.updated_at DESC LIMIT ${limit_param} OFFSET ${offset_param}"
+        )
         params.extend([limit, offset])
 
         async with self._get_connection() as conn:
@@ -375,16 +377,17 @@ class DatabaseConversationStore:
 
         param_count += 1
         updates.append(f"updated_at = ${param_count}")
-        params.append(datetime.now(timezone.utc))
+        params.append(datetime.now(UTC))
 
         param_count += 1
         params.append(conversation_id)
 
+        # Safe: updates list contains only validated column names with parameterized values
         query = f"""
             UPDATE conversations
-            SET {', '.join(updates)}
+            SET {", ".join(updates)}
             WHERE id = ${param_count}
-        """
+        """  # nosec B608
 
         async with self._get_connection() as conn:
             result = await conn.execute(query, *params)
@@ -405,9 +408,7 @@ class DatabaseConversationStore:
             True if deleted, False if not found
         """
         async with self._get_connection() as conn:
-            result = await conn.execute(
-                "DELETE FROM conversations WHERE id = $1", conversation_id
-            )
+            result = await conn.execute("DELETE FROM conversations WHERE id = $1", conversation_id)
 
         deleted = result == "DELETE 1"
         if deleted:
@@ -438,7 +439,7 @@ class DatabaseConversationStore:
         Returns:
             The created Message object
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         content_json = json.dumps(content)
 
         async with self._get_connection() as conn:
@@ -501,7 +502,7 @@ class DatabaseConversationStore:
         if not messages:
             return []
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         result_messages = []
 
         async with self._get_connection() as conn:
@@ -611,7 +612,7 @@ class DatabaseConversationStore:
             # Update conversation timestamp
             await conn.execute(
                 "UPDATE conversations SET updated_at = $1 WHERE id = $2",
-                datetime.now(timezone.utc),
+                datetime.now(UTC),
                 conversation_id,
             )
 
@@ -628,9 +629,7 @@ class DatabaseConversationStore:
         """Get statistics about stored conversations."""
         async with self._get_connection() as conn:
             total_convs = await conn.fetchval("SELECT COUNT(*) FROM conversations")
-            total_msgs = await conn.fetchval(
-                "SELECT COUNT(*) FROM conversation_messages"
-            )
+            total_msgs = await conn.fetchval("SELECT COUNT(*) FROM conversation_messages")
 
             # Agent breakdown
             agent_rows = await conn.fetch(

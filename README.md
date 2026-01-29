@@ -1,5 +1,9 @@
 # Multi-Agent System
 
+[![Tests](https://github.com/YOUR_USERNAME/agents/workflows/Tests/badge.svg)](https://github.com/YOUR_USERNAME/agents/actions/workflows/tests.yml)
+[![Integration](https://github.com/YOUR_USERNAME/agents/workflows/Integration%20Tests/badge.svg)](https://github.com/YOUR_USERNAME/agents/actions/workflows/integration.yml)
+[![Deploy](https://github.com/YOUR_USERNAME/agents/workflows/Deploy/badge.svg)](https://github.com/YOUR_USERNAME/agents/actions/workflows/deploy.yml)
+
 A multi-agent system built with Claude (Anthropic SDK) and Model Context Protocol (MCP). This repository supports multiple specialized agents that share common infrastructure for content analysis, task management, and persistent memory.
 
 ## Overview
@@ -7,6 +11,7 @@ A multi-agent system built with Claude (Anthropic SDK) and Model Context Protoco
 This project demonstrates production-ready patterns for building LLM-powered agents with external tool integrations. It includes:
 
 - **Multiple Agents** - 7 specialized agents including PR assistant, chatbot, security researcher, business advisor, task manager, REST API server, and notification system
+- **Web UI** - Modern React interface for chatting with agents via persistent conversations
 - **Shared MCP Tools** - 29 tools including web analysis, memory, RAG document search, email management, and communication
 - **Hot Reload** - Edit tools without restarting agents
 - **OAuth Infrastructure** - Ready for real API integration
@@ -58,6 +63,12 @@ uv run python -m agents.task_manager.main
 
 # REST API Server - HTTP access to agents
 uv run python -m agents.api
+
+# Web UI - Modern React interface for agents
+# (requires npm and built frontend)
+cd agents/webui/frontend && npm install && npm run build
+cd ../../../ && uv run python -m agents.api
+# Visit http://localhost:8080
 
 # Notifier - Send Slack notifications about tasks
 uv run python -m agents.notifier.main
@@ -196,6 +207,44 @@ Lightweight notification script (not a full interactive agent):
 **Run:** `uv run python -m agents.notifier.main` | **[Documentation](agents/notifier/README.md)**
 
 See individual agent directories for detailed documentation and usage examples.
+
+## Web UI
+
+A modern React web interface for interacting with agents via persistent conversations.
+
+**Features:**
+- Choose from 5 specialized agents (chatbot, PR, tasks, security, business)
+- Database-backed conversations that survive server restarts
+- Create, rename, delete, and switch between conversations
+- Real-time chat with token usage tracking
+- Dark mode support
+- Responsive design for desktop and mobile
+
+**Setup:**
+```bash
+# Install Node.js dependencies
+cd agents/webui/frontend
+npm install
+
+# Development mode (hot reload)
+# Terminal 1: Backend
+uv run python -m agents.api
+
+# Terminal 2: Frontend
+npm run dev
+# Visit http://localhost:5173
+
+# Production build
+npm run build
+uv run python -m agents.api
+# Visit http://localhost:8080
+```
+
+**Requirements:**
+- Node.js 18+
+- PostgreSQL database (set `DATABASE_URL` environment variable)
+
+See [agents/webui/README.md](agents/webui/README.md) for detailed documentation.
 
 ## MCP Tools
 
@@ -492,14 +541,52 @@ rm memories/memories.json
 - Errors logged before returning to user
 - JSON for all tool results
 
+## CI/CD
+
+Automated testing and deployment with GitHub Actions.
+
+### Workflows
+
+**Tests (`tests.yml`)** - Runs on every push and PR
+- ✅ Backend tests (pytest with PostgreSQL)
+- ✅ Frontend tests (vitest)
+- ✅ Linting (ruff, eslint)
+- ✅ Type checking (TypeScript)
+- ✅ Build verification
+
+**Integration (`integration.yml`)** - Full integration tests
+- ✅ Database integration tests
+- ✅ API endpoint testing
+- 🚧 E2E tests (placeholder for Playwright)
+
+**Deploy (`deploy.yml`)** - Build and publish on tags
+- ✅ Production frontend build
+- ✅ Artifact upload
+- ✅ GitHub releases
+
+### Running Checks Locally
+
+```bash
+# Run all CI checks locally
+.github/workflows/test-local.sh
+
+# Or run individually:
+uv run pytest agents/api/test_server.py -v --cov
+cd agents/webui/frontend && npm test -- --run
+uv run ruff check . && uv run ruff format --check .
+```
+
+See [.github/workflows/README.md](.github/workflows/README.md) for detailed documentation.
+
 ## Contributing
 
 To extend this project:
 1. Follow existing code patterns
 2. Add type hints to all functions
 3. Write docstrings (Google style)
-4. Test with demo script
-5. Update documentation
+4. **Run tests locally** before pushing: `.github/workflows/test-local.sh`
+5. Ensure CI passes on your PR
+6. Update documentation
 
 ## License
 

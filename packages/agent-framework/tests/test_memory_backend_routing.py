@@ -8,7 +8,7 @@ These tests verify that:
 """
 
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -147,7 +147,6 @@ class TestMemoryToolsRouting:
     @pytest.mark.asyncio
     async def test_save_memory_uses_database_backend(self, monkeypatch):
         """Test that save_memory uses database backend when configured."""
-        from datetime import datetime
 
         monkeypatch.setenv("MEMORY_BACKEND", "database")
         monkeypatch.setenv("DATABASE_URL", "postgresql://test:pass@localhost/db")
@@ -167,8 +166,8 @@ class TestMemoryToolsRouting:
             category=None,
             tags=[],
             importance=5,
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
         )
         mock_db_store.save_memory.return_value = mock_memory
 

@@ -6,7 +6,7 @@ to save and retrieve important information across sessions.
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -25,10 +25,10 @@ class Memory(BaseModel):
     )
     tags: list[str] = Field(default_factory=list, description="Optional tags for filtering")
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc), description="When this memory was created"
+        default_factory=lambda: datetime.now(UTC), description="When this memory was created"
     )
     updated_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc), description="When this memory was last updated"
+        default_factory=lambda: datetime.now(UTC), description="When this memory was last updated"
     )
     importance: int = Field(default=5, description="Importance level 1-10")
 
@@ -140,7 +140,7 @@ class MemoryStore:
         if key in self.memories:
             memory = self.memories[key]
             memory.value = value
-            memory.updated_at = datetime.now(timezone.utc)
+            memory.updated_at = datetime.now(UTC)
             if category is not None:
                 memory.category = category
             if tags is not None:

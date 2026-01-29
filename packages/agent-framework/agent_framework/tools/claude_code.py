@@ -43,8 +43,7 @@ def _validate_folder_name(folder_name: str) -> None:
     # Prevent path traversal
     if ".." in folder_name or "/" in folder_name or "\\" in folder_name:
         raise ValueError(
-            f"Invalid folder name: {folder_name}. "
-            "Path traversal characters not allowed."
+            f"Invalid folder name: {folder_name}. Path traversal characters not allowed."
         )
 
 
@@ -134,9 +133,7 @@ async def run_claude_code(
         # Validate model
         model_map = {"sonnet": "sonnet", "haiku": "haiku", "opus": "opus"}
         if model.lower() not in model_map:
-            raise ValueError(
-                f"Unknown model: {model}. Valid options: {list(model_map.keys())}"
-            )
+            raise ValueError(f"Unknown model: {model}. Valid options: {list(model_map.keys())}")
 
         # Check if claude CLI is available
         if not shutil.which("claude"):
@@ -152,9 +149,7 @@ async def run_claude_code(
 
         # Prepare the command to send to Claude Code
         # Using a temporary file to avoid shell escaping issues
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".txt", delete=False
-        ) as tmp_file:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as tmp_file:
             tmp_file.write(full_command)
             tmp_file.flush()
             command_file = tmp_file.name
@@ -174,9 +169,7 @@ async def run_claude_code(
             if model.lower() != "sonnet":
                 claude_cmd.extend(["--model", model_map[model.lower()]])
 
-            logger.info(
-                f"Running Claude Code in {workspace_path} with command: {command[:100]}..."
-            )
+            logger.info(f"Running Claude Code in {workspace_path} with command: {command[:100]}...")
             logger.debug(f"Full command: {' '.join(claude_cmd)}")
 
             # Run claude code with timeout
@@ -188,15 +181,11 @@ async def run_claude_code(
             )
 
             try:
-                stdout, stderr = await asyncio.wait_for(
-                    process.communicate(), timeout=timeout
-                )
-            except asyncio.TimeoutError:
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+            except TimeoutError:
                 process.kill()
                 await process.wait()
-                raise TimeoutError(
-                    f"Claude Code execution exceeded timeout of {timeout}s"
-                )
+                raise TimeoutError(f"Claude Code execution exceeded timeout of {timeout}s")
 
             output = stdout.decode("utf-8", errors="replace")
             error_output = stderr.decode("utf-8", errors="replace")
@@ -204,9 +193,7 @@ async def run_claude_code(
             # Parse output to extract final response and turn count
             # Claude Code typically outputs conversation in a structured way
             final_response = output.strip().split("\n")[-1] if output else ""
-            turns_used = output.count(
-                "Assistant:"
-            )  # Rough estimate of turns used
+            turns_used = output.count("Assistant:")  # Rough estimate of turns used
 
             success = process.returncode == 0
 
@@ -222,9 +209,7 @@ async def run_claude_code(
             }
 
             if not success:
-                logger.warning(
-                    f"Claude Code exited with code {process.returncode}: {error_output}"
-                )
+                logger.warning(f"Claude Code exited with code {process.returncode}: {error_output}")
 
             logger.info(
                 f"Claude Code completed in {workspace_path} - "
@@ -281,7 +266,6 @@ async def list_claude_code_workspaces(
     """
     base_dir = Path(working_dir_base or DEFAULT_WORKSPACES_DIR).expanduser()
     try:
-
         # Create base directory if it doesn't exist
         base_dir.mkdir(parents=True, exist_ok=True)
 
@@ -293,9 +277,7 @@ async def list_claude_code_workspaces(
 
                 # Calculate approximate size
                 try:
-                    size_bytes = sum(
-                        f.stat().st_size for f in item.rglob("*") if f.is_file()
-                    )
+                    size_bytes = sum(f.stat().st_size for f in item.rglob("*") if f.is_file())
                     size_mb = round(size_bytes / (1024 * 1024), 2)
                 except Exception as e:
                     logger.warning(f"Failed to calculate size for {item}: {e}")
@@ -384,9 +366,7 @@ async def create_claude_code_workspace(
             if process.returncode != 0:
                 # Clean up failed clone
                 shutil.rmtree(workspace_path, ignore_errors=True)
-                raise RuntimeError(
-                    f"Git clone failed: {stderr.decode('utf-8', errors='replace')}"
-                )
+                raise RuntimeError(f"Git clone failed: {stderr.decode('utf-8', errors='replace')}")
 
             is_git_repo = True
         else:
@@ -559,9 +539,7 @@ async def get_claude_code_workspace_status(
 
         # Count files and calculate size
         file_count = sum(1 for _ in workspace_path.rglob("*") if _.is_file())
-        size_bytes = sum(
-            f.stat().st_size for f in workspace_path.rglob("*") if f.is_file()
-        )
+        size_bytes = sum(f.stat().st_size for f in workspace_path.rglob("*") if f.is_file())
         size_mb = round(size_bytes / (1024 * 1024), 2)
 
         return {
@@ -683,8 +661,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
         "name": "delete_claude_code_workspace",
         "description": (
-            "Delete a workspace folder. "
-            "Checks for uncommitted changes unless force=True."
+            "Delete a workspace folder. Checks for uncommitted changes unless force=True."
         ),
         "input_schema": {
             "type": "object",

@@ -65,13 +65,17 @@ def client(mock_agent):
 class TestConversationEndpointsWithoutDatabase:
     """Tests for conversation endpoints when database is not configured."""
 
-    @pytest.mark.skip(reason="Test isolation issue - lifespan context already initialized. Functionality verified in production.")
+    @pytest.mark.skip(
+        reason="Test isolation issue - lifespan context already initialized. Functionality verified in production."
+    )
     def test_list_conversations_without_db_returns_503(self):
         """Test that listing conversations returns 503 when DB not configured."""
         # Create client without DATABASE_URL
         with patch.dict(os.environ, {}, clear=False):
             # Remove DATABASE_URL if it exists
-            env_without_db = {k: v for k, v in os.environ.items() if k != "DATABASE_URL"}
+            env_without_db = {
+                k: v for k, v in os.environ.items() if k != "DATABASE_URL"
+            }
             with patch.dict(os.environ, env_without_db, clear=True):
                 from agents.api.server import app
 
@@ -262,7 +266,9 @@ class TestConversationListing:
     def test_list_conversations_filter_by_agent(self, client, unique_id):
         """Test filtering conversations by agent."""
         # Create conversations with different agents
-        client.post("/conversations", json={"agent": "chatbot", "title": f"{unique_id}_chatbot"})
+        client.post(
+            "/conversations", json={"agent": "chatbot", "title": f"{unique_id}_chatbot"}
+        )
         client.post("/conversations", json={"agent": "pr", "title": f"{unique_id}_pr"})
 
         response = client.get("/conversations?agent=chatbot")
@@ -399,7 +405,9 @@ class TestConversationMessageManagement:
 
         # Send 3 messages (creates 6 messages total: 3 user + 3 assistant)
         for i in range(3):
-            client.post(f"/conversations/{conv_id}/message", json={"message": f"Message {i}"})
+            client.post(
+                f"/conversations/{conv_id}/message", json={"message": f"Message {i}"}
+            )
 
         # Get first 2 messages
         response = client.get(f"/conversations/{conv_id}/messages?limit=2&offset=0")
@@ -449,7 +457,9 @@ class TestConversationStats:
     def test_get_stats(self, client, unique_id):
         """Test getting conversation statistics."""
         # Create some conversations
-        client.post("/conversations", json={"agent": "chatbot", "title": f"{unique_id}_1"})
+        client.post(
+            "/conversations", json={"agent": "chatbot", "title": f"{unique_id}_1"}
+        )
         client.post("/conversations", json={"agent": "pr", "title": f"{unique_id}_2"})
 
         response = client.get("/conversations/stats")
