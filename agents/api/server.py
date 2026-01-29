@@ -28,7 +28,7 @@ Run with:
 import logging
 import os
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query
@@ -579,7 +579,7 @@ async def export_conversation(conversation_id: str) -> ConversationExport:
             )
             for m in conv.messages
         ],
-        exported_at=datetime.utcnow(),
+        exported_at=datetime.now(timezone.utc),
     )
 
 

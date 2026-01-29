@@ -38,7 +38,7 @@ import logging
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import asyncpg
@@ -218,7 +218,7 @@ class DatabaseConversationStore:
         """
         conv_id = conversation_id or str(uuid.uuid4())
         metadata = metadata or {}
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         async with self._get_connection() as conn:
             await conn.execute(
@@ -375,7 +375,7 @@ class DatabaseConversationStore:
 
         param_count += 1
         updates.append(f"updated_at = ${param_count}")
-        params.append(datetime.utcnow())
+        params.append(datetime.now(timezone.utc))
 
         param_count += 1
         params.append(conversation_id)
@@ -438,7 +438,7 @@ class DatabaseConversationStore:
         Returns:
             The created Message object
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         content_json = json.dumps(content)
 
         async with self._get_connection() as conn:
@@ -501,7 +501,7 @@ class DatabaseConversationStore:
         if not messages:
             return []
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         result_messages = []
 
         async with self._get_connection() as conn:
@@ -611,7 +611,7 @@ class DatabaseConversationStore:
             # Update conversation timestamp
             await conn.execute(
                 "UPDATE conversations SET updated_at = $1 WHERE id = $2",
-                datetime.utcnow(),
+                datetime.now(timezone.utc),
                 conversation_id,
             )
 
