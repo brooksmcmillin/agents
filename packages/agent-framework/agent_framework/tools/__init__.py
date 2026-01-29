@@ -1,5 +1,12 @@
 """Generic tools for agents."""
 
+from .claude_code import (
+    create_claude_code_workspace,
+    delete_claude_code_workspace,
+    get_claude_code_workspace_status,
+    list_claude_code_workspaces,
+    run_claude_code,
+)
 from .content_suggestions import suggest_content_topics
 from .fastmail import (
     delete_email,
@@ -37,6 +44,7 @@ from .web_reader import fetch_web_content
 # ``input_schema``, and ``handler`` keys.  Importing them here gives server
 # code a single ``ALL_TOOL_SCHEMAS`` to iterate instead of manually
 # registering each tool inline.
+from .claude_code import TOOL_SCHEMAS as _claude_code_schemas
 from .content_suggestions import TOOL_SCHEMAS as _content_suggestions_schemas
 from .fastmail import TOOL_SCHEMAS as _fastmail_schemas
 from .memory import TOOL_SCHEMAS as _memory_schemas
@@ -55,6 +63,7 @@ ALL_TOOL_SCHEMAS: list[dict] = [
     *_content_suggestions_schemas,
     *_rag_schemas,
     *_fastmail_schemas,
+    *_claude_code_schemas,
 ]
 
 __all__ = [
@@ -86,4 +95,10 @@ __all__ = [
     "move_email",
     "update_email_flags",
     "delete_email",
+    # Claude Code tools
+    "run_claude_code",
+    "list_claude_code_workspaces",
+    "create_claude_code_workspace",
+    "delete_claude_code_workspace",
+    "get_claude_code_workspace_status",
 ]

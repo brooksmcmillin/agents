@@ -2,12 +2,58 @@ name: Claude Security Review
 
 on:
   pull_request:
-    types: [opened]
+    types: [opened, synchronize, reopened]
     paths:
       - "**/*.py"
 
 jobs:
   claude-security-review:
-    uses: brooksmcmillin/workflows/.github/workflows/claude-security-review.yml@main
-    secrets:
-      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Run Claude Security Review
+        id: claude-security-review
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
+            Please perform a security-focused review of this pull request. Analyze the changes for:
+
+            **Security Concerns:**
+            - Authentication and authorization vulnerabilities
+            - Injection attacks (SQL, command, code injection)
+            - Sensitive data exposure (credentials, API keys, PII)
+            - Insecure dependencies or imports
+            - Path traversal or file access issues
+            - Improper input validation or sanitization
+            - Cryptographic weaknesses
+            - OAuth/token handling issues
+            - Race conditions or TOCTOU vulnerabilities
+
+            **Code Quality (security-relevant):**
+            - Error handling that might leak sensitive info
+            - Logging that might expose secrets
+            - Unsafe deserialization
+            - Resource exhaustion possibilities
+
+            Use the repository's CLAUDE.md for guidance on the codebase architecture.
+
+            Be specific about any issues found, including file paths and line numbers.
+            If no security issues are found, briefly confirm the changes look safe.
+
+            Use `gh pr comment` with your Bash tool to leave your security review as a comment on the PR.
+
+          claude_args: '--allowed-tools "Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*)"'
