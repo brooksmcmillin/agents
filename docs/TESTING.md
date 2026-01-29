@@ -113,6 +113,41 @@ This script:
 - Shows detailed request/response logging
 - Lists available tools if connection succeeds
 
+## Claude Code Tools Testing
+
+Test the Claude Code automation tools for spawning headless instances:
+
+```bash
+# Run basic tests (create workspace, list, status, delete)
+uv run python scripts/testing/test_claude_code_tools.py basic
+
+# Test git repository cloning
+uv run python scripts/testing/test_claude_code_tools.py git
+
+# Just list existing workspaces
+uv run python scripts/testing/test_claude_code_tools.py list
+
+# Run all tests
+uv run python scripts/testing/test_claude_code_tools.py
+```
+
+**Note:** Running Claude Code requires the Claude CLI to be installed:
+```bash
+npm install -g @anthropics/claude-code
+```
+
+**What the tests verify:**
+- Workspace creation (empty and from git repo)
+- Workspace listing and status queries
+- Claude Code execution (if CLI is installed)
+- Workspace deletion with uncommitted change detection
+- Path validation and security
+
+**Workspace Directory:**
+By default, workspaces are stored in `~/.claude_code_workspaces/`. Set `CLAUDE_CODE_WORKSPACES_DIR` environment variable to use a different location.
+
+**See:** `docs/CLAUDE_CODE_TOOLS.md` for complete documentation.
+
 ## Agent Testing
 
 ### Quick Agent Tests

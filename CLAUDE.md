@@ -218,7 +218,7 @@ while not done:
 
 ## MCP Tools
 
-The MCP server exposes **29 tools** across 8 categories (defined in `packages/agent-framework/agent_framework/tools/`):
+The MCP server exposes **34 tools** across 9 categories (defined in `packages/agent-framework/agent_framework/tools/`):
 
 ### Web Analysis Tools (2 tools)
 - `fetch_web_content` - Fetch web content as clean markdown for LLM reading and analysis
@@ -260,6 +260,23 @@ The MCP server exposes **29 tools** across 8 categories (defined in `packages/ag
 
 ### Content Suggestion Tools (1 tool)
 - `suggest_content_topics` - Content idea generation - currently uses mock data
+
+### Claude Code Automation Tools (5 tools)
+- `run_claude_code` - Run headless Claude Code instance in a workspace with a command
+- `list_claude_code_workspaces` - List all available workspace folders
+- `create_claude_code_workspace` - Create new workspace, optionally clone git repo
+- `delete_claude_code_workspace` - Delete workspace folder (checks for uncommitted changes)
+- `get_claude_code_workspace_status` - Get detailed workspace status (git, files, size)
+
+**Workspace Directory:** Configurable via `CLAUDE_CODE_WORKSPACES_DIR` env var (default: `~/.claude_code_workspaces/`)
+
+**Use Cases:**
+- Meta-programming: Agents can spawn Claude Code to work on isolated codebases
+- Batch processing: Run same task across multiple project workspaces
+- Code review automation: Clone repos, run analysis, collect results
+- Testing automation: Create test environments, run tests, cleanup
+
+**See:** `docs/CLAUDE_CODE_TOOLS.md` for comprehensive documentation and examples.
 
 ### Tool Usage Examples
 
@@ -514,7 +531,7 @@ uv run python -m config.mcp_server.server
 **Working Now:**
 - Full agentic loop with Claude Sonnet 4.5
 - 7 specialized agents with different capabilities
-- 29 MCP tools across 8 categories (web, memory, RAG, email, communication, social, content)
+- 34 MCP tools across 9 categories (web, memory, RAG, email, communication, social, content, claude-code)
 - Real web scraping and content analysis
 - RAG document search with semantic similarity
 - FastMail email integration
