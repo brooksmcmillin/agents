@@ -6,8 +6,8 @@ A multi-agent system built with Claude (Anthropic SDK) and Model Context Protoco
 
 This project demonstrates production-ready patterns for building LLM-powered agents with external tool integrations. It includes:
 
-- **Multiple Agents** - PR assistant, task manager, and notification system
-- **Shared MCP Tools** - Content analysis, social media stats, persistent memory
+- **Multiple Agents** - 7 specialized agents including PR assistant, chatbot, security researcher, business advisor, task manager, REST API server, and notification system
+- **Shared MCP Tools** - 29 tools including web analysis, memory, RAG document search, email management, and communication
 - **Hot Reload** - Edit tools without restarting agents
 - **OAuth Infrastructure** - Ready for real API integration
 - **Remote MCP Support** - Deploy tools separately from agents
@@ -41,11 +41,23 @@ cp .env.example .env
 ### Run an Agent
 
 ```bash
+# Chatbot - General-purpose assistant with all tools
+uv run python -m agents.chatbot.main
+
 # PR Agent - Content strategy assistant
 uv run python -m agents.pr_agent.main
 
+# Security Researcher - AI security expert with RAG
+uv run python -m agents.security_researcher.main
+
+# Business Advisor - Monetization and strategy expert
+uv run python -m agents.business_advisor.main
+
 # Task Manager - Interactive task management
 uv run python -m agents.task_manager.main
+
+# REST API Server - HTTP access to agents
+uv run python -m agents.api
 
 # Notifier - Send Slack notifications about tasks
 uv run python -m agents.notifier.main
@@ -115,6 +127,17 @@ while not done:
 
 ## Available Agents
 
+### Chatbot
+General-purpose AI assistant with access to all 29 MCP tools:
+- Web content analysis and research
+- Persistent memory across conversations
+- RAG document search (requires PostgreSQL + OpenAI)
+- Email management via FastMail
+- Slack notifications
+- Multi-domain task support
+
+**Run:** `uv run python -m agents.chatbot.main` | **[Documentation](agents/chatbot/README.md)**
+
 ### PR Agent
 Content strategy assistant that helps with:
 - Blog post analysis and optimization
@@ -122,51 +145,120 @@ Content strategy assistant that helps with:
 - SEO recommendations
 - Brand voice consistency
 
-**Run:** `uv run python -m agents.pr_agent.main`
+**Run:** `uv run python -m agents.pr_agent.main` | **[Documentation](agents/pr_agent/README.md)**
+
+### Security Researcher
+AI/ML security expert with RAG-backed knowledge base:
+- Security research questions and vulnerability analysis
+- Blog post fact-checking for technical accuracy
+- Threat modeling and security reviews
+- Research paper search and synthesis
+- Requires PostgreSQL + OpenAI for RAG functionality
+
+**Run:** `uv run python -m agents.security_researcher.main` | **[Documentation](agents/security_researcher/README.md)**
+
+### Business Advisor
+Business strategy and monetization advisor:
+- Analyze GitHub repos and websites for opportunities
+- Generate business ideas with honest risk assessments
+- Develop comprehensive business plans
+- Market research and competitive analysis
+- Optional GitHub MCP integration
+
+**Run:** `uv run python -m agents.business_advisor.main` | **[Documentation](agents/business_advisor/README.md)**
 
 ### Task Manager
 Intelligent task management assistant:
-- Reschedule overdue tasks
-- Pre-research upcoming tasks
+- Reschedule overdue tasks evenly across calendar
+- Pre-research upcoming tasks with context
 - Prioritize based on urgency and dependencies
-- Connect to remote task management server
+- Connect to remote task management server (requires remote MCP)
 
-**Run:** `uv run python -m agents.task_manager.main`
+**Run:** `uv run python -m agents.task_manager.main` | **[Documentation](agents/task_manager/README.md)**
+
+### REST API Server
+HTTP/REST interface for accessing agents via API:
+- Stateless single-shot requests
+- Stateful multi-turn sessions with conversation history
+- Access to all 5 interactive agents (chatbot, pr, security, business, tasks)
+- Automatic session management with TTL
+- Token usage tracking per request
+
+**Run:** `uv run python -m agents.api` | **[Documentation](agents/api/README.md)**
 
 ### Task Notifier
-Lightweight notification script (not a full agent):
+Lightweight notification script (not a full interactive agent):
 - Sends Slack updates about open tasks
 - Categorizes overdue, due today, and upcoming
 - Can be run via cron for automated notifications
+- Requires remote MCP for task data
 
-**Run:** `uv run python -m agents.notifier.main`
+**Run:** `uv run python -m agents.notifier.main` | **[Documentation](agents/notifier/README.md)**
 
-See individual agent directories for detailed documentation.
+See individual agent directories for detailed documentation and usage examples.
 
 ## MCP Tools
 
-The MCP server exposes these tools to all agents:
+The MCP server exposes **29 tools** across 8 categories to agents:
 
-### Content Analysis Tools
-- `analyze_website` - Web content analysis (tone, SEO, engagement) with real web scraping
-- `fetch_web_content` - Fetch and read web content as clean markdown
-- `get_social_media_stats` - Social media metrics (currently mock data)
-- `suggest_content_topics` - Content idea generation (currently mock data)
+### Web Analysis (2 tools)
+- `fetch_web_content` - Fetch and read web content as clean markdown for analysis
+- `analyze_website` - Analyze website for SEO, tone, and engagement metrics
 
-### Memory Tools
-- `save_memory` - Save information with key/value/category/tags/importance
-- `get_memories` - Retrieve memories with filtering
+### Memory (6 tools)
+- `save_memory` - Save information with key/value/category/tags/importance (1-10 scale)
+- `get_memories` - Retrieve memories with filtering by category/tags/importance
 - `search_memories` - Search memories by keyword
+- `delete_memory` - Delete a memory by key
+- `get_memory_stats` - Get memory system statistics (total, categories, avg importance)
+- `configure_memory_store` - Configure memory backend (file or database)
 
-Memory persists across conversations in `memories/memories.json`.
+Memory persists across conversations (default: `memories/memories.json`, optional: PostgreSQL).
+
+### RAG Document Search (6 tools)
+*Requires PostgreSQL database and OpenAI API key for embeddings*
+
+- `add_document` - Add document to knowledge base for semantic search
+- `search_documents` - Search documents by query with similarity threshold
+- `get_document` - Retrieve full document by ID
+- `list_documents` - List all documents in knowledge base
+- `delete_document` - Delete document by ID
+- `get_rag_stats` - Get RAG system statistics (total docs, chunks, DB size)
+
+### Email Management - FastMail (8 tools)
+*Requires FastMail API token and account ID*
+
+- `list_mailboxes` - List all mailboxes
+- `get_emails` - Get emails from a mailbox with limit
+- `get_email` - Get single email by ID
+- `search_emails` - Search emails by query
+- `send_email` - Send an email with to/cc/bcc/subject/body
+- `move_email` - Move email to different mailbox
+- `update_email_flags` - Update email flags (seen, flagged)
+- `delete_email` - Delete an email permanently
+
+### Communication (1 tool)
+- `send_slack_message` - Send Slack notification via webhook
+
+### Social Media (1 tool)
+- `get_social_media_stats` - Get Twitter/LinkedIn stats (currently mock data, ready for OAuth integration)
+
+### Content Suggestions (1 tool)
+- `suggest_content_topics` - Generate content topic ideas (currently mock data)
+
+**Total: 29 tools** available to agents via MCP. See [GUIDES.md](GUIDES.md) for detailed usage guides and [agent-framework documentation](packages/agent-framework/) for technical details.
 
 ## Project Structure
 
 ```
 agents/
 ├── agents/              # Agent implementations
+│   ├── chatbot/         # General-purpose assistant with all tools
 │   ├── pr_agent/        # PR and content strategy assistant
+│   ├── security_researcher/  # AI security research expert
+│   ├── business_advisor/     # Business strategy and monetization
 │   ├── task_manager/    # Interactive task management
+│   ├── api/             # REST API server for agent access
 │   └── notifier/        # Slack notification script
 ├── bin/                 # Executable scripts
 │   ├── run-agent        # Main agent entry point
@@ -283,13 +375,17 @@ See [CLAUDE.md](CLAUDE.md#adding-new-agents) for detailed instructions.
 
 **Working Now:**
 - Full agentic loop with Claude Sonnet 4.5
-- 7 MCP tools (content analysis + memory)
+- 7 agents with specialized capabilities
+- 29 MCP tools (web, memory, RAG, email, communication)
 - Real web scraping and content analysis
-- Persistent memory across conversations
+- RAG document search with semantic similarity
+- FastMail email integration
+- Persistent memory across conversations (file or database backend)
 - Hot reload for tool development
-- OAuth infrastructure (not connected to real APIs)
+- OAuth infrastructure (ready for production integration)
 - Token usage tracking
-- Remote MCP support
+- Remote MCP support for distributed deployments
+- REST API server for HTTP access to agents
 
 **For Production:**
 - Integrate real social media APIs (Twitter, LinkedIn)
@@ -327,7 +423,9 @@ LINKEDIN_CLIENT_SECRET=...
 - **[CLAUDE.md](CLAUDE.md)** - Comprehensive project documentation for Claude Code
 - **[docs/TESTING.md](docs/TESTING.md)** - Testing and debugging guide (memory tools, logs, common issues)
 - **[docs/VOICE_AGENTS.md](docs/VOICE_AGENTS.md)** - Voice-enabled agents with chasm audio pipeline
-- **[GUIDES.md](GUIDES.md)** - Feature guides (hot reload, memory, remote MCP)
+- **[GUIDES.md](GUIDES.md)** - Feature guides (memory system, OAuth, deployment, voice interface)
+- **[REMOTE_MCP.md](REMOTE_MCP.md)** - Remote MCP server setup and configuration
+- **[HOT_RELOAD.md](HOT_RELOAD.md)** - Hot reload development workflow
 - **Agent READMEs** - See `agents/*/README.md` for agent-specific docs
 - **Code Comments** - Extensive inline documentation
 
@@ -368,7 +466,7 @@ rm memories/memories.json
 
 ## Technology Stack
 
-- **Python 3.12+**
+- **Python 3.11+**
 - **anthropic** - Official Anthropic SDK for Claude
 - **agent-framework** - Base agent class and MCP client (local package)
 - **chasm** - Voice interface library (local package, optional)

@@ -8,9 +8,12 @@ This is a multi-agent system built with Claude (Anthropic SDK) and Model Context
 
 **Architecture:**
 1. **Agents** (`agents/`) - Individual agent implementations, each in its own subdirectory
+   - `chatbot/` - General-purpose assistant with access to all 29 MCP tools
    - `pr_agent/` - PR and content strategy assistant
-   - `task_manager/` - Interactive task management agent
+   - `security_researcher/` - AI security research expert with RAG knowledge base
    - `business_advisor/` - Business strategy and monetization advisor
+   - `task_manager/` - Interactive task management agent
+   - `api/` - REST API server providing HTTP access to agents
    - `notifier/` - Lightweight task notification script (Slack)
 2. **Entry Points** (`bin/`) - Executable scripts for running agents and services
 3. **Configuration** (`config/`) - Server configuration and infrastructure
@@ -36,14 +39,23 @@ uv sync
 # Optional: Install voice interface dependencies (requires PortAudio system library)
 uv sync --group voice
 
+# Run the chatbot (general-purpose assistant)
+uv run python -m agents.chatbot.main
+
 # Run the PR agent
 uv run python -m agents.pr_agent.main
+
+# Run the security researcher (requires RAG database + OpenAI)
+uv run python -m agents.security_researcher.main
+
+# Run the business advisor agent
+uv run python -m agents.business_advisor.main
 
 # Run the task manager agent (requires remote MCP server)
 uv run python -m agents.task_manager.main
 
-# Run the business advisor agent
-uv run python -m agents.business_advisor.main
+# Run the REST API server (HTTP access to agents)
+uv run python -m agents.api
 
 # Send Slack notification about open tasks
 uv run python -m agents.notifier.main
@@ -206,18 +218,48 @@ while not done:
 
 ## MCP Tools
 
-The MCP server exposes 7 tools (defined in `config/mcp_server/server.py`):
+The MCP server exposes **29 tools** across 8 categories (defined in `packages/agent-framework/agent_framework/tools/`):
 
-### Content Analysis Tools
-- `analyze_website` - Web content analysis (tone, SEO, engagement) - uses real web scraping
+### Web Analysis Tools (2 tools)
 - `fetch_web_content` - Fetch web content as clean markdown for LLM reading and analysis
-- `get_social_media_stats` - Social media metrics (Twitter, LinkedIn) - currently uses mock data
-- `suggest_content_topics` - Content idea generation - currently uses mock data
+- `analyze_website` - Web content analysis (tone, SEO, engagement) - uses real web scraping
 
-### Memory Tools
-- `save_memory` - Save information with key/value/category/tags/importance
+### Memory Tools (6 tools)
+- `save_memory` - Save information with key/value/category/tags/importance (1-10 scale)
 - `get_memories` - Retrieve memories with filtering by category/tags/importance
 - `search_memories` - Search memories by keyword
+- `delete_memory` - Delete a memory by key
+- `get_memory_stats` - Get memory system statistics
+- `configure_memory_store` - Configure memory backend (file or database)
+
+### RAG Document Search Tools (6 tools)
+*Requires PostgreSQL database and OpenAI API key for embeddings*
+- `add_document` - Add document to knowledge base for semantic search
+- `search_documents` - Search documents by query with similarity threshold
+- `get_document` - Retrieve full document by ID
+- `list_documents` - List all documents in knowledge base
+- `delete_document` - Delete document by ID
+- `get_rag_stats` - Get RAG system statistics
+
+### FastMail Email Tools (8 tools)
+*Requires FastMail API token and account ID*
+- `list_mailboxes` - List all mailboxes
+- `get_emails` - Get emails from a mailbox
+- `get_email` - Get single email by ID
+- `search_emails` - Search emails by query
+- `send_email` - Send an email with to/cc/bcc/subject/body
+- `move_email` - Move email to different mailbox
+- `update_email_flags` - Update email flags (seen, flagged)
+- `delete_email` - Delete an email
+
+### Communication Tools (1 tool)
+- `send_slack_message` - Send Slack notification via webhook
+
+### Social Media Tools (1 tool)
+- `get_social_media_stats` - Social media metrics (Twitter, LinkedIn) - currently uses mock data, ready for OAuth integration
+
+### Content Suggestion Tools (1 tool)
+- `suggest_content_topics` - Content idea generation - currently uses mock data
 
 ### Tool Usage Examples
 
@@ -246,6 +288,42 @@ This tool is perfect for:
 - Extracting documentation for analysis
 - Getting content to answer questions about specific pages
 - Preparing content for further processing by Claude
+
+**Send Email via FastMail:**
+```python
+# Send an email (requires FASTMAIL_API_TOKEN and FASTMAIL_ACCOUNT_ID)
+result = await send_email(
+    to=["recipient@example.com"],
+    subject="Meeting Summary",
+    body="Here's a summary of our discussion...",
+    cc=["team@example.com"],  # optional
+)
+
+# Returns:
+# {
+#     "id": "email_id",
+#     "status": "sent",
+#     "to": ["recipient@example.com"]
+# }
+
+# Search emails
+results = await search_emails(
+    query="meeting notes",
+    limit=10
+)
+
+# Get emails from inbox
+emails = await get_emails(
+    mailbox_id="inbox",
+    limit=50
+)
+```
+
+This is perfect for:
+- Automated email notifications and reminders
+- Processing incoming emails for information extraction
+- Managing email workflows programmatically
+- Email-based task and project management
 
 **Adding a New Tool:**
 
@@ -356,14 +434,19 @@ This creates a feedback loop where the agent helps improve itself based on real-
 ## Key Files and Responsibilities
 
 **Agents:**
+- `agents/chatbot/main.py` - General-purpose assistant with all 29 tools
 - `agents/pr_agent/main.py` - PR agent implementation extending agent-framework
-- `agents/pr_agent/prompts.py` - System prompt defining agent behavior and memory usage
-- `agents/*/` - Additional agents can be added as siblings to pr_agent
+- `agents/security_researcher/main.py` - Security research expert with RAG
+- `agents/business_advisor/main.py` - Business strategy and monetization advisor
+- `agents/task_manager/main.py` - Task management with remote MCP
+- `agents/api/server.py` - REST API server for HTTP access to agents
+- `agents/notifier/main.py` - Slack notification script
+- `agents/*/prompts.py` - System prompts defining agent behavior and memory usage
 
 **Shared Infrastructure:**
 - `shared/` - Common utilities and base classes for all agents
 - `packages/agent-framework/` - Internal library providing:
-  - `agent_framework/tools/` - MCP tools (web analysis, social media, memory, RAG, Slack)
+  - `agent_framework/tools/` - All 29 MCP tools organized in 8 modules (web, memory, RAG, email, social, slack, content)
   - `agent_framework/security/` - Security utilities (SSRF protection)
   - `agent_framework/server.py` - MCP server base classes
   - `agent_framework/core/` - Base Agent class and MCP client
@@ -430,20 +513,26 @@ uv run python -m config.mcp_server.server
 
 **Working Now:**
 - Full agentic loop with Claude Sonnet 4.5
-- 7 MCP tools (4 content analysis + 3 memory)
-- Real web scraping and content analysis (analyze_website, fetch_web_content)
-- Persistent memory across conversations
+- 7 specialized agents with different capabilities
+- 29 MCP tools across 8 categories (web, memory, RAG, email, communication, social, content)
+- Real web scraping and content analysis
+- RAG document search with semantic similarity
+- FastMail email integration
+- Persistent memory across conversations (file or database backend)
 - Hot reload for tool development
-- OAuth infrastructure (not connected to real APIs)
+- OAuth infrastructure (ready for production integration)
 - Token usage tracking
+- Remote MCP support for distributed deployments
+- REST API server for HTTP access to agents
 - Comprehensive error handling
 
 **Production Readiness:**
-- Social media tools use mock data - integrate Twitter/LinkedIn APIs
-- File-based storage - migrate to PostgreSQL/Redis for memory and tokens
-- No rate limiting - add for production
-- No multi-user support - add user_id to memory/auth
-- Stdio transport - consider HTTP/SSE for remote deployment
+- Social media tools use mock data - integrate Twitter/LinkedIn APIs via OAuth
+- Add rate limiting for API endpoints
+- Add multi-user support (user_id to memory/auth/RAG)
+- Production monitoring and metrics
+- Distributed deployment with remote MCP
+- Security hardening for public-facing deployments
 
 ## Adding New Agents
 
