@@ -35,9 +35,19 @@ from typing import Any
 
 from agent_framework import Agent
 from agent_framework.storage import DatabaseConversationStore
-from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import (
+    Depends,
+    FastAPI,
+    HTTPException,
+    Query,
+    Request,
+    Security,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 
 from .claude_code_sessions import ClaudeCodeSessionManager
@@ -227,6 +237,59 @@ app.add_middleware(
 
 
 # ---------------------------------------------------------------------------
+# Authentication (optional)
+# ---------------------------------------------------------------------------
+
+_api_key = os.getenv("API_KEY")
+_security = HTTPBearer(auto_error=False)
+
+
+async def verify_api_key(
+    credentials: HTTPAuthorizationCredentials | None = Security(_security),
+) -> None:
+    """Verify API key if configured.
+
+    If API_KEY environment variable is not set, authentication is disabled
+    and all requests are allowed. If set, requests must include a valid
+    Authorization: Bearer <API_KEY> header.
+    """
+    if not _api_key:
+        return  # Auth not configured, allow all
+    if not credentials or credentials.credentials != _api_key:
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
+
+# ---------------------------------------------------------------------------
+# Rate Limiting (optional)
+# ---------------------------------------------------------------------------
+
+_rate_limit_enabled = os.getenv("RATE_LIMIT_ENABLED", "false").lower() == "true"
+
+if _rate_limit_enabled:
+    from slowapi import Limiter, _rate_limit_exceeded_handler
+    from slowapi.errors import RateLimitExceeded
+    from slowapi.util import get_remote_address
+
+    limiter = Limiter(key_func=get_remote_address)
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
+    logger.info("Rate limiting enabled")
+else:
+    limiter = None
+
+
+def rate_limit(limit_string: str):
+    """Apply rate limit decorator only if rate limiting is enabled."""
+
+    def decorator(func):
+        if limiter is not None:
+            return limiter.limit(limit_string)(func)
+        return func
+
+    return decorator
+
+
+# ---------------------------------------------------------------------------
 # Health & discovery
 # ---------------------------------------------------------------------------
 
@@ -250,7 +313,13 @@ async def list_agents() -> AgentListResponse:
 
 
 @app.post("/agents/{agent_name}/message", response_model=MessageResponse)
-async def stateless_message(agent_name: str, body: MessageRequest) -> MessageResponse:
+@rate_limit("10/minute")
+async def stateless_message(
+    request: Request,
+    agent_name: str,
+    body: MessageRequest,
+    _: None = Depends(verify_api_key),
+) -> MessageResponse:
     """Send a single message to an agent with no conversation history.
 
     A fresh agent is created, processes the message, and is discarded.
@@ -284,7 +353,12 @@ async def stateless_message(agent_name: str, body: MessageRequest) -> MessageRes
 
 
 @app.post("/sessions", response_model=SessionInfo, status_code=201)
-async def create_session(body: SessionCreateRequest) -> SessionInfo:
+@rate_limit("20/minute")
+async def create_session(
+    request: Request,
+    body: SessionCreateRequest,
+    _: None = Depends(verify_api_key),
+) -> SessionInfo:
     """Create a new session with a persistent agent instance.
 
     The session keeps conversation history between calls so the agent
@@ -302,7 +376,13 @@ async def create_session(body: SessionCreateRequest) -> SessionInfo:
 
 
 @app.post("/sessions/{session_id}/message", response_model=MessageResponse)
-async def session_message(session_id: str, body: MessageRequest) -> MessageResponse:
+@rate_limit("10/minute")
+async def session_message(
+    request: Request,
+    session_id: str,
+    body: MessageRequest,
+    _: None = Depends(verify_api_key),
+) -> MessageResponse:
     """Send a message within an existing session.
 
     Conversation history is preserved from prior calls in this session.
@@ -400,7 +480,12 @@ async def list_conversations(
 
 
 @app.post("/conversations", response_model=ConversationInfo, status_code=201)
-async def create_conversation(body: ConversationCreateRequest) -> ConversationInfo:
+@rate_limit("20/minute")
+async def create_conversation(
+    request: Request,
+    body: ConversationCreateRequest,
+    _: None = Depends(verify_api_key),
+) -> ConversationInfo:
     """Create a new persistent conversation.
 
     This creates a database record for the conversation. Use
@@ -478,7 +563,13 @@ async def get_conversation(conversation_id: str) -> ConversationDetail:
 
 
 @app.post("/conversations/{conversation_id}/message", response_model=MessageResponse)
-async def conversation_message(conversation_id: str, body: MessageRequest) -> MessageResponse:
+@rate_limit("10/minute")
+async def conversation_message(
+    request: Request,
+    conversation_id: str,
+    body: MessageRequest,
+    _: None = Depends(verify_api_key),
+) -> MessageResponse:
     """Send a message to a persistent conversation.
 
     This loads the conversation history, creates a fresh agent instance,

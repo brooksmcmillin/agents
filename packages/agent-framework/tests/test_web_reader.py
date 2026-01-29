@@ -56,7 +56,7 @@ class TestFetchWebContent:
     @pytest.mark.asyncio
     async def test_fetch_web_content_ftp_url(self):
         """Test fetch_web_content raises error for non-http URLs."""
-        with pytest.raises(ValueError, match="URL not allowed.*Protocol 'ftp' not allowed"):
+        with pytest.raises(ValueError, match="URL not allowed.*Invalid scheme"):
             await fetch_web_content("ftp://example.com/file")
 
     @pytest.mark.asyncio
@@ -212,14 +212,21 @@ class TestFetchWebContent:
         """Test fetch_web_content handles HTTP errors."""
         import httpx
 
-        with patch("httpx.AsyncClient") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client_class.return_value.__aenter__.return_value = mock_client
-            mock_client_class.return_value.__aexit__.return_value = None
-            mock_client.get = AsyncMock(side_effect=httpx.HTTPError("Connection failed"))
+        # Need to mock both the SSRFValidator's httpx client and the fetch client
+        # since SSRFValidator.validate_request_with_redirects makes HTTP requests
+        with patch(
+            "agent_framework.security.ssrf.SSRFValidator.validate_request_with_redirects",
+            new_callable=AsyncMock,
+            return_value=(True, "https://example.com"),
+        ):
+            with patch("httpx.AsyncClient") as mock_client_class:
+                mock_client = AsyncMock()
+                mock_client_class.return_value.__aenter__.return_value = mock_client
+                mock_client_class.return_value.__aexit__.return_value = None
+                mock_client.get = AsyncMock(side_effect=httpx.HTTPError("Connection failed"))
 
-            with pytest.raises(ValueError, match="Failed to fetch URL"):
-                await fetch_web_content("https://example.com")
+                with pytest.raises(ValueError, match="Failed to fetch URL"):
+                    await fetch_web_content("https://example.com")
 
     @pytest.mark.asyncio
     async def test_fetch_web_content_no_body(self):

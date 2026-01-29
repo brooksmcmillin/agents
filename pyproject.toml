@@ -21,6 +21,7 @@ dependencies = [
     "html2text>=2024.2.26",
     "agent-framework",
     "fastapi>=0.115.0",
+    "slowapi>=0.1.9",
 ]
 
 [tool.uv]

@@ -4,79 +4,16 @@ This tool fetches web content and converts it to clean, LLM-readable markdown fo
 Useful for reading articles, blog posts, documentation, and other web content.
 """
 
-import ipaddress
 import logging
 from typing import Any
-from urllib.parse import urlparse
 
 import html2text
 import httpx
 from bs4 import BeautifulSoup
 
+from ..security import SSRFValidator
+
 logger = logging.getLogger(__name__)
-
-
-def _is_safe_url(url: str) -> tuple[bool, str]:
-    """Validate URL is safe to fetch (SSRF protection).
-
-    Prevents access to:
-    - Private/internal IP addresses
-    - Localhost
-    - Cloud metadata endpoints
-    - Non-HTTP(S) protocols
-
-    Args:
-        url: URL to validate
-
-    Returns:
-        Tuple of (is_safe, error_message). If safe, error_message is empty.
-    """
-    try:
-        parsed = urlparse(url)
-
-        # Only allow http/https
-        if parsed.scheme not in ("http", "https"):
-            return False, f"Protocol '{parsed.scheme}' not allowed (only http/https)"
-
-        hostname = parsed.hostname
-        if not hostname:
-            return False, "URL missing hostname"
-
-        # Block localhost variations
-        localhost_names = {"localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"}  # nosec B104
-        if hostname.lower() in localhost_names:
-            return False, "Access to localhost not allowed"
-
-        # Block cloud metadata endpoints (AWS, GCP, Azure)
-        metadata_endpoints = {
-            "169.254.169.254",  # AWS/Azure metadata
-            "metadata.google.internal",  # GCP metadata
-            "metadata",  # Generic metadata hostname
-        }
-        if hostname.lower() in metadata_endpoints:
-            return False, "Access to cloud metadata endpoints not allowed"
-
-        # Try to parse as IP address and check if it's private
-        try:
-            ip = ipaddress.ip_address(hostname)
-            if ip.is_private:
-                return False, f"Access to private IP addresses not allowed: {hostname}"
-            if ip.is_loopback:
-                return False, f"Access to loopback addresses not allowed: {hostname}"
-            if ip.is_link_local:
-                return False, f"Access to link-local addresses not allowed: {hostname}"
-            if ip.is_reserved:
-                return False, f"Access to reserved IP addresses not allowed: {hostname}"
-        except ValueError:
-            # Not an IP address, it's a hostname - that's OK
-            # Could add DNS resolution check here for paranoid security,
-            # but that adds latency and complexity
-            pass
-
-        return True, ""
-
-    except Exception as e:
-        return False, f"URL validation error: {e}"
 
 
 async def fetch_web_content(url: str, max_length: int = 50000) -> dict[str, Any]:
@@ -105,20 +42,21 @@ async def fetch_web_content(url: str, max_length: int = 50000) -> dict[str, Any]
         ValueError: If URL is invalid or content cannot be extracted
         httpx.HTTPError: If webpage cannot be fetched
     """
-    # SSRF protection: validate URL is safe to fetch
-    is_safe, error_msg = _is_safe_url(url)
+    # SSRF protection: validate URL and all redirects
+    is_safe, result = await SSRFValidator.validate_request_with_redirects(url, max_redirects=5)
     if not is_safe:
-        raise ValueError(f"URL not allowed: {error_msg}")
+        raise ValueError(f"URL not allowed: {result}")
+
+    final_url = result  # result is the final URL after redirects
 
     logger.info(f"Fetching web content from: {url}")
 
     try:
-        # Fetch the webpage
-        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
-            response = await client.get(url)
+        # Fetch the webpage (redirects already validated, use final URL directly)
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=False) as client:
+            response = await client.get(final_url)
             response.raise_for_status()
             html_content = response.text
-            final_url = str(response.url)
 
         # Parse HTML
         soup = BeautifulSoup(html_content, "lxml")
