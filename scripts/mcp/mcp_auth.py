@@ -19,10 +19,9 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
+from agent_framework.oauth import generate_pkce_pair
 from aiohttp import web
 from dotenv import load_dotenv, set_key
-
-from agent_framework.oauth import generate_pkce_pair
 
 # Load environment variables
 load_dotenv()

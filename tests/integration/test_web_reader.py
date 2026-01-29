@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-
 from agent_framework.tools import fetch_web_content
 
 

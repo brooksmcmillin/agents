@@ -29,24 +29,22 @@ import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from agent_framework import Agent
+from agent_framework.storage import DatabaseConversationStore
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-
-from agent_framework import Agent
-from agent_framework.storage import DatabaseConversationStore
 
 from .claude_code_sessions import ClaudeCodeSessionManager
 from .models import (
     AgentInfo,
     AgentListResponse,
     ClaudeCodeCreateWorkspaceRequest,
-    ClaudeCodeDeleteWorkspaceRequest,
     ClaudeCodeInputRequest,
     ClaudeCodePermissionResponse,
     ClaudeCodeResizeRequest,
@@ -617,7 +615,7 @@ async def export_conversation(conversation_id: str) -> ConversationExport:
             )
             for m in conv.messages
         ],
-        exported_at=datetime.now(timezone.utc),
+        exported_at=datetime.now(UTC),
     )
 
 

@@ -1,11 +1,11 @@
 """System prompts for the Task Manager agent."""
 
 from shared.prompts import (
-    MEMORY_TOOLS_SECTION,
     COMMUNICATION_STYLE_SECTION,
-    TOOL_FEEDBACK_SECTION,
     MEMORY_BEST_PRACTICES_SECTION,
+    MEMORY_TOOLS_SECTION,
     MEMORY_WORKFLOW_INSTRUCTIONS,
+    TOOL_FEEDBACK_SECTION,
     build_returning_user_workflow,
     build_tool_feedback_example,
 )

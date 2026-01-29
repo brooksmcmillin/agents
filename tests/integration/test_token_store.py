@@ -3,7 +3,7 @@
 Tests cover token security, encryption, expiration logic, and error handling.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -26,7 +26,7 @@ class TestTokenData:
 
     def test_token_data_with_all_fields(self):
         """Test creating a TokenData with all fields."""
-        expires = datetime.now(timezone.utc) + timedelta(hours=1)
+        expires = datetime.now(UTC) + timedelta(hours=1)
         token = TokenData(
             access_token="access",
             refresh_token="refresh",
@@ -46,26 +46,26 @@ class TestTokenData:
 
     def test_is_expired_with_future_expiration(self):
         """Token expiring in future should not be expired."""
-        future = datetime.now(timezone.utc) + timedelta(hours=1)
+        future = datetime.now(UTC) + timedelta(hours=1)
         token = TokenData(access_token="test_token", expires_at=future)
         assert not token.is_expired()
 
     def test_is_expired_with_past_expiration(self):
         """Token expiring in past should be expired."""
-        past = datetime.now(timezone.utc) - timedelta(hours=1)
+        past = datetime.now(UTC) - timedelta(hours=1)
         token = TokenData(access_token="test_token", expires_at=past)
         assert token.is_expired()
 
     def test_is_expired_with_buffer_edge_case(self):
         """Token expiring in 4 minutes should be considered expired (5-min buffer)."""
-        soon = datetime.now(timezone.utc) + timedelta(minutes=4)
+        soon = datetime.now(UTC) + timedelta(minutes=4)
         token = TokenData(access_token="test_token", expires_at=soon)
         # Should be True due to 5-min buffer
         assert token.is_expired()
 
     def test_is_expired_outside_buffer(self):
         """Token expiring in 6 minutes should NOT be expired (outside 5-min buffer)."""
-        soon = datetime.now(timezone.utc) + timedelta(minutes=6)
+        soon = datetime.now(UTC) + timedelta(minutes=6)
         token = TokenData(access_token="test_token", expires_at=soon)
         assert not token.is_expired()
 
@@ -76,7 +76,7 @@ class TestTokenData:
 
     def test_time_until_expiry_with_future_expiration(self):
         """Token expiring in future should return positive timedelta."""
-        future = datetime.now(timezone.utc) + timedelta(hours=1)
+        future = datetime.now(UTC) + timedelta(hours=1)
         token = TokenData(access_token="test_token", expires_at=future)
         time_left = token.time_until_expiry()
         assert time_left is not None
@@ -85,7 +85,7 @@ class TestTokenData:
 
     def test_time_until_expiry_with_past_expiration(self):
         """Token expiring in past should return negative timedelta."""
-        past = datetime.now(timezone.utc) - timedelta(hours=1)
+        past = datetime.now(UTC) - timedelta(hours=1)
         token = TokenData(access_token="test_token", expires_at=past)
         time_left = token.time_until_expiry()
         assert time_left is not None
@@ -304,7 +304,7 @@ class TestTokenStore:
 
     def test_token_with_expiration_serializes_correctly(self, temp_store: TokenStore):
         """Test that tokens with expiration times serialize/deserialize correctly."""
-        expires = datetime.now(timezone.utc) + timedelta(hours=2)
+        expires = datetime.now(UTC) + timedelta(hours=2)
         token = TokenData(
             access_token="expiring_token",
             expires_at=expires,

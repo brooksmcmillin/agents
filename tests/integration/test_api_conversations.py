@@ -77,10 +77,9 @@ class TestConversationEndpointsWithoutDatabase:
                 k: v for k, v in os.environ.items() if k != "DATABASE_URL"
             }
             with patch.dict(os.environ, env_without_db, clear=True):
-                from agents.api.server import app
-
                 # Need to reset the conversation store
                 import agents.api.server as server_module
+                from agents.api.server import app
 
                 original_store = server_module._conversation_store
                 server_module._conversation_store = None

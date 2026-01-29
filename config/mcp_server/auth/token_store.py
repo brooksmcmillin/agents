@@ -7,13 +7,11 @@ implementing the same interface.
 
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Optional
 
 from cryptography.fernet import Fernet
 from pydantic import BaseModel, Field
-
 
 logger = logging.getLogger(__name__)
 
@@ -22,25 +20,25 @@ class TokenData(BaseModel):
     """OAuth token data with metadata."""
 
     access_token: str = Field(..., description="OAuth access token")
-    refresh_token: Optional[str] = Field(None, description="OAuth refresh token")
+    refresh_token: str | None = Field(None, description="OAuth refresh token")
     token_type: str = Field(default="Bearer", description="Token type")
-    expires_at: Optional[datetime] = Field(
+    expires_at: datetime | None = Field(
         None, description="Token expiration timestamp"
     )
-    scope: Optional[str] = Field(None, description="Token scopes")
+    scope: str | None = Field(None, description="Token scopes")
 
     def is_expired(self) -> bool:
         """Check if token is expired."""
         if not self.expires_at:
             return False
         # Add 5-minute buffer to avoid race conditions
-        return datetime.now(timezone.utc) >= (self.expires_at - timedelta(minutes=5))
+        return datetime.now(UTC) >= (self.expires_at - timedelta(minutes=5))
 
-    def time_until_expiry(self) -> Optional[timedelta]:
+    def time_until_expiry(self) -> timedelta | None:
         """Get time until token expires."""
         if not self.expires_at:
             return None
-        return self.expires_at - datetime.now(timezone.utc)
+        return self.expires_at - datetime.now(UTC)
 
 
 class TokenStore:
@@ -56,7 +54,7 @@ class TokenStore:
     - In production, consider using a proper secret management service
     """
 
-    def __init__(self, storage_path: Path, encryption_key: Optional[str] = None):
+    def __init__(self, storage_path: Path, encryption_key: str | None = None):
         """
         Initialize token store.
 
@@ -68,7 +66,7 @@ class TokenStore:
         self.storage_path.mkdir(parents=True, exist_ok=True)
 
         # Initialize encryption if key is provided
-        self.cipher: Optional[Fernet] = None
+        self.cipher: Fernet | None = None
         if encryption_key:
             try:
                 self.cipher = Fernet(encryption_key.encode())
@@ -88,7 +86,7 @@ class TokenStore:
         filename = f"{platform}_{user_id}.token"
         return self.storage_path / filename
 
-    def get_token(self, platform: str, user_id: str = "default") -> Optional[TokenData]:
+    def get_token(self, platform: str, user_id: str = "default") -> TokenData | None:
         """
         Retrieve token from storage.
 

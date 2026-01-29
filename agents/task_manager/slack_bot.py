@@ -1,6 +1,7 @@
 import os
 
 from agent_framework import MultiAgentSlackAdapter
+
 from .main import TaskManagerAgent
 
 

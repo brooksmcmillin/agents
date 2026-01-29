@@ -21,11 +21,10 @@ from collections.abc import Callable, Generator, Mapping
 from typing import Any
 
 import pyaudio
+from agent_framework import Agent
 from cartesia import Cartesia
 from deepgram import DeepgramClient
 from dotenv import load_dotenv
-
-from agent_framework import Agent
 
 load_dotenv()
 

@@ -6,13 +6,12 @@ to obtain a valid access token from the MCP authorization server.
 """
 
 import asyncio
-
-import httpx
 import webbrowser
-from aiohttp import web
 from urllib.parse import urlencode
 
+import httpx
 from agent_framework.oauth import generate_pkce_pair
+from aiohttp import web
 
 # OAuth configuration
 AUTH_SERVER = "https://mcp-auth.brooksmcmillin.com"

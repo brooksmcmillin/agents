@@ -10,7 +10,7 @@ interaction through the web UI.
 """
 
 import asyncio
-import json
+import fcntl
 import logging
 import os
 import pty
@@ -18,13 +18,13 @@ import re
 import shutil
 import signal
 import struct
-import fcntl
 import termios
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any
 from uuid import uuid4
 
 logger = logging.getLogger(__name__)
@@ -77,7 +77,7 @@ class SessionEvent:
 
     type: EventType
     data: Any
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to JSON-serializable dictionary."""
@@ -158,7 +158,7 @@ class ClaudeCodeSession:
         self.session_id = session_id
         self.workspace_path = workspace_path
         self.state = SessionState.STARTING
-        self.created_at = datetime.now(timezone.utc)
+        self.created_at = datetime.now(UTC)
         self.last_activity = self.created_at
 
         # PTY and process management
@@ -237,7 +237,7 @@ class ClaudeCodeSession:
                     break
 
                 if data:
-                    self.last_activity = datetime.now(timezone.utc)
+                    self.last_activity = datetime.now(UTC)
                     self._output_buffer += data
 
                     # Check for permission requests
@@ -316,7 +316,7 @@ class ClaudeCodeSession:
         if not text.endswith("\n"):
             text += "\n"
 
-        self.last_activity = datetime.now(timezone.utc)
+        self.last_activity = datetime.now(UTC)
         os.write(self.master_fd, text.encode())
 
         # Clear pending permission if responding
@@ -373,7 +373,7 @@ class ClaudeCodeSession:
 
                 if event.type in (EventType.COMPLETED, EventType.ERROR):
                     break
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 # Send keepalive/heartbeat
                 continue
 
@@ -405,7 +405,7 @@ class ClaudeCodeSession:
                 # Send SIGTERM to process group
                 os.killpg(os.getpgid(self.process.pid), signal.SIGTERM)
                 await asyncio.wait_for(self.process.wait(), timeout=5.0)
-            except (ProcessLookupError, asyncio.TimeoutError):
+            except (TimeoutError, ProcessLookupError):
                 # Force kill if needed
                 try:
                     os.killpg(os.getpgid(self.process.pid), signal.SIGKILL)
@@ -460,7 +460,7 @@ class ClaudeCodeSessionManager:
 
     async def _cleanup_expired(self) -> None:
         """Clean up expired or inactive sessions."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         expired = []
 
         for session_id, session in self._sessions.items():
@@ -708,7 +708,7 @@ class ClaudeCodeSessionManager:
 
             if stdout.strip():
                 raise ValueError(
-                    f"Workspace has uncommitted changes. Use force=True to delete."
+                    "Workspace has uncommitted changes. Use force=True to delete."
                 )
 
         # Terminate any sessions using this workspace

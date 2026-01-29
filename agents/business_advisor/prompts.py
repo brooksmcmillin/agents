@@ -6,8 +6,8 @@ fictional social proof, and other problematic content generation.
 """
 
 from shared.prompts import (
-    MEMORY_TOOLS_SECTION,
     COMMUNICATION_STYLE_SECTION,
+    MEMORY_TOOLS_SECTION,
     MEMORY_WORKFLOW_INSTRUCTIONS,
 )
 
