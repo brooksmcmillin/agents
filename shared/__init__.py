@@ -17,6 +17,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ruff: noqa: E402 - imports after load_dotenv() is intentional
+# Import SSRFValidator from agent-framework (moved from shared.security_utils)
+from agent_framework.security import SSRFValidator
+
 from .agent_factory import create_simple_agent
 from .agent_runner import run_agent
 from .auth_utils import get_valid_token_for_mcp
@@ -37,9 +40,6 @@ from .constants import (
 from .env_utils import check_env_vars, env_file_exists
 from .logging_config import setup_logging
 from .task_utils import format_priority_emoji, parse_priority, parse_task_result
-
-# Import SSRFValidator from agent-framework (moved from shared.security_utils)
-from agent_framework.security import SSRFValidator
 
 __all__ = [
     "BatchAgent",
