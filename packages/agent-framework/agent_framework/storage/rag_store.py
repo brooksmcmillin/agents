@@ -18,7 +18,7 @@ import json
 import logging
 import re
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import asyncpg
@@ -46,10 +46,10 @@ class Document(BaseModel):
     )
     content_hash: str = Field(..., description="Hash of content for deduplication")
     created_at: datetime = Field(
-        default_factory=datetime.utcnow, description="When this document was created"
+        default_factory=lambda: datetime.now(timezone.utc), description="When this document was created"
     )
     updated_at: datetime = Field(
-        default_factory=datetime.utcnow, description="When this document was last updated"
+        default_factory=lambda: datetime.now(timezone.utc), description="When this document was last updated"
     )
 
     def to_dict(self) -> dict[str, Any]:
@@ -204,7 +204,7 @@ class RAGStore:
 
         doc_id = document_id or str(uuid.uuid4())
         content_hash = self._generate_content_hash(content)
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         # Generate embedding
         logger.info(f"Generating embedding for document {doc_id}")

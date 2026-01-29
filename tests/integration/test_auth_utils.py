@@ -4,7 +4,7 @@ Tests cover token retrieval, validation, refresh flows, and error handling
 for the centralized token management used by all agents.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -28,7 +28,7 @@ def valid_token():
     token.client_id = "client_id_789"
     token.client_secret = "client_secret_abc"  # pragma: allowlist secret
     token.is_expired.return_value = False
-    token.expires_at = datetime.utcnow() + timedelta(hours=1)
+    token.expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
     return token
 
 
@@ -41,7 +41,7 @@ def expired_token():
     token.client_id = "client_id_789"
     token.client_secret = "client_secret_abc"  # pragma: allowlist secret
     token.is_expired.return_value = True
-    token.expires_at = datetime.utcnow() - timedelta(hours=1)
+    token.expires_at = datetime.now(timezone.utc) - timedelta(hours=1)
     return token
 
 

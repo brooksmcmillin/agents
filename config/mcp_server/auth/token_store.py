@@ -7,7 +7,7 @@ implementing the same interface.
 
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -34,13 +34,13 @@ class TokenData(BaseModel):
         if not self.expires_at:
             return False
         # Add 5-minute buffer to avoid race conditions
-        return datetime.utcnow() >= (self.expires_at - timedelta(minutes=5))
+        return datetime.now(timezone.utc) >= (self.expires_at - timedelta(minutes=5))
 
     def time_until_expiry(self) -> Optional[timedelta]:
         """Get time until token expires."""
         if not self.expires_at:
             return None
-        return self.expires_at - datetime.utcnow()
+        return self.expires_at - datetime.now(timezone.utc)
 
 
 class TokenStore:
