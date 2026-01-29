@@ -96,7 +96,7 @@ class DatabaseConversationStore:
 
         Args:
             database_url: PostgreSQL connection URL
-                         (e.g., postgresql://user:pass@host:5432/dbname)
+                         (e.g., postgresql://user:pass@host:5432/dbname)  # pragma: allowlist secret
             min_pool_size: Minimum connection pool size
             max_pool_size: Maximum connection pool size
         """
@@ -382,11 +382,12 @@ class DatabaseConversationStore:
         param_count += 1
         params.append(conversation_id)
 
+        # Safe: updates list contains only validated column names with parameterized values
         query = f"""
             UPDATE conversations
             SET {", ".join(updates)}
             WHERE id = ${param_count}
-        """
+        """  # nosec B608
 
         async with self._get_connection() as conn:
             result = await conn.execute(query, *params)
