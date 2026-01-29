@@ -4,7 +4,7 @@ This module provides utilities to eliminate boilerplate when creating
 agents that only differ in their prompts and tool configurations.
 """
 
-from typing import Any, Type
+from typing import Any
 
 from agent_framework import Agent
 
@@ -14,7 +14,7 @@ def create_simple_agent(
     system_prompt: str,
     greeting: str,
     allowed_tools: list[str] | None = None,
-) -> Type[Agent]:
+) -> type[Agent]:
     """Factory function for creating simple agent classes.
 
     This eliminates boilerplate for agents that only customize

@@ -13,13 +13,6 @@ from .claude_code import (
     list_claude_code_workspaces,
     run_claude_code,
 )
-from .markdown_files import TOOL_SCHEMAS as _markdown_files_schemas
-from .markdown_files import (
-    delete_markdown_file,
-    list_markdown_files,
-    read_markdown_file,
-    write_markdown_file,
-)
 from .content_suggestions import TOOL_SCHEMAS as _content_suggestions_schemas
 from .content_suggestions import suggest_content_topics
 from .fastmail import TOOL_SCHEMAS as _fastmail_schemas
@@ -32,6 +25,13 @@ from .fastmail import (
     search_emails,
     send_email,
     update_email_flags,
+)
+from .markdown_files import TOOL_SCHEMAS as _markdown_files_schemas
+from .markdown_files import (
+    delete_markdown_file,
+    list_markdown_files,
+    read_markdown_file,
+    write_markdown_file,
 )
 from .memory import TOOL_SCHEMAS as _memory_schemas
 from .memory import (

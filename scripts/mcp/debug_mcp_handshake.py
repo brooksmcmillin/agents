@@ -1,8 +1,9 @@
 """Debug MCP handshake to see what's failing."""
 
 import asyncio
-import httpx
 import logging
+
+import httpx
 from agent_framework.oauth import TokenStorage
 from mcp.client.streamable_http import streamablehttp_client
 

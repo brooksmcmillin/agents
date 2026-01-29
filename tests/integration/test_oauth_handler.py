@@ -3,7 +3,7 @@
 Tests cover OAuth flows, token refresh, authorization URL generation, and error handling.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -196,7 +196,7 @@ class TestOAuthHandler:
         initial_token = TokenData(
             access_token="old_access",
             refresh_token="my_precious_refresh_token",
-            expires_at=datetime.now(timezone.utc) - timedelta(hours=1),
+            expires_at=datetime.now(UTC) - timedelta(hours=1),
         )
         token_store.save_token("twitter", initial_token)
 
@@ -287,7 +287,7 @@ class TestOAuthHandler:
         self, oauth_handler: OAuthHandler, token_store: TokenStore
     ):
         """Test get_valid_token returns token if not expired."""
-        future = datetime.now(timezone.utc) + timedelta(hours=1)
+        future = datetime.now(UTC) + timedelta(hours=1)
         token = TokenData(
             access_token="valid_token",
             expires_at=future,
@@ -308,7 +308,7 @@ class TestOAuthHandler:
         expired = TokenData(
             access_token="expired_access",
             refresh_token="my_refresh",
-            expires_at=datetime.now(timezone.utc) - timedelta(hours=1),
+            expires_at=datetime.now(UTC) - timedelta(hours=1),
         )
         token_store.save_token("twitter", expired)
 
@@ -338,7 +338,7 @@ class TestOAuthHandler:
         expired = TokenData(
             access_token="expired",
             refresh_token="refresh",
-            expires_at=datetime.now(timezone.utc) - timedelta(hours=1),
+            expires_at=datetime.now(UTC) - timedelta(hours=1),
         )
         token_store.save_token("twitter", expired)
 
@@ -376,9 +376,9 @@ class TestOAuthHandler:
             "expires_in": 3600,  # 1 hour
         }
 
-        before = datetime.now(timezone.utc)
+        before = datetime.now(UTC)
         token = oauth_handler._parse_token_response(response)
-        after = datetime.now(timezone.utc)
+        after = datetime.now(UTC)
 
         assert token.expires_at is not None
         # Should be approximately 1 hour from now
@@ -456,7 +456,7 @@ class TestOAuthHandlerEdgeCases:
         assert "twitter" in handler.PLATFORM_CONFIGS
         assert "linkedin" in handler.PLATFORM_CONFIGS
 
-        for platform, config in handler.PLATFORM_CONFIGS.items():
+        for _platform, config in handler.PLATFORM_CONFIGS.items():
             assert "authorize_url" in config
             assert "token_url" in config
             assert "scopes" in config

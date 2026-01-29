@@ -4,11 +4,10 @@ These tests ensure that web scraping tools properly validate URLs and prevent
 requests to internal/private networks, localhost, and cloud metadata endpoints.
 """
 
+import socket
 from unittest.mock import MagicMock, patch
 
 import pytest
-import socket
-
 from agent_framework.security import SSRFValidator
 
 
@@ -420,8 +419,7 @@ class TestSSRFIntegrationWithWebTools:
     @pytest.mark.asyncio
     async def test_web_tools_allow_public_urls(self):
         """Test that web tools allow legitimate public URLs."""
-        from agent_framework.tools import analyze_website
-        from agent_framework.tools import fetch_web_content
+        from agent_framework.tools import analyze_website, fetch_web_content
 
         # These should work (may fail if network unavailable, that's OK)
         try:

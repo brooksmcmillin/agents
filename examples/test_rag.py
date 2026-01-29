@@ -3,12 +3,11 @@
 
 import asyncio
 
-from dotenv import load_dotenv
-
 from agent_framework.tools.rag import (
-    search_documents,
     get_rag_stats,
+    search_documents,
 )
+from dotenv import load_dotenv
 
 load_dotenv()
 

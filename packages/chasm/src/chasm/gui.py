@@ -21,9 +21,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from tkinter import Event
 
-from dotenv import load_dotenv
-
 from agent_framework import Agent
+from dotenv import load_dotenv
 
 from .voice_adapter import VoiceAdapter
 

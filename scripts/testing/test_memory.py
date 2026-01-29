@@ -28,11 +28,11 @@ import os  # noqa: E402
 os.chdir(project_root)
 
 from agent_framework.tools.memory import (  # noqa: E402
+    delete_memory,
     get_memories,
+    get_memory_stats,
     save_memory,
     search_memories,
-    get_memory_stats,
-    delete_memory,
 )
 
 

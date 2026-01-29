@@ -25,24 +25,32 @@ Run with:
     uv run python -m agents.api
 """
 
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query
+from agent_framework import Agent
+from agent_framework.storage import DatabaseConversationStore
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from agent_framework import Agent
-from agent_framework.storage import DatabaseConversationStore
-
+from .claude_code_sessions import ClaudeCodeSessionManager
 from .models import (
     AgentInfo,
     AgentListResponse,
+    ClaudeCodeCreateWorkspaceRequest,
+    ClaudeCodeInputRequest,
+    ClaudeCodePermissionResponse,
+    ClaudeCodeResizeRequest,
+    ClaudeCodeSessionCreateRequest,
+    ClaudeCodeSessionInfo,
+    ClaudeCodeWorkspaceInfo,
     ConversationCreateRequest,
     ConversationDetail,
     ConversationExport,
@@ -147,6 +155,7 @@ def _create_agent(name: str) -> Agent:
 # ---------------------------------------------------------------------------
 
 session_mgr = SessionManager()
+claude_code_mgr = ClaudeCodeSessionManager()
 
 # Conversation store - initialized lazily if DATABASE_URL is set
 _conversation_store: DatabaseConversationStore | None = None
@@ -169,6 +178,7 @@ async def lifespan(app: FastAPI):
     global _conversation_store
 
     session_mgr.start_cleanup_loop()
+    claude_code_mgr.start_cleanup_loop()
 
     # Initialize conversation store if DATABASE_URL is set
     database_url = os.getenv("DATABASE_URL")
@@ -183,6 +193,7 @@ async def lifespan(app: FastAPI):
     yield
 
     # Cleanup
+    await claude_code_mgr.shutdown()
     if _conversation_store:
         await _conversation_store.close()
     logger.info("Agent REST API shutting down")
@@ -604,7 +615,7 @@ async def export_conversation(conversation_id: str) -> ConversationExport:
             )
             for m in conv.messages
         ],
-        exported_at=datetime.now(timezone.utc),
+        exported_at=datetime.now(UTC),
     )
 
 
@@ -643,6 +654,269 @@ async def get_conversation_messages(
 
 
 # ---------------------------------------------------------------------------
+# Claude Code interactive session endpoints
+# ---------------------------------------------------------------------------
+
+
+@app.get("/claude-code/workspaces", response_model=list[ClaudeCodeWorkspaceInfo])
+async def list_claude_code_workspaces() -> list[ClaudeCodeWorkspaceInfo]:
+    """List available Claude Code workspaces."""
+    workspaces = await claude_code_mgr.list_workspaces()
+    return [
+        ClaudeCodeWorkspaceInfo(
+            name=w.name,
+            path=w.path,
+            is_git_repo=w.is_git_repo,
+            size_mb=w.size_mb,
+            file_count=w.file_count,
+            current_branch=w.current_branch,
+        )
+        for w in workspaces
+    ]
+
+
+@app.post("/claude-code/workspaces", response_model=ClaudeCodeWorkspaceInfo, status_code=201)
+async def create_claude_code_workspace(
+    body: ClaudeCodeCreateWorkspaceRequest,
+) -> ClaudeCodeWorkspaceInfo:
+    """Create a new Claude Code workspace."""
+    try:
+        workspace = await claude_code_mgr.create_workspace(
+            name=body.name,
+            git_url=body.git_url,
+        )
+        return ClaudeCodeWorkspaceInfo(
+            name=workspace.name,
+            path=workspace.path,
+            is_git_repo=workspace.is_git_repo,
+            size_mb=workspace.size_mb,
+            file_count=workspace.file_count,
+            current_branch=workspace.current_branch,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.delete("/claude-code/workspaces/{workspace_name}", status_code=204)
+async def delete_claude_code_workspace(
+    workspace_name: str,
+    force: bool = Query(False, description="Force deletion even with uncommitted changes"),
+) -> None:
+    """Delete a Claude Code workspace."""
+    try:
+        await claude_code_mgr.delete_workspace(workspace_name, force=force)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.get("/claude-code/sessions", response_model=list[ClaudeCodeSessionInfo])
+async def list_claude_code_sessions() -> list[ClaudeCodeSessionInfo]:
+    """List active Claude Code sessions."""
+    sessions = claude_code_mgr.list_sessions()
+    return [
+        ClaudeCodeSessionInfo(
+            session_id=s["session_id"],
+            workspace=s["workspace"],
+            state=s["state"],
+            created_at=datetime.fromisoformat(s["created_at"]),
+            last_activity=datetime.fromisoformat(s["last_activity"]),
+        )
+        for s in sessions
+    ]
+
+
+@app.post("/claude-code/sessions", response_model=ClaudeCodeSessionInfo, status_code=201)
+async def create_claude_code_session(
+    body: ClaudeCodeSessionCreateRequest,
+) -> ClaudeCodeSessionInfo:
+    """Create a new Claude Code session.
+
+    This creates a session but doesn't start it - use the WebSocket endpoint
+    to connect and receive output.
+    """
+    try:
+        session = await claude_code_mgr.create_session(
+            workspace_name=body.workspace,
+            initial_prompt=body.initial_prompt,
+        )
+        return ClaudeCodeSessionInfo(
+            session_id=session.session_id,
+            workspace=session.workspace_path.name,
+            state=session.state.value,
+            created_at=session.created_at,
+            last_activity=session.last_activity,
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.get("/claude-code/sessions/{session_id}", response_model=ClaudeCodeSessionInfo)
+async def get_claude_code_session(session_id: str) -> ClaudeCodeSessionInfo:
+    """Get information about a Claude Code session."""
+    session = claude_code_mgr.get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    return ClaudeCodeSessionInfo(
+        session_id=session.session_id,
+        workspace=session.workspace_path.name,
+        state=session.state.value,
+        created_at=session.created_at,
+        last_activity=session.last_activity,
+    )
+
+
+@app.delete("/claude-code/sessions/{session_id}", status_code=204)
+async def delete_claude_code_session(session_id: str) -> None:
+    """Terminate a Claude Code session."""
+    if not await claude_code_mgr.terminate_session(session_id):
+        raise HTTPException(status_code=404, detail="Session not found")
+
+
+@app.post("/claude-code/sessions/{session_id}/input", status_code=204)
+async def send_claude_code_input(
+    session_id: str,
+    body: ClaudeCodeInputRequest,
+) -> None:
+    """Send input to a Claude Code session (alternative to WebSocket)."""
+    session = claude_code_mgr.get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    try:
+        await session.send_input(body.text)
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.post("/claude-code/sessions/{session_id}/permission", status_code=204)
+async def respond_claude_code_permission(
+    session_id: str,
+    body: ClaudeCodePermissionResponse,
+) -> None:
+    """Respond to a permission request in a Claude Code session."""
+    session = claude_code_mgr.get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    try:
+        await session.respond_permission(body.approved)
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.post("/claude-code/sessions/{session_id}/resize", status_code=204)
+async def resize_claude_code_terminal(
+    session_id: str,
+    body: ClaudeCodeResizeRequest,
+) -> None:
+    """Resize the terminal for a Claude Code session."""
+    session = claude_code_mgr.get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    await session.resize_terminal(body.rows, body.cols)
+
+
+@app.websocket("/ws/claude-code/{session_id}")
+async def claude_code_websocket(websocket: WebSocket, session_id: str):
+    """WebSocket endpoint for real-time Claude Code interaction.
+
+    Events sent from server:
+    - {"type": "output", "data": "...", "timestamp": "..."}
+    - {"type": "permission_request", "data": {...}, "timestamp": "..."}
+    - {"type": "state_change", "data": {"state": "..."}, "timestamp": "..."}
+    - {"type": "error", "data": "...", "timestamp": "..."}
+    - {"type": "completed", "data": {"exit_code": ...}, "timestamp": "..."}
+
+    Commands from client:
+    - {"type": "input", "text": "..."}
+    - {"type": "permission", "approved": true/false}
+    - {"type": "resize", "rows": 40, "cols": 120}
+    - {"type": "abort"}
+    """
+    await websocket.accept()
+
+    session = claude_code_mgr.get_session(session_id)
+    if session is None:
+        await websocket.close(code=4004, reason="Session not found")
+        return
+
+    async def send_events():
+        """Send session events to WebSocket client."""
+        try:
+            async for event in session.events():
+                await websocket.send_json(event.to_dict())
+        except WebSocketDisconnect:
+            pass
+        except Exception as e:
+            logger.error(f"Error sending events: {e}")
+
+    async def receive_commands():
+        """Receive and process commands from WebSocket client."""
+        try:
+            while True:
+                data = await websocket.receive_json()
+                cmd_type = data.get("type")
+
+                if cmd_type == "input":
+                    text = data.get("text", "")
+                    await session.send_input(text)
+
+                elif cmd_type == "permission":
+                    approved = data.get("approved", False)
+                    await session.respond_permission(approved)
+
+                elif cmd_type == "resize":
+                    rows = data.get("rows", 40)
+                    cols = data.get("cols", 120)
+                    await session.resize_terminal(rows, cols)
+
+                elif cmd_type == "abort":
+                    await session.terminate()
+                    break
+
+        except WebSocketDisconnect:
+            pass
+        except Exception as e:
+            logger.error(f"Error receiving commands: {e}")
+
+    # Run both tasks concurrently
+    send_task = asyncio.create_task(send_events())
+    receive_task = asyncio.create_task(receive_commands())
+
+    try:
+        # Wait for either task to complete
+        done, pending = await asyncio.wait(
+            [send_task, receive_task],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+
+        # Cancel pending tasks
+        for task in pending:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+    finally:
+        # Don't terminate session on disconnect - it might be intentional
+        # to reconnect later
+        pass
+
+
+# ---------------------------------------------------------------------------
 # Web UI static file serving (production mode)
 # ---------------------------------------------------------------------------
 
@@ -659,7 +933,7 @@ if WEBUI_DIST.exists():
         """Serve the React SPA for all non-API routes."""
         # Don't catch API routes
         if full_path.startswith(
-            ("agents/", "sessions/", "conversations/", "health", "assets/")
+            ("agents/", "sessions/", "conversations/", "health", "assets/", "claude-code/", "ws/")
         ):
             raise HTTPException(status_code=404, detail="Not found")
 

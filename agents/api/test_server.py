@@ -5,7 +5,7 @@ Run with:
 """
 
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -34,8 +34,8 @@ def mock_conversation_store(monkeypatch):
                 id="conv-1",
                 agent_name="chatbot",
                 title="Test Conversation",
-                created_at=datetime.now(timezone.utc),
-                updated_at=datetime.now(timezone.utc),
+                created_at=datetime.now(UTC),
+                updated_at=datetime.now(UTC),
                 message_count=2,
                 metadata={},
             )
@@ -46,8 +46,8 @@ def mock_conversation_store(monkeypatch):
             id="conv-new",
             agent_name="chatbot",
             title="New Conversation",
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
             message_count=0,
             metadata={},
         )
@@ -57,8 +57,8 @@ def mock_conversation_store(monkeypatch):
             id="conv-1",
             agent_name="chatbot",
             title="Test Conversation",
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
             message_count=2,
             metadata={},
             messages=[
@@ -66,14 +66,14 @@ def mock_conversation_store(monkeypatch):
                     role="user",
                     content="Hello",
                     turn_number=0,
-                    created_at=datetime.now(timezone.utc),
+                    created_at=datetime.now(UTC),
                     token_count=5,
                 ),
                 MagicMock(
                     role="assistant",
                     content="Hi there!",
                     turn_number=1,
-                    created_at=datetime.now(timezone.utc),
+                    created_at=datetime.now(UTC),
                     token_count=10,
                 ),
             ],
@@ -84,8 +84,8 @@ def mock_conversation_store(monkeypatch):
             id="conv-1",
             agent_name="chatbot",
             title="Updated Title",
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
             message_count=2,
             metadata={},
         )

@@ -9,6 +9,10 @@ import type {
   UpdateConversationRequest,
   ConversationStats,
   ApiError,
+  ClaudeCodeWorkspace,
+  ClaudeCodeSession,
+  CreateClaudeCodeSessionRequest,
+  CreateClaudeCodeWorkspaceRequest,
 } from './types';
 
 class ApiClient {
@@ -106,6 +110,55 @@ class ApiClient {
 
   async getConversationStats(): Promise<ConversationStats> {
     return this.request<ConversationStats>('/conversations/stats');
+  }
+
+  // Claude Code endpoints
+  async listClaudeCodeWorkspaces(): Promise<ClaudeCodeWorkspace[]> {
+    return this.request<ClaudeCodeWorkspace[]>('/claude-code/workspaces');
+  }
+
+  async createClaudeCodeWorkspace(
+    data: CreateClaudeCodeWorkspaceRequest
+  ): Promise<ClaudeCodeWorkspace> {
+    return this.request<ClaudeCodeWorkspace>('/claude-code/workspaces', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteClaudeCodeWorkspace(name: string, force = false): Promise<void> {
+    await this.request<void>(`/claude-code/workspaces/${encodeURIComponent(name)}?force=${force}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async listClaudeCodeSessions(): Promise<ClaudeCodeSession[]> {
+    return this.request<ClaudeCodeSession[]>('/claude-code/sessions');
+  }
+
+  async createClaudeCodeSession(
+    data: CreateClaudeCodeSessionRequest
+  ): Promise<ClaudeCodeSession> {
+    return this.request<ClaudeCodeSession>('/claude-code/sessions', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getClaudeCodeSession(sessionId: string): Promise<ClaudeCodeSession> {
+    return this.request<ClaudeCodeSession>(`/claude-code/sessions/${sessionId}`);
+  }
+
+  async deleteClaudeCodeSession(sessionId: string): Promise<void> {
+    await this.request<void>(`/claude-code/sessions/${sessionId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  getClaudeCodeWebSocketUrl(sessionId: string): string {
+    // Convert HTTP URL to WebSocket URL
+    const wsBase = this.baseUrl.replace(/^http/, 'ws');
+    return `${wsBase}/ws/claude-code/${sessionId}`;
   }
 }
 

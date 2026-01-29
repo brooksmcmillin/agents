@@ -5,14 +5,13 @@ token refresh. It supports both service-to-service auth and user-delegated auth.
 """
 
 import logging
-from datetime import datetime, timedelta, timezone
-from typing import Optional, Dict, Any
+from datetime import UTC, datetime, timedelta
+from typing import Any
 from urllib.parse import urlencode
 
 from authlib.integrations.httpx_client import AsyncOAuth2Client
 
-from .token_store import TokenStore, TokenData
-
+from .token_store import TokenData, TokenStore
 
 logger = logging.getLogger(__name__)
 
@@ -44,8 +43,8 @@ class OAuthHandler:
     def __init__(
         self,
         token_store: TokenStore,
-        client_id: Optional[str] = None,
-        client_secret: Optional[str] = None,
+        client_id: str | None = None,
+        client_secret: str | None = None,
     ):
         """
         Initialize OAuth handler.
@@ -63,7 +62,7 @@ class OAuthHandler:
         self,
         platform: str,
         redirect_uri: str,
-        state: Optional[str] = None,
+        state: str | None = None,
     ) -> str:
         """
         Generate OAuth authorization URL for user consent.
@@ -105,7 +104,7 @@ class OAuthHandler:
         code: str,
         redirect_uri: str,
         user_id: str = "default",
-    ) -> Optional[TokenData]:
+    ) -> TokenData | None:
         """
         Exchange authorization code for access token.
 
@@ -158,7 +157,7 @@ class OAuthHandler:
         self,
         platform: str,
         user_id: str = "default",
-    ) -> Optional[TokenData]:
+    ) -> TokenData | None:
         """
         Refresh an expired access token using the refresh token.
 
@@ -219,7 +218,7 @@ class OAuthHandler:
         self,
         platform: str,
         user_id: str = "default",
-    ) -> Optional[TokenData]:
+    ) -> TokenData | None:
         """
         Get a valid access token, refreshing if necessary.
 
@@ -247,7 +246,7 @@ class OAuthHandler:
 
         return token
 
-    def _parse_token_response(self, response: Dict[str, Any]) -> TokenData:
+    def _parse_token_response(self, response: dict[str, Any]) -> TokenData:
         """
         Parse OAuth token response into TokenData.
 
@@ -260,7 +259,7 @@ class OAuthHandler:
         # Calculate expiration time
         expires_at = None
         if "expires_in" in response:
-            expires_at = datetime.now(timezone.utc) + timedelta(
+            expires_at = datetime.now(UTC) + timedelta(
                 seconds=response["expires_in"]
             )
 
