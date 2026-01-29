@@ -70,3 +70,65 @@ export interface ConversationStats {
 export interface ApiError {
   detail: string;
 }
+
+// ---------------------------------------------------------------------------
+// Claude Code types
+// ---------------------------------------------------------------------------
+
+export interface ClaudeCodeWorkspace {
+  name: string;
+  path: string;
+  is_git_repo: boolean;
+  size_mb: number;
+  file_count: number;
+  current_branch: string | null;
+}
+
+export interface ClaudeCodeSession {
+  session_id: string;
+  workspace: string;
+  state: ClaudeCodeSessionState;
+  created_at: string;
+  last_activity: string;
+}
+
+export type ClaudeCodeSessionState =
+  | 'starting'
+  | 'running'
+  | 'waiting_permission'
+  | 'waiting_input'
+  | 'completed'
+  | 'error'
+  | 'terminated';
+
+export interface ClaudeCodePermissionRequest {
+  id: string;
+  tool_type: string;
+  description: string;
+  command: string | null;
+  file_path: string | null;
+}
+
+export interface ClaudeCodeEvent {
+  type: ClaudeCodeEventType;
+  data: string | ClaudeCodePermissionRequest | { state: string } | { exit_code: number };
+  timestamp: string;
+}
+
+export type ClaudeCodeEventType =
+  | 'output'
+  | 'permission_request'
+  | 'question'
+  | 'state_change'
+  | 'error'
+  | 'completed';
+
+export interface CreateClaudeCodeSessionRequest {
+  workspace: string;
+  initial_prompt?: string;
+}
+
+export interface CreateClaudeCodeWorkspaceRequest {
+  name: string;
+  git_url?: string;
+}
