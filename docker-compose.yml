@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  # Backend API service (FastAPI + Python)
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: agents-backend
+    environment:
+      # Database connection (required - set in .env file)
+      DATABASE_URL: ${DATABASE_URL}
+
+      # Required: Add your Anthropic API key
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+
+      # Memory backend configuration
+      MEMORY_BACKEND: database
+
+      # Logging
+      LOG_LEVEL: INFO
+
+      # Optional: Add other environment variables as needed
+      # MCP_SERVER_URL: ${MCP_SERVER_URL:-}
+      # SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      # GITHUB_MCP_PAT: ${GITHUB_MCP_PAT:-}
+    volumes:
+      # Mount source code for development (optional - comment out for production)
+      - .:/app
+      # Persist logs
+      - ./logs:/app/logs
+      # Persist memories (if using file backend)
+      - ./memories:/app/memories
+    ports:
+      - "8080:8080"
+    extra_hosts:
+      # Direct IP bypass for Cloudflare (allows direct database access)
+      - "todo.brooksmcmillin.com:172.236.250.226"
+    networks:
+      - agents-network
+    restart: unless-stopped
+    command: uv run python -m agents.api
+
+  # Frontend build and serve (production mode)
+  # For development, run "npm run dev" locally instead
+  frontend:
+    build:
+      context: ./agents/webui/frontend
+      dockerfile: Dockerfile
+    container_name: agents-frontend
+    environment:
+      VITE_API_BASE_URL: http://localhost:8080
+    volumes:
+      # Copy built assets to backend's static directory
+      - frontend_dist:/app/dist
+    networks:
+      - agents-network
+
+networks:
+  agents-network:
+    driver: bridge
+
+volumes:
+  frontend_dist:
+    driver: local

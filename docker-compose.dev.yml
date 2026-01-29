@@ -1,0 +1,59 @@
+version: '3.8'
+
+# Development-optimized docker-compose configuration
+# Run with: docker-compose -f docker-compose.dev.yml up
+
+services:
+  # Backend API service with hot reload
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: agents-backend-dev
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      MEMORY_BACKEND: database
+      LOG_LEVEL: DEBUG
+      DEV_MODE: "true"  # Enable permissive CORS for development
+    volumes:
+      # Mount source code for hot reload
+      - .:/app
+      - ./logs:/app/logs
+      - ./memories:/app/memories
+      # Exclude Python cache and virtual environments
+      - /app/.venv
+      - /app/__pycache__
+    ports:
+      - "8080:8080"
+    extra_hosts:
+      # Direct IP bypass for Cloudflare (allows direct database access)
+      - "todo.brooksmcmillin.com:172.236.250.226"
+    networks:
+      - agents-network
+    restart: unless-stopped
+    command: uv run uvicorn agents.api.server:app --host 0.0.0.0 --port 8080 --reload
+
+  # Frontend dev server with hot reload
+  frontend:
+    image: node:20-alpine
+    container_name: agents-frontend-dev
+    working_dir: /app
+    environment:
+      # Vite proxy target (Docker service name)
+      VITE_API_URL: http://backend:8080
+    volumes:
+      - ./agents/webui/frontend:/app
+      # Exclude node_modules to avoid permission issues
+      - /app/node_modules
+    ports:
+      - "5173:5173"
+    networks:
+      - agents-network
+    command: sh -c "npm install && npm run dev -- --host"
+    stdin_open: true
+    tty: true
+
+networks:
+  agents-network:
+    driver: bridge

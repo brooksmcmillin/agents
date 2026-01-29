@@ -39,8 +39,12 @@ async def conversation_store(database_url: str):
     yield store
 
     # Cleanup: delete test conversations (those with test_ prefix in title)
-    async with store._get_connection() as conn:
-        await conn.execute("DELETE FROM conversations WHERE title LIKE 'test_%'")
+    try:
+        async with store._get_connection() as conn:
+            await conn.execute("DELETE FROM conversations WHERE title LIKE 'test_%'")
+    except Exception as e:
+        # Log but don't fail the test if cleanup fails
+        print(f"Warning: Failed to cleanup test conversations: {e}")
 
     await store.close()
 
