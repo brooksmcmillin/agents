@@ -25,6 +25,7 @@ from .agent_runner import run_agent
 from .auth_utils import get_valid_token_for_mcp
 from .batch_agent import BatchAgent
 from .constants import (
+    CLAUDE_CODE_TOOLS,
     COMMUNICATION_TOOLS,
     CONTENT_TOOLS,
     DEFAULT_MCP_SERVER_URL,
@@ -43,6 +44,7 @@ from .task_utils import format_priority_emoji, parse_priority, parse_task_result
 
 __all__ = [
     "BatchAgent",
+    "CLAUDE_CODE_TOOLS",
     "COMMUNICATION_TOOLS",
     "CONTENT_TOOLS",
     "DEFAULT_MCP_SERVER_URL",
