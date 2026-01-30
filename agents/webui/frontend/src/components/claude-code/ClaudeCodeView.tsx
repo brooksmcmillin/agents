@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, KeyboardEvent } from 'react';
+import { useEffect, useState, useRef, KeyboardEvent, useCallback } from 'react';
 import {
   PlayIcon,
   StopIcon,
@@ -8,13 +8,14 @@ import {
 import { useClaudeCodeStore } from '@/store/claudeCodeStore';
 import { Button } from '@/components/Button';
 import { WorkspaceSelector } from './WorkspaceSelector';
-import { TerminalOutput } from './TerminalOutput';
+import { TerminalOutput, TerminalHandle } from './TerminalOutput';
 import { PermissionDialog } from './PermissionDialog';
 
 export function ClaudeCodeView() {
   const [inputValue, setInputValue] = useState('');
   const [initialPrompt, setInitialPrompt] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  const terminalRef = useRef<TerminalHandle>(null);
 
   const {
     workspaces,
@@ -23,7 +24,6 @@ export function ClaudeCodeView() {
     activeSession,
     sessionState,
     isConnecting,
-    outputLines,
     pendingPermission,
     error,
     loadWorkspaces,
@@ -34,14 +34,29 @@ export function ClaudeCodeView() {
     endSession,
     sendInput,
     respondToPermission,
-    clearOutput,
+    resizeTerminal,
     clearError,
+    setTerminalWriter,
   } = useClaudeCodeStore();
 
   // Load workspaces on mount
   useEffect(() => {
     loadWorkspaces();
   }, [loadWorkspaces]);
+
+  // Register terminal writer when terminal is ready
+  useEffect(() => {
+    if (terminalRef.current) {
+      setTerminalWriter({
+        write: (data: string) => terminalRef.current?.write(data),
+        writeln: (data: string) => terminalRef.current?.writeln(data),
+        clear: () => terminalRef.current?.clear(),
+      });
+    }
+    return () => {
+      setTerminalWriter(null);
+    };
+  }, [setTerminalWriter]);
 
   // Focus input when session starts
   useEffect(() => {
@@ -52,6 +67,7 @@ export function ClaudeCodeView() {
 
   const handleStart = async () => {
     if (!selectedWorkspace) return;
+    terminalRef.current?.clear();
     await startSession(selectedWorkspace, initialPrompt || undefined);
     setInitialPrompt('');
   };
@@ -72,6 +88,15 @@ export function ClaudeCodeView() {
       handleSendInput();
     }
   };
+
+  const handleClear = () => {
+    terminalRef.current?.clear();
+  };
+
+  // Handle terminal resize
+  const handleTerminalResize = useCallback((cols: number, rows: number) => {
+    resizeTerminal(rows, cols);
+  }, [resizeTerminal]);
 
   const isSessionActive = activeSession && sessionState !== 'completed' && sessionState !== 'terminated' && sessionState !== 'error';
 
@@ -155,7 +180,7 @@ export function ClaudeCodeView() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={clearOutput}
+                  onClick={handleClear}
                   title="Clear output"
                 >
                   <TrashIcon className="h-4 w-4" />
@@ -177,8 +202,9 @@ export function ClaudeCodeView() {
       {/* Terminal output */}
       <div className="flex-1 overflow-hidden p-4">
         <TerminalOutput
-          lines={outputLines}
+          ref={terminalRef}
           className="h-full"
+          onResize={handleTerminalResize}
         />
       </div>
 

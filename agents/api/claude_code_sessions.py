@@ -209,7 +209,7 @@ class ClaudeCodeSession:
         # Build command - start Claude Code in interactive mode
         # --dangerously-skip-permissions bypasses all prompts (trust dialog + tool permissions)
         # Must run as non-root user (Claude Code refuses this flag as root)
-        claude_cmd = [claude_path, "--dangerously-skip-permissions"]
+        claude_cmd = ["ANTHROPIC_API_KEY=", claude_path, "--dangerously-skip-permissions"]
         if initial_prompt:
             # If there's an initial prompt, pass it as the first message
             claude_cmd.extend(["--message", initial_prompt])
@@ -219,7 +219,6 @@ class ClaudeCodeSession:
             # Pass through essential environment variables (su - doesn't inherit them)
             env_exports = []
             for var in [
-                "ANTHROPIC_API_KEY",
                 "CLAUDE_CODE_USE_BEDROCK",
                 "AWS_PROFILE",
                 "AWS_REGION",
@@ -230,7 +229,7 @@ class ClaudeCodeSession:
                     env_exports.append(f"export {var}='{val}'")
             env_prefix = " && ".join(env_exports) + " && " if env_exports else ""
             shell_cmd = f"{env_prefix}cd {self.workspace_path} && {' '.join(claude_cmd)}"
-            cmd = ["su", "-", CLAUDE_USER, "-c", shell_cmd]
+            cmd = ["ANTHROPIC_API_KEY=", "su", "-", CLAUDE_USER, "-c", shell_cmd]
             cwd = None  # cd is handled in the su command
         else:
             cmd = claude_cmd
@@ -309,6 +308,13 @@ class ClaudeCodeSession:
                         self._output_buffer = ""
                         continue
 
+                    # Auto-decline the custom API key prompt (use default key)
+                    if self._detect_custom_api_key_prompt(self._output_buffer):
+                        logger.info(f"[{self.session_id}] Auto-declining custom API key prompt")
+                        os.write(self.master_fd, b"2\n")  # Select "No (recommended)"
+                        self._output_buffer = ""
+                        continue
+
                     # Check for permission requests
                     permission = self._detect_permission_request(self._output_buffer)
                     if permission:
@@ -376,6 +382,18 @@ class ClaudeCodeSession:
         """
         clean_text = self.ANSI_ESCAPE.sub("", text)
         return "trust this folder" in clean_text.lower() and "Yes, I trust" in clean_text
+
+    def _detect_custom_api_key_prompt(self, text: str) -> bool:
+        """Detect if text contains the custom API key prompt.
+
+        Args:
+            text: Text to analyze (may contain ANSI codes)
+
+        Returns:
+            True if the custom API key prompt is detected
+        """
+        clean_text = self.ANSI_ESCAPE.sub("", text)
+        return "Detected a custom API key" in clean_text and "Do you want to use this API key" in clean_text
 
     def _detect_permission_request(self, text: str) -> PermissionRequest | None:
         """Detect if text contains a permission request.
@@ -763,6 +781,7 @@ class ClaudeCodeSessionManager:
                 str(workspace_path),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                env=dict(os.environ),
             )
             stdout, stderr = await process.communicate()
             print(stdout)

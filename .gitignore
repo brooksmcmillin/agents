@@ -29,6 +29,9 @@ ENV/
 # Environment variables
 .env
 
+# Claude Code config (contains auth tokens)
+.claude.json
+
 # Runtime data directory
 .data/
 

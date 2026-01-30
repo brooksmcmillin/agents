@@ -17,6 +17,7 @@ services:
       LOG_LEVEL: DEBUG
       DEV_MODE: "true"  # Enable permissive CORS for development
       CLAUDE_CODE_WORKSPACES_DIR: /workspaces
+      SSH_AUTH_SOCK: /ssh-agent
     volumes:
       # Mount source code for hot reload
       - .:/app
@@ -27,12 +28,11 @@ services:
       - /app/__pycache__
       # Claude Code workspaces (needs write access for claude user)
       - claude_workspaces:/workspaces
-      # Claude Code config for non-root claude user
-      - ~/.claude:/home/claude/.claude:ro
-      - ~/.claude.json:/home/claude/.claude.json:ro
       # Git credentials for claude user
       - ~/.gitconfig:/home/claude/.gitconfig:ro
       - ~/.ssh:/home/claude/.ssh:ro
+      # SSH agent socket for git authentication
+      - ${SSH_AUTH_SOCK}:/ssh-agent:ro
     ports:
       - "8080:8080"
     extra_hosts:
@@ -41,6 +41,8 @@ services:
     networks:
       - agents-network
     restart: unless-stopped
+    stdin_open: true
+    tty: true
     command: >
       sh -c "chown -R claude:claude /workspaces &&
              uv run uvicorn agents.api.server:app --host 0.0.0.0 --port 8080 --reload"

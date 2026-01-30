@@ -8,11 +8,10 @@ import type {
   ClaudeCodeSessionState,
 } from '@/api/types';
 
-interface OutputLine {
-  id: number;
-  text: string;
-  timestamp: Date;
-  type: 'output' | 'error' | 'system';
+interface TerminalWriter {
+  write: (data: string) => void;
+  writeln: (data: string) => void;
+  clear: () => void;
 }
 
 interface ClaudeCodeState {
@@ -26,9 +25,8 @@ interface ClaudeCodeState {
   sessionState: ClaudeCodeSessionState | null;
   isConnecting: boolean;
 
-  // Terminal output
-  outputLines: OutputLine[];
-  outputLineCounter: number;
+  // Terminal writer (set by component)
+  terminalWriter: TerminalWriter | null;
 
   // Permission handling
   pendingPermission: ClaudeCodePermissionRequest | null;
@@ -54,7 +52,7 @@ interface ClaudeCodeState {
   respondToPermission: (approved: boolean) => void;
   resizeTerminal: (rows: number, cols: number) => void;
 
-  clearOutput: () => void;
+  setTerminalWriter: (writer: TerminalWriter | null) => void;
   clearError: () => void;
 }
 
@@ -68,8 +66,7 @@ export const useClaudeCodeStore = create<ClaudeCodeState>((set, get) => ({
   sessionState: null,
   isConnecting: false,
 
-  outputLines: [],
-  outputLineCounter: 0,
+  terminalWriter: null,
 
   pendingPermission: null,
 
@@ -123,12 +120,12 @@ export const useClaudeCodeStore = create<ClaudeCodeState>((set, get) => ({
 
   // Session actions
   startSession: async (workspace: string, initialPrompt?: string) => {
-    const { endSession } = get();
+    const { endSession, terminalWriter } = get();
 
     // End any existing session first
     await endSession();
 
-    set({ isConnecting: true, error: null, outputLines: [], outputLineCounter: 0 });
+    set({ isConnecting: true, error: null });
 
     try {
       const session = await apiClient.createClaudeCodeSession({
@@ -145,19 +142,8 @@ export const useClaudeCodeStore = create<ClaudeCodeState>((set, get) => ({
       // Connect WebSocket
       get().connectWebSocket(session.session_id);
 
-      // Add system message
-      const { outputLineCounter } = get();
-      set({
-        outputLines: [
-          {
-            id: outputLineCounter,
-            text: `Connected to Claude Code in workspace: ${workspace}`,
-            timestamp: new Date(),
-            type: 'system',
-          },
-        ],
-        outputLineCounter: outputLineCounter + 1,
-      });
+      // Write system message to terminal
+      terminalWriter?.writeln(`\x1b[36mConnected to Claude Code in workspace: ${workspace}\x1b[0m`);
     } catch (err) {
       set({
         error: err instanceof Error ? err.message : 'Failed to start session',
@@ -201,23 +187,12 @@ export const useClaudeCodeStore = create<ClaudeCodeState>((set, get) => ({
     ws.onmessage = (event) => {
       try {
         const data: ClaudeCodeEvent = JSON.parse(event.data);
-        const { outputLineCounter, outputLines } = get();
+        const { terminalWriter } = get();
 
         switch (data.type) {
           case 'output': {
             const text = typeof data.data === 'string' ? data.data : JSON.stringify(data.data);
-            set({
-              outputLines: [
-                ...outputLines,
-                {
-                  id: outputLineCounter,
-                  text,
-                  timestamp: new Date(data.timestamp),
-                  type: 'output',
-                },
-              ],
-              outputLineCounter: outputLineCounter + 1,
-            });
+            terminalWriter?.write(text);
             break;
           }
 
@@ -238,37 +213,15 @@ export const useClaudeCodeStore = create<ClaudeCodeState>((set, get) => ({
 
           case 'error': {
             const errorText = typeof data.data === 'string' ? data.data : JSON.stringify(data.data);
-            set({
-              outputLines: [
-                ...outputLines,
-                {
-                  id: outputLineCounter,
-                  text: `Error: ${errorText}`,
-                  timestamp: new Date(data.timestamp),
-                  type: 'error',
-                },
-              ],
-              outputLineCounter: outputLineCounter + 1,
-              sessionState: 'error',
-            });
+            terminalWriter?.writeln(`\x1b[31mError: ${errorText}\x1b[0m`);
+            set({ sessionState: 'error' });
             break;
           }
 
           case 'completed': {
             const completedData = data.data as { exit_code: number };
-            set({
-              outputLines: [
-                ...outputLines,
-                {
-                  id: outputLineCounter,
-                  text: `Session completed with exit code: ${completedData.exit_code}`,
-                  timestamp: new Date(data.timestamp),
-                  type: 'system',
-                },
-              ],
-              outputLineCounter: outputLineCounter + 1,
-              sessionState: 'completed',
-            });
+            terminalWriter?.writeln(`\x1b[36mSession completed with exit code: ${completedData.exit_code}\x1b[0m`);
+            set({ sessionState: 'completed' });
             break;
           }
         }
@@ -287,21 +240,9 @@ export const useClaudeCodeStore = create<ClaudeCodeState>((set, get) => ({
       set({ ws: null });
 
       // If session is still active and not terminated, show message
-      const { activeSession, sessionState } = get();
+      const { activeSession, sessionState, terminalWriter } = get();
       if (activeSession && sessionState !== 'completed' && sessionState !== 'terminated') {
-        const { outputLineCounter, outputLines } = get();
-        set({
-          outputLines: [
-            ...outputLines,
-            {
-              id: outputLineCounter,
-              text: 'WebSocket disconnected',
-              timestamp: new Date(),
-              type: 'system',
-            },
-          ],
-          outputLineCounter: outputLineCounter + 1,
-        });
+        terminalWriter?.writeln('\x1b[33mWebSocket disconnected\x1b[0m');
       }
     };
 
@@ -338,8 +279,8 @@ export const useClaudeCodeStore = create<ClaudeCodeState>((set, get) => ({
     }
   },
 
-  clearOutput: () => {
-    set({ outputLines: [], outputLineCounter: 0 });
+  setTerminalWriter: (writer: TerminalWriter | null) => {
+    set({ terminalWriter: writer });
   },
 
   clearError: () => {

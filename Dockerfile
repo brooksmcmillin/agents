@@ -1,5 +1,5 @@
 # Backend Dockerfile
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim
 
 # Set working directory
 WORKDIR /app
@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     nodejs \
     npm \
     openssh-client \
+    procps \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user for Claude Code (it refuses --dangerously-skip-permissions as root)
@@ -19,6 +20,10 @@ RUN useradd -m -s /bin/bash claude
 
 # Install Claude Code CLI for the claude user
 RUN su - claude -c "curl -fsSL https://claude.ai/install.sh | bash"
+
+# Copy Claude Code config for the claude user (must be writable)
+COPY .claude.json /home/claude/.claude.json
+RUN chown claude:claude /home/claude/.claude.json
 
 # Add GitHub host key to known_hosts for both root and claude user
 RUN mkdir -p /root/.ssh ~/.ssh && ssh-keyscan github.com >> /root/.ssh/known_hosts
