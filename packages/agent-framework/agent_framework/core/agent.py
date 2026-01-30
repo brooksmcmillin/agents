@@ -684,11 +684,10 @@ class Agent(ABC):
             exc_info = sys.exc_info()
             raise
         finally:
-            if trace_ctx is not None:
-                if exc_info is not None:
-                    trace_ctx.__exit__(*exc_info)
-                else:
-                    trace_ctx.__exit__(None, None, None)
+            if trace_ctx is not None and exc_info is not None:
+                trace_ctx.__exit__(*exc_info)
+            elif trace_ctx is not None:
+                trace_ctx.__exit__(None, None, None)
 
     async def _process_message_internal(self, user_message: str, trace_ctx) -> str:
         """Internal message processing with observability context.
