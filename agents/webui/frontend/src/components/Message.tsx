@@ -1,3 +1,4 @@
+import ReactMarkdown from 'react-markdown';
 import { formatTimestamp } from '@/utils/formatters';
 import { TokenBadge } from './TokenBadge';
 import type { Message as MessageType, ContentBlock } from '@/api/types';
@@ -52,7 +53,13 @@ export function Message({ message }: MessageProps) {
           }
         `}
       >
-        <div className="whitespace-pre-wrap break-words">{content}</div>
+        {isUser ? (
+          <div className="whitespace-pre-wrap break-words">{content}</div>
+        ) : (
+          <div className="prose prose-sm dark:prose-invert max-w-none break-words prose-p:my-2 prose-headings:my-3 prose-ul:my-2 prose-ol:my-2 prose-li:my-0 prose-pre:my-2 prose-code:before:content-none prose-code:after:content-none">
+            <ReactMarkdown>{content}</ReactMarkdown>
+          </div>
+        )}
         <div className="flex items-center gap-2 mt-2 text-xs opacity-70">
           {message.timestamp && (
             <span>{formatTimestamp(message.timestamp)}</span>
