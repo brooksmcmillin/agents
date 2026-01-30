@@ -1,5 +1,3 @@
-version: '3.8'
-
 # Development-optimized docker-compose configuration
 # Run with: docker-compose -f docker-compose.dev.yml up
 
