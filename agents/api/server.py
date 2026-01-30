@@ -34,8 +34,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import anthropic
 from agent_framework import Agent
 from agent_framework.storage import DatabaseConversationStore
+from anthropic.types import TextBlock
 from fastapi import (
     Depends,
     FastAPI,
@@ -172,6 +174,57 @@ def _create_agent(name: str) -> Agent:
         )
     agent_class, kwargs, _ = registry[name]
     return agent_class(**(kwargs or {}))
+
+
+# ---------------------------------------------------------------------------
+# Auto-title generation
+# ---------------------------------------------------------------------------
+
+_title_client: anthropic.AsyncAnthropic | None = None
+
+
+def _get_title_client() -> anthropic.AsyncAnthropic:
+    """Get or create the Anthropic client for title generation."""
+    global _title_client
+    if _title_client is None:
+        _title_client = anthropic.AsyncAnthropic()
+    return _title_client
+
+
+async def _generate_conversation_title(user_message: str, assistant_response: str) -> str | None:
+    """Generate a short title for a conversation based on first exchange.
+
+    Uses Claude Haiku for cost efficiency. Returns None on failure to avoid
+    blocking the main conversation flow.
+    """
+    try:
+        client = _get_title_client()
+        response = await client.messages.create(
+            model="claude-3-5-haiku-latest",
+            max_tokens=30,
+            messages=[
+                {
+                    "role": "user",
+                    "content": (
+                        "Generate a brief 3-6 word title for this conversation. "
+                        "Return only the title, no quotes or punctuation.\n\n"
+                        f"User: {user_message[:500]}\n\n"
+                        f"Assistant: {assistant_response[:500]}"
+                    ),
+                }
+            ],
+        )
+        content_block = response.content[0]
+        if not isinstance(content_block, TextBlock):
+            return None
+        title = content_block.text.strip().strip("\"'")
+        # Ensure reasonable length
+        if len(title) > 100:
+            title = title[:97] + "..."
+        return title
+    except Exception as e:
+        logger.warning("Failed to generate conversation title: %s", e)
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -630,6 +683,12 @@ async def conversation_message(
             {"role": "assistant", "content": response_text},
         ],
     )
+
+    # Auto-generate title on first message if no title set
+    if conv.message_count == 0 and not conv.title:
+        title = await _generate_conversation_title(body.message, response_text)
+        if title:
+            await store.update_conversation(conversation_id, title=title)
 
     return MessageResponse(
         response=response_text,
