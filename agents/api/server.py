@@ -28,6 +28,7 @@ Run with:
 import asyncio
 import logging
 import os
+import secrets
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -252,10 +253,15 @@ async def verify_api_key(
     If API_KEY environment variable is not set, authentication is disabled
     and all requests are allowed. If set, requests must include a valid
     Authorization: Bearer <API_KEY> header.
+
+    Uses constant-time comparison to prevent timing attacks.
     """
     if not _api_key:
         return  # Auth not configured, allow all
-    if not credentials or credentials.credentials != _api_key:
+    if not credentials or not secrets.compare_digest(
+        credentials.credentials.encode("utf-8"),
+        _api_key.encode("utf-8"),
+    ):
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
