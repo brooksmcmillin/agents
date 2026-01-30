@@ -35,6 +35,16 @@ DEFAULT_WORKSPACES_DIR = os.environ.get(
     str(Path.home() / ".claude_code_workspaces"),
 )
 
+# Claude Code executable path (can be overridden by environment variable)
+# Default to claude user's installation (root can't use --dangerously-skip-permissions)
+CLAUDE_EXECUTABLE = os.environ.get(
+    "CLAUDE_CODE_EXECUTABLE",
+    "/home/claude/.local/bin/claude",
+)
+
+# User to run Claude Code as (non-root required for --dangerously-skip-permissions)
+CLAUDE_USER = os.environ.get("CLAUDE_CODE_USER", "claude")
+
 
 class SessionState(str, Enum):
     """State of a Claude Code session."""
@@ -178,10 +188,14 @@ class ClaudeCodeSession:
         Args:
             initial_prompt: Optional initial prompt to send to Claude Code
         """
-        if not shutil.which("claude"):
+        claude_path = CLAUDE_EXECUTABLE
+        if not os.path.isabs(claude_path):
+            claude_path = shutil.which(claude_path) or ""
+        if not claude_path or not os.path.exists(claude_path):
             raise RuntimeError(
-                "Claude Code CLI not found. Please install it: "
-                "https://github.com/anthropics/claude-code"
+                f"Claude Code CLI not found at '{CLAUDE_EXECUTABLE}'. "
+                "Set CLAUDE_CODE_EXECUTABLE environment variable to the full path, "
+                "or install it: https://github.com/anthropics/claude-code"
             )
 
         # Create PTY
@@ -193,10 +207,40 @@ class ClaudeCodeSession:
         fcntl.ioctl(slave_fd, termios.TIOCSWINSZ, winsize)
 
         # Build command - start Claude Code in interactive mode
-        cmd = ["claude"]
+        # --dangerously-skip-permissions bypasses all prompts (trust dialog + tool permissions)
+        # Must run as non-root user (Claude Code refuses this flag as root)
+        claude_cmd = [claude_path, "--dangerously-skip-permissions"]
         if initial_prompt:
             # If there's an initial prompt, pass it as the first message
-            cmd.extend(["--message", initial_prompt])
+            claude_cmd.extend(["--message", initial_prompt])
+
+        # Wrap with su to run as non-root user if we're root
+        if os.getuid() == 0 and CLAUDE_USER:
+            # Pass through essential environment variables (su - doesn't inherit them)
+            env_exports = []
+            for var in [
+                "ANTHROPIC_API_KEY",
+                "CLAUDE_CODE_USE_BEDROCK",
+                "AWS_PROFILE",
+                "AWS_REGION",
+            ]:
+                if var in os.environ:
+                    # Escape single quotes in value
+                    val = os.environ[var].replace("'", "'\\''")
+                    env_exports.append(f"export {var}='{val}'")
+            env_prefix = " && ".join(env_exports) + " && " if env_exports else ""
+            shell_cmd = f"{env_prefix}cd {self.workspace_path} && {' '.join(claude_cmd)}"
+            cmd = ["su", "-", CLAUDE_USER, "-c", shell_cmd]
+            cwd = None  # cd is handled in the su command
+        else:
+            cmd = claude_cmd
+            cwd = str(self.workspace_path)
+
+        logger.info(f"[{self.session_id}] Starting Claude Code with command: {cmd}")
+        logger.info(f"[{self.session_id}] Working directory: {cwd}")
+        logger.info(
+            f"[{self.session_id}] ANTHROPIC_API_KEY set: {'ANTHROPIC_API_KEY' in os.environ}"
+        )
 
         try:
             # Start subprocess with PTY
@@ -205,7 +249,7 @@ class ClaudeCodeSession:
                 stdin=slave_fd,
                 stdout=slave_fd,
                 stderr=slave_fd,
-                cwd=str(self.workspace_path),
+                cwd=cwd,
                 preexec_fn=os.setsid,  # Create new session for proper signal handling
             )
         finally:
@@ -222,23 +266,55 @@ class ClaudeCodeSession:
     async def _read_output(self) -> None:
         """Continuously read output from PTY and emit events."""
         loop = asyncio.get_event_loop()
+        logger.debug(f"[{self.session_id}] Starting PTY read loop")
+        read_count = 0
 
         while not self._terminated and self.master_fd is not None:
+            # Periodically check if process is still alive
+            read_count += 1
+            if read_count % 10 == 0 and self.process:
+                rc = self.process.returncode
+                logger.debug(
+                    f"[{self.session_id}] Process check: returncode={rc}, pid={self.process.pid}"
+                )
             try:
                 # Read from PTY (non-blocking via executor)
                 data = await loop.run_in_executor(None, self._read_pty_chunk)
 
                 if data is None:
                     # EOF or error
+                    logger.debug(f"[{self.session_id}] PTY read returned None (EOF)")
                     break
 
                 if data:
+                    logger.debug(
+                        f"[{self.session_id}] PTY read {len(data)} bytes: {repr(data[:200])}"
+                    )
                     self.last_activity = datetime.now(UTC)
                     self._output_buffer += data
+
+                    # Auto-accept the bypass permissions disclaimer
+                    if self._detect_bypass_disclaimer(self._output_buffer):
+                        logger.info(
+                            f"[{self.session_id}] Auto-accepting bypass permissions disclaimer"
+                        )
+                        os.write(self.master_fd, b"2\n")  # Select "Yes, I accept"
+                        self._output_buffer = ""
+                        continue
+
+                    # Auto-accept the trust folder prompt
+                    if self._detect_trust_folder_prompt(self._output_buffer):
+                        logger.info(f"[{self.session_id}] Auto-accepting trust folder prompt")
+                        os.write(self.master_fd, b"1\n")  # Select "Yes, I trust this folder"
+                        self._output_buffer = ""
+                        continue
 
                     # Check for permission requests
                     permission = self._detect_permission_request(self._output_buffer)
                     if permission:
+                        logger.debug(
+                            f"[{self.session_id}] Detected permission request: {permission.tool_type}"
+                        )
                         self._pending_permission = permission
                         self.state = SessionState.WAITING_PERMISSION
                         self._emit_event(EventType.PERMISSION_REQUEST, permission)
@@ -249,11 +325,12 @@ class ClaudeCodeSession:
                         self._emit_event(EventType.OUTPUT, data)
 
             except Exception as e:
-                logger.error(f"Error reading PTY output: {e}")
+                logger.error(f"[{self.session_id}] Error reading PTY output: {e}", exc_info=True)
                 self._emit_event(EventType.ERROR, str(e))
                 break
 
         # Session ended
+        logger.debug(f"[{self.session_id}] PTY read loop ended, terminated={self._terminated}")
         if not self._terminated:
             self.state = SessionState.COMPLETED
             self._emit_event(EventType.COMPLETED, {"exit_code": self._get_exit_code()})
@@ -262,15 +339,43 @@ class ClaudeCodeSession:
     def _read_pty_chunk(self) -> str | None:
         """Read a chunk of data from PTY (blocking, run in executor)."""
         if self.master_fd is None:
+            logger.debug(f"[{self.session_id}] _read_pty_chunk: master_fd is None")
             return None
 
         try:
             data = os.read(self.master_fd, 4096)
             if not data:
+                logger.debug(f"[{self.session_id}] _read_pty_chunk: read returned empty")
                 return None
             return data.decode("utf-8", errors="replace")
-        except OSError:
+        except OSError as e:
+            logger.debug(f"[{self.session_id}] _read_pty_chunk: OSError {e}")
             return None
+
+    def _detect_bypass_disclaimer(self, text: str) -> bool:
+        """Detect if text contains the bypass permissions disclaimer prompt.
+
+        Args:
+            text: Text to analyze (may contain ANSI codes)
+
+        Returns:
+            True if the bypass disclaimer prompt is detected
+        """
+        clean_text = self.ANSI_ESCAPE.sub("", text)
+        # Look for the bypass permissions warning with the accept option
+        return "Bypass Permissions mode" in clean_text and "Yes, I accept" in clean_text
+
+    def _detect_trust_folder_prompt(self, text: str) -> bool:
+        """Detect if text contains the trust folder prompt.
+
+        Args:
+            text: Text to analyze (may contain ANSI codes)
+
+        Returns:
+            True if the trust folder prompt is detected
+        """
+        clean_text = self.ANSI_ESCAPE.sub("", text)
+        return "trust this folder" in clean_text.lower() and "Yes, I trust" in clean_text
 
     def _detect_permission_request(self, text: str) -> PermissionRequest | None:
         """Detect if text contains a permission request.
@@ -307,13 +412,20 @@ class ClaudeCodeSession:
             text: Text to send (will add newline if not present)
         """
         if self.master_fd is None or self._terminated:
+            logger.error(
+                f"[{self.session_id}] send_input failed: master_fd={self.master_fd}, terminated={self._terminated}"
+            )
             raise RuntimeError("Session is not active")
 
         if not text.endswith("\n"):
             text += "\n"
 
+        logger.debug(
+            f"[{self.session_id}] send_input: writing {len(text)} bytes: {repr(text[:100])}"
+        )
         self.last_activity = datetime.now(UTC)
-        os.write(self.master_fd, text.encode())
+        bytes_written = os.write(self.master_fd, text.encode())
+        logger.debug(f"[{self.session_id}] send_input: wrote {bytes_written} bytes to PTY")
 
         # Clear pending permission if responding
         if self._pending_permission and self.state == SessionState.WAITING_PERMISSION:
@@ -351,6 +463,8 @@ class ClaudeCodeSession:
         """Emit an event to the queue."""
         event = SessionEvent(type=event_type, data=data)
         try:
+            data_preview = str(data)[:100] if event_type == EventType.OUTPUT else str(data)
+            logger.debug(f"[{self.session_id}] Emitting event: {event_type.value} - {data_preview}")
             self._event_queue.put_nowait(event)
         except asyncio.QueueFull:
             logger.warning(f"Event queue full for session {self.session_id}")
@@ -633,6 +747,7 @@ class ClaudeCodeSessionManager:
             raise ValueError(f"Invalid workspace name: {name}")
 
         workspace_path = self.workspaces_dir / name
+        print(f"Workspace Path: {workspace_path}")
 
         if workspace_path.exists():
             raise ValueError(f"Workspace already exists: {name}")
@@ -649,7 +764,9 @@ class ClaudeCodeSessionManager:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            _, stderr = await process.communicate()
+            stdout, stderr = await process.communicate()
+            print(stdout)
+            print(stderr)
 
             if process.returncode != 0:
                 raise RuntimeError(f"Git clone failed: {stderr.decode()}")

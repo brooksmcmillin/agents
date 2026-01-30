@@ -19,8 +19,8 @@ RUN npm run build
 # Production stage - use nginx to serve static files
 FROM nginx:alpine
 
-# Copy built assets from builder
-COPY --from=builder /app/dist /usr/share/nginx/html
+# Copy built assets from builder (vite outputs to ../dist relative to frontend dir)
+COPY --from=builder /dist /usr/share/nginx/html
 
 # Copy nginx configuration
 COPY nginx.conf /etc/nginx/conf.d/default.conf

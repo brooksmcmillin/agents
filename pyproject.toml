@@ -9,7 +9,7 @@ dependencies = [
     "httpx>=0.27.0",
     "aiohttp>=3.13.3",  # Updated from >=3.11.0 to fix 8 CVEs (DoS, request smuggling)
     "starlette>=0.41.0",
-    "uvicorn>=0.32.0",
+    "uvicorn[standard]>=0.32.0",
     "python-dotenv>=1.0.0",
     "pydantic>=2.10.0",
     "pydantic-settings>=2.6.0",

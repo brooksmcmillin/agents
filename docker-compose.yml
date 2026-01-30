@@ -20,6 +20,9 @@ services:
       # Logging
       LOG_LEVEL: INFO
 
+      # Claude Code workspaces directory
+      CLAUDE_CODE_WORKSPACES_DIR: /workspaces
+
       # Optional: Add other environment variables as needed
       # MCP_SERVER_URL: ${MCP_SERVER_URL:-}
       # SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
@@ -31,6 +34,13 @@ services:
       - ./logs:/app/logs
       # Persist memories (if using file backend)
       - ./memories:/app/memories
+      # Claude Code workspaces (persisted across container restarts)
+      - claude_workspaces:/workspaces
+      # Claude Code config (OAuth, custom agents) - read-only
+      - ~/.claude:/root/.claude:ro
+      # Git credentials for repo operations
+      - ~/.gitconfig:/root/.gitconfig:ro
+      - ~/.ssh:/root/.ssh:ro
     ports:
       - "8080:8080"
     extra_hosts:
@@ -62,4 +72,6 @@ networks:
 
 volumes:
   frontend_dist:
+    driver: local
+  claude_workspaces:
     driver: local
