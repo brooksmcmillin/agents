@@ -87,6 +87,10 @@ class Settings(BaseSettings):
         description="Lakera Guard API key for prompt injection detection. "
         "If not set, security checks are skipped.",
     )
+    lakera_project_id: str | None = Field(
+        default=None,
+        description="Lakera Guard project ID for request tracking and analytics.",
+    )
     lakera_fail_open: bool = Field(
         default=True,
         description="If True, allow content through when Lakera API errors occur. "

@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 # Lakera Guard API configuration
 LAKERA_API_URL = "https://api.lakera.ai/v2/guard"
 LAKERA_API_KEY_ENV = "LAKERA_API_KEY"  # pragma: allowlist secret
+LAKERA_PROJECT_ID_ENV = "LAKERA_PROJECT_ID"
 DEFAULT_TIMEOUT = 10.0  # seconds
 
 
@@ -95,6 +96,7 @@ class LakeraGuard:
     def __init__(
         self,
         api_key: str | None = None,
+        project_id: str | None = None,
         api_url: str = LAKERA_API_URL,
         timeout: float = DEFAULT_TIMEOUT,
         fail_open: bool = True,
@@ -103,12 +105,15 @@ class LakeraGuard:
 
         Args:
             api_key: Lakera API key. If None, reads from LAKERA_API_KEY env var.
+            project_id: Lakera project ID for tracking. If None, reads from
+                       LAKERA_PROJECT_ID env var.
             api_url: Lakera Guard API URL (default: production endpoint).
             timeout: Request timeout in seconds.
             fail_open: If True, allow content through when API errors occur.
                       If False, raise SecurityCheckError on API failures.
         """
         self._api_key = api_key or os.environ.get(LAKERA_API_KEY_ENV)
+        self._project_id = project_id or os.environ.get(LAKERA_PROJECT_ID_ENV)
         self._api_url = api_url
         self._timeout = timeout
         self._fail_open = fail_open
@@ -154,9 +159,12 @@ class LakeraGuard:
 
         try:
             client = await self._get_client()
+            payload: dict[str, Any] = {"messages": messages}
+            if self._project_id:
+                payload["project_id"] = self._project_id
             response = await client.post(
                 self._api_url,
-                json={"messages": messages},
+                json=payload,
                 headers={
                     "Authorization": f"Bearer {self._api_key}",
                     "Content-Type": "application/json",

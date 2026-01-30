@@ -77,6 +77,30 @@ class TestLakeraGuard:
         # but we verify guard is enabled)
         assert guard.enabled is True
 
+    def test_init_with_project_id_param(self, monkeypatch):
+        """Test initialization with project_id parameter."""
+        monkeypatch.delenv("LAKERA_PROJECT_ID", raising=False)
+
+        guard = LakeraGuard(api_key="test-key", project_id="project-123")
+
+        assert guard._project_id == "project-123"
+
+    def test_init_with_project_id_env_var(self, monkeypatch):
+        """Test initialization reads project_id from environment."""
+        monkeypatch.setenv("LAKERA_PROJECT_ID", "env-project-456")
+
+        guard = LakeraGuard(api_key="test-key")
+
+        assert guard._project_id == "env-project-456"
+
+    def test_project_id_param_overrides_env(self, monkeypatch):
+        """Test project_id parameter takes precedence over environment."""
+        monkeypatch.setenv("LAKERA_PROJECT_ID", "env-project")
+
+        guard = LakeraGuard(api_key="test-key", project_id="param-project")
+
+        assert guard._project_id == "param-project"
+
 
 class TestLakeraGuardAsync:
     """Async tests for LakeraGuard methods."""
@@ -113,6 +137,55 @@ class TestLakeraGuardAsync:
 
         assert result.flagged is False
         assert result.is_safe is True
+
+    @pytest.mark.asyncio
+    async def test_request_includes_project_id(self, monkeypatch):
+        """Test that project_id is included in API request when set."""
+        monkeypatch.setenv("LAKERA_API_KEY", "test-key")
+
+        guard = LakeraGuard(project_id="project-9146177048")
+
+        # Mock the HTTP client
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"flagged": False}
+
+        with patch.object(guard, "_get_client") as mock_get_client:
+            mock_client = AsyncMock()
+            mock_client.post = AsyncMock(return_value=mock_response)
+            mock_get_client.return_value = mock_client
+
+            await guard.check_input("Hello")
+
+            # Verify project_id was included in the request
+            call_args = mock_client.post.call_args
+            request_json = call_args.kwargs["json"]
+            assert request_json["project_id"] == "project-9146177048"
+
+    @pytest.mark.asyncio
+    async def test_request_without_project_id(self, monkeypatch):
+        """Test that project_id is not included when not set."""
+        monkeypatch.setenv("LAKERA_API_KEY", "test-key")
+        monkeypatch.delenv("LAKERA_PROJECT_ID", raising=False)
+
+        guard = LakeraGuard()
+
+        # Mock the HTTP client
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"flagged": False}
+
+        with patch.object(guard, "_get_client") as mock_get_client:
+            mock_client = AsyncMock()
+            mock_client.post = AsyncMock(return_value=mock_response)
+            mock_get_client.return_value = mock_client
+
+            await guard.check_input("Hello")
+
+            # Verify project_id was NOT included in the request
+            call_args = mock_client.post.call_args
+            request_json = call_args.kwargs["json"]
+            assert "project_id" not in request_json
 
     @pytest.mark.asyncio
     async def test_check_input_flagged_content(self, monkeypatch):
