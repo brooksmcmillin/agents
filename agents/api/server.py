@@ -81,6 +81,19 @@ from .sessions import SessionManager
 
 logger = logging.getLogger(__name__)
 
+
+def _sanitize_log_input(value: str) -> str:
+    """Sanitize user input for safe logging.
+
+    Prevents log injection attacks by removing newlines and control characters
+    that could be used to forge log entries or corrupt log analysis.
+    """
+    # Replace newlines and carriage returns, then remove other control chars
+    sanitized = value.replace("\n", "\\n").replace("\r", "\\r")
+    # Remove other ASCII control characters (0x00-0x1F except tab)
+    return "".join(c if c == "\t" or (ord(c) >= 0x20) else f"\\x{ord(c):02x}" for c in sanitized)
+
+
 # ---------------------------------------------------------------------------
 # Agent registry
 #
@@ -339,7 +352,7 @@ async def stateless_message(
     try:
         response_text = await agent.process_message(body.message)
     except Exception as e:
-        logger.exception("Agent %s failed processing message", agent_name)
+        logger.exception("Agent %s failed processing message", _sanitize_log_input(agent_name))
         raise HTTPException(status_code=500, detail=str(e)) from e
 
     return MessageResponse(
@@ -404,7 +417,7 @@ async def session_message(
     try:
         response_text = await agent.process_message(body.message)
     except Exception as e:
-        logger.exception("Session %s failed processing message", session_id)
+        logger.exception("Session %s failed processing message", _sanitize_log_input(session_id))
         raise HTTPException(status_code=500, detail=str(e)) from e
 
     session.touch()
@@ -604,7 +617,9 @@ async def conversation_message(
     try:
         response_text = await agent.process_message(body.message)
     except Exception as e:
-        logger.exception("Conversation %s failed processing message", conversation_id)
+        logger.exception(
+            "Conversation %s failed processing message", _sanitize_log_input(conversation_id)
+        )
         raise HTTPException(status_code=500, detail=str(e)) from e
 
     # Save both messages to database
