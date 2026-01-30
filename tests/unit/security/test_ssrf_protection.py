@@ -411,7 +411,7 @@ class TestSSRFIntegrationWithWebTools:
         """Test that web_reader rejects cloud metadata endpoints."""
         from agent_framework.tools import fetch_web_content
 
-        with pytest.raises(ValueError, match="(metadata|private|security)"):
+        with pytest.raises(ValueError, match="(metadata|private|URL not allowed)"):
             await fetch_web_content("http://169.254.169.254/latest/meta-data/")
 
     @pytest.mark.asyncio

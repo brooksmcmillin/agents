@@ -348,62 +348,83 @@ class TestErrorHandling:
     @pytest.mark.asyncio
     async def test_http_404_error(self):
         """Test handling of 404 Not Found errors."""
-        with patch("httpx.AsyncClient") as mock_client_class:
-            mock_instance = AsyncMock()
-            mock_request = MagicMock()
-            mock_response = MagicMock(status_code=404)
-            mock_instance.get = AsyncMock(
-                side_effect=httpx.HTTPStatusError(
-                    "404 Not Found",
-                    request=mock_request,
-                    response=mock_response,
+        # Mock SSRFValidator to skip redirect checking since it makes real HTTP requests
+        with patch(
+            "agent_framework.tools.web_reader.SSRFValidator.validate_request_with_redirects",
+            new_callable=AsyncMock,
+            return_value=(True, "https://example.com/nonexistent"),
+        ):
+            with patch("httpx.AsyncClient") as mock_client_class:
+                mock_instance = AsyncMock()
+                mock_request = MagicMock()
+                mock_response = MagicMock(status_code=404)
+                mock_instance.get = AsyncMock(
+                    side_effect=httpx.HTTPStatusError(
+                        "404 Not Found",
+                        request=mock_request,
+                        response=mock_response,
+                    )
                 )
-            )
-            mock_client_class.return_value.__aenter__.return_value = mock_instance
+                mock_client_class.return_value.__aenter__.return_value = mock_instance
 
-            with pytest.raises(ValueError, match="Failed to fetch URL"):
-                await fetch_web_content("https://example.com/nonexistent")
+                with pytest.raises(ValueError, match="Failed to fetch URL"):
+                    await fetch_web_content("https://example.com/nonexistent")
 
     @pytest.mark.asyncio
     async def test_http_500_error(self):
         """Test handling of 500 Server Error."""
-        with patch("httpx.AsyncClient") as mock_client_class:
-            mock_instance = AsyncMock()
-            mock_request = MagicMock()
-            mock_response = MagicMock(status_code=500)
-            mock_instance.get = AsyncMock(
-                side_effect=httpx.HTTPStatusError(
-                    "500 Internal Server Error",
-                    request=mock_request,
-                    response=mock_response,
+        with patch(
+            "agent_framework.tools.web_reader.SSRFValidator.validate_request_with_redirects",
+            new_callable=AsyncMock,
+            return_value=(True, "https://example.com"),
+        ):
+            with patch("httpx.AsyncClient") as mock_client_class:
+                mock_instance = AsyncMock()
+                mock_request = MagicMock()
+                mock_response = MagicMock(status_code=500)
+                mock_instance.get = AsyncMock(
+                    side_effect=httpx.HTTPStatusError(
+                        "500 Internal Server Error",
+                        request=mock_request,
+                        response=mock_response,
+                    )
                 )
-            )
-            mock_client_class.return_value.__aenter__.return_value = mock_instance
+                mock_client_class.return_value.__aenter__.return_value = mock_instance
 
-            with pytest.raises(ValueError, match="Failed to fetch URL"):
-                await fetch_web_content("https://example.com")
+                with pytest.raises(ValueError, match="Failed to fetch URL"):
+                    await fetch_web_content("https://example.com")
 
     @pytest.mark.asyncio
     async def test_connection_error(self):
         """Test handling of connection errors."""
-        with patch("httpx.AsyncClient") as mock_client_class:
-            mock_instance = AsyncMock()
-            mock_instance.get = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
-            mock_client_class.return_value.__aenter__.return_value = mock_instance
+        with patch(
+            "agent_framework.tools.web_reader.SSRFValidator.validate_request_with_redirects",
+            new_callable=AsyncMock,
+            return_value=(True, "https://example.com"),
+        ):
+            with patch("httpx.AsyncClient") as mock_client_class:
+                mock_instance = AsyncMock()
+                mock_instance.get = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
+                mock_client_class.return_value.__aenter__.return_value = mock_instance
 
-            with pytest.raises(ValueError, match="Failed to fetch URL"):
-                await fetch_web_content("https://example.com")
+                with pytest.raises(ValueError, match="Failed to fetch URL"):
+                    await fetch_web_content("https://example.com")
 
     @pytest.mark.asyncio
     async def test_timeout_error(self):
         """Test handling of timeout errors."""
-        with patch("httpx.AsyncClient") as mock_client_class:
-            mock_instance = AsyncMock()
-            mock_instance.get = AsyncMock(side_effect=httpx.TimeoutException("Timeout"))
-            mock_client_class.return_value.__aenter__.return_value = mock_instance
+        with patch(
+            "agent_framework.tools.web_reader.SSRFValidator.validate_request_with_redirects",
+            new_callable=AsyncMock,
+            return_value=(True, "https://example.com"),
+        ):
+            with patch("httpx.AsyncClient") as mock_client_class:
+                mock_instance = AsyncMock()
+                mock_instance.get = AsyncMock(side_effect=httpx.TimeoutException("Timeout"))
+                mock_client_class.return_value.__aenter__.return_value = mock_instance
 
-            with pytest.raises(ValueError, match="Failed to fetch URL"):
-                await fetch_web_content("https://example.com")
+                with pytest.raises(ValueError, match="Failed to fetch URL"):
+                    await fetch_web_content("https://example.com")
 
     @pytest.mark.asyncio
     async def test_empty_content_raises_error(self):
@@ -431,27 +452,35 @@ class TestRedirects:
 
     @pytest.mark.asyncio
     async def test_follows_redirects(self):
-        """Test that redirects are followed and final URL is returned."""
+        """Test that redirects are followed and final URL is returned.
+
+        Note: The SSRFValidator now handles redirect validation, following redirects
+        securely to ensure each hop is safe. The final URL is then fetched directly.
+        """
         mock_html = "<html><body><article>Content</article></body></html>"
 
-        with patch("httpx.AsyncClient") as mock_client_class:
-            # Second response: final content (httpx follows redirects automatically)
-            mock_final_response = AsyncMock()
-            mock_final_response.status_code = 200
-            mock_final_response.text = mock_html
-            mock_final_response.url = "https://example.com/final-page"
-            mock_final_response.headers = {}
-            mock_final_response.raise_for_status = MagicMock()
+        # Mock SSRFValidator to simulate redirect resolution to final URL
+        with patch(
+            "agent_framework.tools.web_reader.SSRFValidator.validate_request_with_redirects",
+            new_callable=AsyncMock,
+            return_value=(True, "https://example.com/final-page"),
+        ):
+            with patch("httpx.AsyncClient") as mock_client_class:
+                mock_final_response = AsyncMock()
+                mock_final_response.status_code = 200
+                mock_final_response.text = mock_html
+                mock_final_response.url = "https://example.com/final-page"
+                mock_final_response.headers = {}
+                mock_final_response.raise_for_status = MagicMock()
 
-            mock_instance = AsyncMock()
-            mock_instance.get = AsyncMock(return_value=mock_final_response)
-            mock_client_class.return_value.__aenter__.return_value = mock_instance
+                mock_instance = AsyncMock()
+                mock_instance.get = AsyncMock(return_value=mock_final_response)
+                mock_client_class.return_value.__aenter__.return_value = mock_instance
 
-            result = await fetch_web_content("https://example.com/redirect")
+                result = await fetch_web_content("https://example.com/redirect")
 
-            # Should return the final URL after redirect
-            # httpx follows redirects by default, so we just get the final URL
-            assert result["url"] == "https://example.com/final-page"
+                # Should return the final URL after redirect (resolved by SSRFValidator)
+                assert result["url"] == "https://example.com/final-page"
 
 
 class TestSSRFProtection:

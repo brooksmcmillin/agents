@@ -49,6 +49,16 @@ from agent_framework.utils.errors import DatabaseNotInitializedError
 logger = logging.getLogger(__name__)
 
 
+def _sanitize_log_input(value: str) -> str:
+    """Sanitize user input for safe logging.
+
+    Prevents log injection attacks by removing newlines and control characters
+    that could be used to forge log entries or corrupt log analysis.
+    """
+    sanitized = value.replace("\n", "\\n").replace("\r", "\\r")
+    return "".join(c if c == "\t" or (ord(c) >= 0x20) else f"\\x{ord(c):02x}" for c in sanitized)
+
+
 class Message(BaseModel):
     """A single message in a conversation."""
 
@@ -233,7 +243,7 @@ class DatabaseConversationStore:
                 json.dumps(metadata),
             )
 
-        logger.info(f"Created conversation: {conv_id} for agent {agent_name}")
+        logger.info(f"Created conversation: {conv_id} for agent {_sanitize_log_input(agent_name)}")
 
         return Conversation(
             id=conv_id,
@@ -412,7 +422,7 @@ class DatabaseConversationStore:
 
         deleted = result == "DELETE 1"
         if deleted:
-            logger.info(f"Deleted conversation: {conversation_id}")
+            logger.info(f"Deleted conversation: {_sanitize_log_input(conversation_id)}")
 
         return deleted
 
@@ -618,7 +628,9 @@ class DatabaseConversationStore:
 
         # Parse "DELETE N" result
         count = int(result.split()[1]) if result.startswith("DELETE") else 0
-        logger.info(f"Cleared {count} messages from conversation {conversation_id}")
+        logger.info(
+            f"Cleared {count} messages from conversation {_sanitize_log_input(conversation_id)}"
+        )
         return count
 
     # -------------------------------------------------------------------------
