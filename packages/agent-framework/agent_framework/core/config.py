@@ -60,6 +60,18 @@ class Settings(BaseSettings):
         "Settings -> Privacy & Security -> Integrations -> API tokens",
     )
 
+    # Agent Email Configuration
+    admin_email_address: str | None = Field(
+        default=None,
+        description="Admin email address that agents send reports/notifications to. "
+        "Used by send_agent_report tool.",
+    )
+    agent_email_domain: str = Field(
+        default="brooksmcmillin.com",
+        description="Domain for agent email addresses. Each agent sends from "
+        "{agent_name}@{domain} (e.g., chatbot@brooksmcmillin.com).",
+    )
+
     # Slack Integration
     slack_webhook_url: str | None = Field(
         default=None, description="Default Slack incoming webhook URL"

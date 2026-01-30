@@ -11,6 +11,7 @@ from shared import (
     CLAUDE_CODE_TOOLS,
     COMMUNICATION_TOOLS,
     CONTENT_TOOLS,
+    EMAIL_TOOLS,
     MEMORY_TOOLS,
     create_simple_agent,
     run_agent,
@@ -22,7 +23,11 @@ PRAgent = create_simple_agent(
     name="PRAgent",
     system_prompt=SYSTEM_PROMPT,
     greeting=USER_GREETING_PROMPT,
-    allowed_tools=CONTENT_TOOLS + MEMORY_TOOLS + COMMUNICATION_TOOLS + CLAUDE_CODE_TOOLS,
+    allowed_tools=CONTENT_TOOLS
+    + MEMORY_TOOLS
+    + COMMUNICATION_TOOLS
+    + EMAIL_TOOLS
+    + CLAUDE_CODE_TOOLS,
 )
 
 

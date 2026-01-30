@@ -257,7 +257,7 @@ while not done:
 
 ## MCP Tools
 
-The MCP server exposes **34 tools** across 9 categories (defined in `packages/agent-framework/agent_framework/tools/`):
+The MCP server exposes **35 tools** across 9 categories (defined in `packages/agent-framework/agent_framework/tools/`):
 
 ### Web Analysis Tools (2 tools)
 - `fetch_web_content` - Fetch web content as clean markdown for LLM reading and analysis
@@ -280,13 +280,14 @@ The MCP server exposes **34 tools** across 9 categories (defined in `packages/ag
 - `delete_document` - Delete document by ID
 - `get_rag_stats` - Get RAG system statistics
 
-### FastMail Email Tools (8 tools)
+### FastMail Email Tools (9 tools)
 *Requires FastMail API token and account ID*
 - `list_mailboxes` - List all mailboxes
 - `get_emails` - Get emails from a mailbox
 - `get_email` - Get single email by ID
 - `search_emails` - Search emails by query
-- `send_email` - Send an email with to/cc/bcc/subject/body
+- `send_email` - Send an email with to/cc/bcc/subject/body (supports identity_email for sender selection)
+- `send_agent_report` - Send report/notification from agent to admin (auto-injects agent email and admin recipient)
 - `move_email` - Move email to different mailbox
 - `update_email_flags` - Update email flags (seen, flagged)
 - `delete_email` - Delete an email
@@ -380,6 +381,57 @@ This is perfect for:
 - Processing incoming emails for information extraction
 - Managing email workflows programmatically
 - Email-based task and project management
+
+**Send Agent Reports to Admin:**
+```python
+# Agents can send reports/notifications to the admin
+# The from address is auto-derived from agent name (e.g., chatbot@brooksmcmillin.com)
+# The to address is auto-filled from ADMIN_EMAIL_ADDRESS env var
+result = await send_agent_report(
+    subject="Daily Task Summary - Jan 30, 2026",
+    body="""
+    Completed tasks today:
+    - Processed 15 customer inquiries
+    - Updated 3 knowledge base articles
+    - Flagged 2 items for human review
+
+    Metrics:
+    - Average response time: 2.3 seconds
+    - Customer satisfaction: 94%
+    """,
+)
+
+# Returns:
+# {
+#     "status": "success",
+#     "email_id": "M12345",
+#     "from_address": "chatbot@brooksmcmillin.com",
+#     "to_address": "admin@example.com",
+#     "message": "Email sent successfully to admin@example.com"
+# }
+```
+
+**Agent Email Configuration:**
+To enable agent email reports, configure these environment variables:
+```bash
+# Required: Admin email address (where reports are sent)
+ADMIN_EMAIL_ADDRESS=you@example.com
+
+# Optional: Domain for agent emails (default: brooksmcmillin.com)
+AGENT_EMAIL_DOMAIN=brooksmcmillin.com
+
+# Required: FastMail API token
+FASTMAIL_API_TOKEN=your_token_here
+```
+
+You'll also need to set up email identities in FastMail for each agent:
+- `chatbot@brooksmcmillin.com`
+- `pr-agent@brooksmcmillin.com`
+- `task-manager@brooksmcmillin.com`
+- etc.
+
+The `agent_name` parameter is automatically injected by the Agent class, so agents
+simply call the tool with subject and body - the from/to are handled automatically.
 
 **Adding a New Tool:**
 

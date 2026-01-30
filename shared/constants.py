@@ -51,6 +51,10 @@ COMMUNICATION_TOOLS = [
     "send_slack_message",
 ]
 
+EMAIL_TOOLS = [
+    "send_agent_report",
+]
+
 CLAUDE_CODE_TOOLS = [
     "run_claude_code",
     "list_claude_code_workspaces",
