@@ -388,8 +388,9 @@ class TestContextManagement:
 
                 # Should have trimmed to max_context_messages
                 # Each process_message adds 2 messages (user + assistant)
-                # After trimming, should be around max_context_messages
-                assert len(agent.messages) <= 7  # Some buffer for timing
+                # After trimming, memory injection may add 2 more messages
+                # So expect max_context_messages + 2 (memory) + 2 (last turn) = 9
+                assert len(agent.messages) <= 9  # Accounts for memory injection
 
     @pytest.mark.asyncio
     async def test_context_trimming_disabled(self, env_with_api_key, mock_mcp_client):

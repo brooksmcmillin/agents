@@ -487,6 +487,57 @@ This creates a feedback loop where the agent helps improve itself based on real-
 - Same interface: `get_token()`, `save_token()`, `delete_token()`
 - SQL schema examples available in agent-framework documentation
 
+## Observability with Langfuse
+
+The agent framework includes built-in observability via [Langfuse](https://langfuse.com), providing:
+- **Traces** for each conversation turn with full context
+- **Spans** for individual tool calls with inputs/outputs
+- **Automatic LLM call instrumentation** via OpenTelemetry
+- **Token usage and latency tracking**
+- **Dashboard and alerting capabilities**
+
+**Setup:**
+
+1. Sign up for [Langfuse Cloud](https://cloud.langfuse.com) or [self-host](https://langfuse.com/docs/deployment/self-host)
+2. Get your API keys from Project Settings
+3. Add to `.env`:
+   ```
+   LANGFUSE_ENABLED=true
+   LANGFUSE_PUBLIC_KEY=pk-lf-...
+   LANGFUSE_SECRET_KEY=sk-lf-...
+   # Optional for self-hosted:
+   # LANGFUSE_HOST=https://your-langfuse-instance.com
+   ```
+4. Restart your agent - traces will appear in the Langfuse dashboard
+
+**What Gets Traced:**
+
+| Event | Captured Data |
+|-------|--------------|
+| Message processing | Agent name, model, user/session IDs, iterations |
+| Claude API calls | Full request/response (automatic via OpenTelemetry) |
+| Tool executions | Tool name, arguments, output, errors, latency |
+| Token usage | Input/output tokens per turn |
+
+**Architecture:**
+
+The observability module (`agent_framework/observability/`) uses:
+- **Langfuse SDK** for trace management and span creation
+- **OpenTelemetry Anthropic Instrumentor** for automatic Claude call tracing
+- **Graceful degradation** - agents work normally if Langfuse is not configured
+
+**Custom Tracing:**
+
+For agents that extend the base `Agent` class, pass `user_id` and `session_id` to `process_message()` for better trace filtering:
+
+```python
+response = await agent.process_message(
+    user_message,
+    user_id="user-123",
+    session_id="conv-456",
+)
+```
+
 ## Key Files and Responsibilities
 
 **Agents:**
@@ -580,13 +631,13 @@ uv run python -m config.mcp_server.server
 - Token usage tracking
 - Remote MCP support for distributed deployments
 - REST API server for HTTP access to agents
+- **Langfuse observability** for tracing, monitoring, and alerting
 - Comprehensive error handling
 
 **Production Readiness:**
 - Social media tools use mock data - integrate Twitter/LinkedIn APIs via OAuth
 - Add rate limiting for API endpoints
 - Add multi-user support (user_id to memory/auth/RAG)
-- Production monitoring and metrics
 - Distributed deployment with remote MCP
 - Security hardening for public-facing deployments
 

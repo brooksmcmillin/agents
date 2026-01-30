@@ -41,7 +41,7 @@ def mock_agent():
     mock.total_input_tokens = 0
     mock.total_output_tokens = 0
 
-    async def mock_process(message):
+    async def mock_process(message, user_id=None, session_id=None):
         mock.total_input_tokens += 10
         mock.total_output_tokens += 20
         return f"Response to: {message}"

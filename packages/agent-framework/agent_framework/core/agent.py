@@ -34,6 +34,23 @@ from .config import settings
 from .mcp_client import MCPClient
 from .remote_mcp_client import RemoteMCPClient
 
+# Import observability (optional - graceful degradation if unavailable)
+try:
+    from ..observability import (
+        init_observability,
+        observe_tool_call,
+        shutdown_observability,
+        start_trace,
+    )
+
+    OBSERVABILITY_AVAILABLE = True
+except ImportError:
+    OBSERVABILITY_AVAILABLE = False
+    init_observability = None
+    shutdown_observability = None
+    start_trace = None
+    observe_tool_call = None
+
 if TYPE_CHECKING:
     from ..security import LakeraGuard
 
@@ -359,6 +376,13 @@ class Agent(ABC):
         self.total_input_tokens = 0
         self.total_output_tokens = 0
 
+        # Initialize observability (Langfuse)
+        self._observability_enabled = False
+        if OBSERVABILITY_AVAILABLE and init_observability is not None:
+            self._observability_enabled = init_observability()
+            if self._observability_enabled:
+                logger.info("Langfuse observability enabled for this agent")
+
         web_search_status = "enabled" if enable_web_search else "disabled"
         logger.info(
             f"Initialized {self.get_agent_name()} with model: {model}, "
@@ -500,7 +524,13 @@ class Agent(ABC):
         - _handle_special_command(input) for exit/stats/reload commands
         See code optimizer report for detailed recommendations.
         """
-        logger.info(f"Starting {self.get_agent_name()} interactive session")
+        import uuid
+
+        # Generate session ID for this CLI session (for observability tracing)
+        cli_session_id = f"cli-{uuid.uuid4().hex[:12]}"
+        logger.info(
+            f"Starting {self.get_agent_name()} interactive session (session: {cli_session_id})"
+        )
 
         print("\n" + "=" * 70)
         print(self.get_agent_name().upper())
@@ -510,6 +540,8 @@ class Agent(ABC):
         print("Type 'stats' to see token usage statistics.")
         print("Type 'reload' to reconnect to MCP server and discover updated tools.")
         print(f"\nLogs: {self.log_file}")
+        if self._observability_enabled:
+            print(f"Session: {cli_session_id}")
         print("=" * 70 + "\n")
 
         # Discover available tools (will reconnect each time we need them)
@@ -571,7 +603,7 @@ class Agent(ABC):
                     continue
 
                 # Process user message
-                response = await self.process_message(user_input)
+                response = await self.process_message(user_input, session_id=cli_session_id)
 
                 # Display response
                 print(f"\nAssistant: {response}")
@@ -585,7 +617,12 @@ class Agent(ABC):
                 print(f"\nError: {e}")
                 print("Please try again or type 'exit' to quit.")
 
-    async def process_message(self, user_message: str) -> str:
+    async def process_message(
+        self,
+        user_message: str,
+        user_id: str | None = None,
+        session_id: str | None = None,
+    ) -> str:
         """
         Process a user message and return the agent's response.
 
@@ -598,6 +635,47 @@ class Agent(ABC):
 
         Args:
             user_message: The user's input message
+            user_id: Optional user ID for observability tracing
+            session_id: Optional session/conversation ID for observability tracing
+
+        Returns:
+            The agent's response as a string
+        """
+        # Start observability trace for this message
+        trace_ctx = None
+        if self._observability_enabled and start_trace is not None:
+            trace_ctx = start_trace(
+                name="process_message",
+                user_id=user_id,
+                session_id=session_id,
+                metadata={
+                    "agent": self.get_agent_name(),
+                    "model": self.model,
+                },
+                tags=[self.get_agent_name()],
+            ).__enter__()
+
+        exc_info: tuple | None = None
+        try:
+            return await self._process_message_internal(user_message, trace_ctx)
+        except BaseException:
+            import sys
+
+            exc_info = sys.exc_info()
+            raise
+        finally:
+            if trace_ctx is not None:
+                if exc_info is not None:
+                    trace_ctx.__exit__(*exc_info)
+                else:
+                    trace_ctx.__exit__(None, None, None)
+
+    async def _process_message_internal(self, user_message: str, trace_ctx) -> str:
+        """Internal message processing with observability context.
+
+        Args:
+            user_message: The user's input message
+            trace_ctx: Optional TraceContext for observability
 
         Returns:
             The agent's response as a string
@@ -673,6 +751,21 @@ class Agent(ABC):
                         }
                     )
 
+                    # Update trace with final output and token usage
+                    if trace_ctx is not None:
+                        trace_ctx.update(
+                            output=(
+                                text_response[:1000] + "... [truncated]"
+                                if len(text_response) > 1000
+                                else text_response
+                            ),
+                            usage={
+                                "input": self.total_input_tokens,
+                                "output": self.total_output_tokens,
+                            },
+                            metadata={"iterations": iteration},
+                        )
+
                     return text_response
 
                 elif response.stop_reason == "tool_use":
@@ -705,12 +798,43 @@ class Agent(ABC):
                     for tool_call in tool_calls:
                         logger.info(f"Executing tool: {tool_call.name}")
 
+                        # Prepare tool input for observability (preserve non-dict inputs)
+                        tool_input = (
+                            tool_call.input
+                            if isinstance(tool_call.input, dict)
+                            else {"_raw_input": str(tool_call.input)}
+                        )
+
+                        # Start tool span for observability
+                        tool_span = None
+                        tool_span_exc_info: tuple | None = None
+                        if (
+                            trace_ctx is not None
+                            and self._observability_enabled
+                            and observe_tool_call is not None
+                        ):
+                            tool_span = observe_tool_call(
+                                trace_ctx,
+                                tool_call.name,
+                                tool_input,
+                            ).__enter__()
+
                         try:
                             # Call MCP tool (reconnects to server each time)
                             result = await self._call_mcp_tool_with_reconnect(
                                 tool_call.name,
                                 tool_call.input,
                             )
+
+                            # End tool span with success
+                            if tool_span is not None:
+                                result_str = str(result)
+                                truncated_output = (
+                                    result_str[:500] + "... [truncated]"
+                                    if len(result_str) > 500
+                                    else result_str
+                                )
+                                tool_span.end(output=truncated_output, level="DEFAULT")
 
                             tool_results.append(
                                 {
@@ -723,6 +847,16 @@ class Agent(ABC):
                         except PermissionError as e:
                             # Handle auth errors
                             logger.warning(f"Authentication error for {tool_call.name}: {e}")
+                            tool_span_exc_info = (type(e), e, e.__traceback__)
+
+                            # End tool span with error
+                            if tool_span is not None:
+                                tool_span.end(
+                                    output=f"Authentication required: {e}",
+                                    level="ERROR",
+                                    metadata={"error_type": "PermissionError"},
+                                )
+
                             tool_results.append(
                                 {
                                     "type": "tool_result",
@@ -735,6 +869,16 @@ class Agent(ABC):
                         except Exception as e:
                             # Handle other tool errors
                             logger.error(f"Tool execution error for {tool_call.name}: {e}")
+                            tool_span_exc_info = (type(e), e, e.__traceback__)
+
+                            # End tool span with error
+                            if tool_span is not None:
+                                tool_span.end(
+                                    output=f"Tool execution failed: {e}",
+                                    level="ERROR",
+                                    metadata={"error_type": type(e).__name__},
+                                )
+
                             tool_results.append(
                                 {
                                     "type": "tool_result",
@@ -743,6 +887,14 @@ class Agent(ABC):
                                     "is_error": True,
                                 }
                             )
+
+                        finally:
+                            # Always close the tool span context manager
+                            if tool_span is not None:
+                                if tool_span_exc_info is not None:
+                                    tool_span.__exit__(*tool_span_exc_info)
+                                else:
+                                    tool_span.__exit__(None, None, None)
 
                     # Add tool results to conversation
                     self.messages.append(
@@ -768,10 +920,27 @@ class Agent(ABC):
 
             except Exception as e:
                 logger.exception(f"Error in agent loop: {e}")
+                # Update trace with error
+                if trace_ctx is not None:
+                    trace_ctx.update(
+                        metadata={
+                            "error": str(e),
+                            "error_type": type(e).__name__,
+                            "iterations": iteration,
+                        }
+                    )
                 return f"I encountered an error: {e}. Please try again."
 
         # Max iterations reached
         logger.warning(f"Max iterations ({MAX_AGENT_ITERATIONS}) reached")
+        # Update trace with max iterations warning
+        if trace_ctx is not None:
+            trace_ctx.update(
+                metadata={
+                    "warning": "max_iterations_reached",
+                    "iterations": MAX_AGENT_ITERATIONS,
+                }
+            )
         return "I apologize, but I'm having trouble completing this request. Please try rephrasing or breaking it into smaller steps."
 
     async def _convert_mcp_tools_to_anthropic(self) -> list[dict[str, Any]]:
