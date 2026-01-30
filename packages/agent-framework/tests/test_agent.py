@@ -308,3 +308,133 @@ class TestAgentProcessMessage:
                 result = await agent.process_message("Test")
 
                 assert "encountered an error" in result
+
+
+class TestAgentMemoryIsolation:
+    """Tests for automatic agent_name injection in memory tools."""
+
+    @pytest.mark.asyncio
+    async def test_memory_tool_auto_injects_agent_name(self, env_with_api_key):
+        """Test that memory tools get agent_name auto-injected."""
+        with patch("agent_framework.core.agent.AsyncAnthropic"):
+            with patch("agent_framework.core.agent.MCPClient") as mock_mcp:
+                mock_mcp_instance = MagicMock()
+                mock_mcp.return_value = mock_mcp_instance
+                mock_mcp_instance.call_tool = AsyncMock(return_value={"status": "success"})
+                mock_mcp_instance.connect = MagicMock()
+                mock_mcp_instance.connect.return_value.__aenter__ = AsyncMock(
+                    return_value=mock_mcp_instance
+                )
+                mock_mcp_instance.connect.return_value.__aexit__ = AsyncMock()
+
+                agent = ConcreteAgent().create()
+                agent.mcp_client = mock_mcp_instance
+                agent.tools = {"local": ["save_memory", "get_memories"]}
+
+                # Call save_memory without agent_name
+                await agent._call_mcp_tool_with_reconnect(
+                    "save_memory",
+                    {"key": "test_key", "value": "test_value"},
+                )
+
+                # Verify agent_name was injected
+                call_args = mock_mcp_instance.call_tool.call_args
+                assert call_args[0][1]["agent_name"] == "TestAgent"
+
+    @pytest.mark.asyncio
+    async def test_memory_tool_does_not_override_explicit_agent_name(self, env_with_api_key):
+        """Test that explicitly provided agent_name is not overwritten."""
+        with patch("agent_framework.core.agent.AsyncAnthropic"):
+            with patch("agent_framework.core.agent.MCPClient") as mock_mcp:
+                mock_mcp_instance = MagicMock()
+                mock_mcp.return_value = mock_mcp_instance
+                mock_mcp_instance.call_tool = AsyncMock(return_value={"status": "success"})
+                mock_mcp_instance.connect = MagicMock()
+                mock_mcp_instance.connect.return_value.__aenter__ = AsyncMock(
+                    return_value=mock_mcp_instance
+                )
+                mock_mcp_instance.connect.return_value.__aexit__ = AsyncMock()
+
+                agent = ConcreteAgent().create()
+                agent.mcp_client = mock_mcp_instance
+                agent.tools = {"local": ["save_memory"]}
+
+                # Call save_memory with explicit agent_name
+                await agent._call_mcp_tool_with_reconnect(
+                    "save_memory",
+                    {"key": "test_key", "value": "test_value", "agent_name": "custom_agent"},
+                )
+
+                # Verify explicit agent_name was preserved
+                call_args = mock_mcp_instance.call_tool.call_args
+                assert call_args[0][1]["agent_name"] == "custom_agent"
+
+    @pytest.mark.asyncio
+    async def test_non_memory_tool_no_agent_name_injection(self, env_with_api_key):
+        """Test that non-memory tools don't get agent_name injected."""
+        with patch("agent_framework.core.agent.AsyncAnthropic"):
+            with patch("agent_framework.core.agent.MCPClient") as mock_mcp:
+                mock_mcp_instance = MagicMock()
+                mock_mcp.return_value = mock_mcp_instance
+                mock_mcp_instance.call_tool = AsyncMock(return_value={"result": "ok"})
+                mock_mcp_instance.connect = MagicMock()
+                mock_mcp_instance.connect.return_value.__aenter__ = AsyncMock(
+                    return_value=mock_mcp_instance
+                )
+                mock_mcp_instance.connect.return_value.__aexit__ = AsyncMock()
+
+                agent = ConcreteAgent().create()
+                agent.mcp_client = mock_mcp_instance
+                agent.tools = {"local": ["fetch_web_content"]}
+
+                # Call non-memory tool
+                await agent._call_mcp_tool_with_reconnect(
+                    "fetch_web_content",
+                    {"url": "https://example.com"},
+                )
+
+                # Verify agent_name was NOT injected
+                call_args = mock_mcp_instance.call_tool.call_args
+                assert "agent_name" not in call_args[0][1]
+
+    @pytest.mark.asyncio
+    async def test_all_memory_tools_get_agent_name_injected(self, env_with_api_key):
+        """Test that all memory tools get agent_name injected."""
+        from agent_framework.core.agent import MEMORY_TOOLS
+
+        with patch("agent_framework.core.agent.AsyncAnthropic"):
+            with patch("agent_framework.core.agent.MCPClient") as mock_mcp:
+                mock_mcp_instance = MagicMock()
+                mock_mcp.return_value = mock_mcp_instance
+                mock_mcp_instance.call_tool = AsyncMock(return_value={"status": "success"})
+                mock_mcp_instance.connect = MagicMock()
+                mock_mcp_instance.connect.return_value.__aenter__ = AsyncMock(
+                    return_value=mock_mcp_instance
+                )
+                mock_mcp_instance.connect.return_value.__aexit__ = AsyncMock()
+
+                agent = ConcreteAgent().create()
+                agent.mcp_client = mock_mcp_instance
+                agent.tools = {"local": list(MEMORY_TOOLS)}
+
+                # Test each memory tool
+                for tool_name in MEMORY_TOOLS:
+                    mock_mcp_instance.call_tool.reset_mock()
+
+                    # Build minimal args for each tool
+                    if tool_name == "save_memory":
+                        args = {"key": "k", "value": "v"}
+                    elif tool_name == "search_memories":
+                        args = {"query": "test"}
+                    elif tool_name == "delete_memory":
+                        args = {"key": "k"}
+                    else:
+                        args = {}
+
+                    await agent._call_mcp_tool_with_reconnect(tool_name, args)
+
+                    # Verify agent_name was injected
+                    call_args = mock_mcp_instance.call_tool.call_args
+                    assert call_args[0][1].get("agent_name") == "TestAgent", (
+                        f"{tool_name} did not get agent_name injected"
+                    )

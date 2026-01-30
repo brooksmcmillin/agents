@@ -115,17 +115,17 @@ def mock_slack_response():
 
 @pytest.fixture(autouse=True)
 def reset_memory_store_singleton(monkeypatch):
-    """Reset the global memory store singletons between tests."""
+    """Reset the global memory store registries between tests."""
     from agent_framework.tools import memory
 
-    memory._file_memory_store = None
-    memory._database_memory_store = None
+    memory._file_memory_stores.clear()
+    memory._database_memory_stores.clear()
     # Reset backend to default
     monkeypatch.setenv("MEMORY_BACKEND", "file")
     monkeypatch.delenv("MEMORY_DATABASE_URL", raising=False)
     yield
-    memory._file_memory_store = None
-    memory._database_memory_store = None
+    memory._file_memory_stores.clear()
+    memory._database_memory_stores.clear()
 
 
 @pytest.fixture

@@ -2,6 +2,9 @@
 
 This module provides persistent memory storage that allows the agent
 to save and retrieve important information across sessions.
+
+Supports agent-level isolation: each agent can have its own memory namespace
+to prevent memories from bleeding between different agent use cases.
 """
 
 import json
@@ -13,6 +16,9 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
+
+# Default agent name for backward compatibility with existing memories
+DEFAULT_AGENT_NAME = "shared"
 
 
 class Memory(BaseModel):
@@ -63,7 +69,10 @@ class MemoryStore:
     File-based memory storage for the agent.
 
     Stores memories as JSON for easy inspection and portability.
-    Can be easily migrated to a database later.
+    Supports agent-level isolation via namespaced storage directories.
+
+    Storage structure:
+        {storage_path}/{agent_name}/memories.json
 
     TODO: Consider unifying the interface with DatabaseMemoryStore.
     Currently MemoryStore uses sync methods while DatabaseMemoryStore uses async.
@@ -74,14 +83,24 @@ class MemoryStore:
     See code optimizer report for detailed recommendations.
     """
 
-    def __init__(self, storage_path: Path | str = "./memories"):
+    def __init__(
+        self,
+        storage_path: Path | str = "./memories",
+        agent_name: str = DEFAULT_AGENT_NAME,
+    ):
         """
         Initialize memory store.
 
         Args:
-            storage_path: Directory to store memory files
+            storage_path: Base directory to store memory files
+            agent_name: Agent identifier for memory isolation (default: "shared")
+                       Each agent gets its own subdirectory for memories.
         """
-        self.storage_path = Path(storage_path)
+        self.base_storage_path = Path(storage_path)
+        self.agent_name = agent_name
+
+        # Create agent-specific storage path
+        self.storage_path = self.base_storage_path / agent_name
         self.storage_path.mkdir(parents=True, exist_ok=True)
         self.memory_file = self.storage_path / "memories.json"
 
@@ -89,7 +108,9 @@ class MemoryStore:
         self.memories: dict[str, Memory] = {}
         self._load()
 
-        logger.info(f"Initialized memory store with {len(self.memories)} memories")
+        logger.info(
+            f"Initialized memory store for agent '{agent_name}' with {len(self.memories)} memories"
+        )
 
     def _load(self) -> None:
         """Load memories from file."""
@@ -256,6 +277,7 @@ class MemoryStore:
             categories[cat] = categories.get(cat, 0) + 1
 
         return {
+            "agent_name": self.agent_name,
             "total_memories": len(self.memories),
             "categories": categories,
             "oldest_memory": min((m.created_at for m in self.memories.values()), default=None),
@@ -266,6 +288,7 @@ class MemoryStore:
 # Example usage and migration guide:
 #
 # To migrate to database storage, implement the same interface:
+# - __init__(database_url, agent_name) - Initialize with agent isolation
 # - save_memory(key, value, category, tags, importance) -> Memory
 # - get_memory(key) -> Memory | None
 # - get_all_memories(category, tags, min_importance) -> list[Memory]
@@ -273,16 +296,19 @@ class MemoryStore:
 # - delete_memory(key) -> bool
 # - get_stats() -> dict
 #
-# Example SQL schema:
+# Example SQL schema (with agent isolation):
 # CREATE TABLE memories (
-#     key VARCHAR(255) PRIMARY KEY,
+#     agent_name VARCHAR(100) NOT NULL DEFAULT 'shared',
+#     key VARCHAR(255) NOT NULL,
 #     value TEXT NOT NULL,
 #     category VARCHAR(100),
 #     tags JSON,
 #     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 #     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-#     importance INTEGER DEFAULT 5 CHECK (importance >= 1 AND importance <= 10)
+#     importance INTEGER DEFAULT 5 CHECK (importance >= 1 AND importance <= 10),
+#     PRIMARY KEY (agent_name, key)
 # );
-# CREATE INDEX idx_category ON memories(category);
-# CREATE INDEX idx_importance ON memories(importance);
+# CREATE INDEX idx_agent_name ON memories(agent_name);
+# CREATE INDEX idx_agent_category ON memories(agent_name, category);
+# CREATE INDEX idx_agent_importance ON memories(agent_name, importance);
 # CREATE FULLTEXT INDEX idx_search ON memories(key, value);
