@@ -684,8 +684,13 @@ async def conversation_message(
         ],
     )
 
-    # Auto-generate title on first message if no title set
-    if conv.message_count == 0 and not conv.title:
+    # Auto-generate title on first message if no title set.
+    # We check len(conv.messages) which reflects the state when we loaded the conversation,
+    # before we saved the new messages. This is intentional - we want to generate a title
+    # only for the first message exchange. Note: concurrent requests to a new conversation
+    # could both trigger title generation, with the last one winning.
+    is_first_message = len(conv.messages) == 0
+    if is_first_message and not conv.title:
         title = await _generate_conversation_title(body.message, response_text)
         if title:
             await store.update_conversation(conversation_id, title=title)
