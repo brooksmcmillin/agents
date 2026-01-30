@@ -474,7 +474,10 @@ async def session_message(
     output_before = agent.total_output_tokens
 
     try:
-        response_text = await agent.process_message(body.message)
+        response_text = await agent.process_message(
+            body.message,
+            session_id=session_id,  # For Langfuse tracing
+        )
     except Exception as e:
         logger.exception("Session %s failed processing message", _sanitize_log_input(session_id))
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -674,7 +677,10 @@ async def conversation_message(
     output_before = agent.total_output_tokens
 
     try:
-        response_text = await agent.process_message(body.message)
+        response_text = await agent.process_message(
+            body.message,
+            session_id=conversation_id,  # For Langfuse tracing
+        )
     except Exception as e:
         logger.exception(
             "Conversation %s failed processing message", _sanitize_log_input(conversation_id)

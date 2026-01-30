@@ -7,6 +7,13 @@ from .core.agent import Agent
 from .core.config import Settings
 from .core.mcp_client import MCPClient
 from .oauth import DeviceAuthorizationCallback, DeviceAuthorizationInfo
+from .observability import (
+    get_langfuse,
+    init_observability,
+    observe_tool_call,
+    shutdown_observability,
+    start_trace,
+)
 from .security import LakeraGuard, LakeraSecurityResult, SecurityCheckError
 from .server.server import create_mcp_server
 from .utils.errors import ContentPolicyError, PromptInjectionError, SecurityError
@@ -27,4 +34,10 @@ __all__ = [
     "SecurityError",
     "PromptInjectionError",
     "ContentPolicyError",
+    # Observability
+    "init_observability",
+    "shutdown_observability",
+    "get_langfuse",
+    "start_trace",
+    "observe_tool_call",
 ]

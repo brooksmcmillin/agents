@@ -4,7 +4,7 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -96,6 +96,37 @@ class Settings(BaseSettings):
         description="If True, allow content through when Lakera API errors occur. "
         "If False, block content on API failures.",
     )
+
+    # Observability - Langfuse
+    langfuse_enabled: bool = Field(
+        default=False,
+        description="Enable Langfuse observability. Requires LANGFUSE_PUBLIC_KEY and "
+        "LANGFUSE_SECRET_KEY to be set.",
+    )
+    langfuse_public_key: str | None = Field(
+        default=None,
+        description="Langfuse public key for tracing.",
+    )
+    langfuse_secret_key: str | None = Field(
+        default=None,
+        description="Langfuse secret key for tracing.",
+    )
+    langfuse_host: str | None = Field(
+        default=None,
+        description="Langfuse host URL. Accepts LANGFUSE_HOST or LANGFUSE_BASE_URL. "
+        "Defaults to Langfuse Cloud. Set for regional endpoints or self-hosted.",
+        validation_alias=AliasChoices("langfuse_host", "langfuse_base_url"),
+    )
+
+    @field_validator("langfuse_host")
+    @classmethod
+    def validate_langfuse_host(cls, v: str | None) -> str | None:
+        """Validate that langfuse_host is a valid HTTPS URL."""
+        if v is None:
+            return v
+        if not v.startswith("https://"):
+            raise ValueError("Langfuse host URL must start with https://")
+        return v
 
     def __init__(self, **kwargs):
         """Initialize settings and create necessary directories."""
