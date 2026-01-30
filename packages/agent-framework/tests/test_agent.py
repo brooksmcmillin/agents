@@ -138,14 +138,38 @@ class TestAgentMethods:
                 assert result == "First part.\n\nSecond part."
 
     def test_extract_text_from_response_empty(self, env_with_api_key):
-        """Test _extract_text_from_response handles empty content."""
+        """Test _extract_text_from_response handles empty content with fallback."""
         with patch("agent_framework.core.agent.AsyncAnthropic"):
             with patch("agent_framework.core.agent.MCPClient"):
                 agent = ConcreteAgent().create()
 
                 result = agent._extract_text_from_response([])
 
-                assert result == ""
+                # Returns fallback to prevent API errors with empty content
+                assert result == "<No text in response>"
+
+    def test_ensure_non_empty_content_with_content(self, env_with_api_key):
+        """Test _ensure_non_empty_content passes through non-empty content."""
+        with patch("agent_framework.core.agent.AsyncAnthropic"):
+            with patch("agent_framework.core.agent.MCPClient"):
+                agent = ConcreteAgent().create()
+                content = [TextBlock(type="text", text="Hello")]
+
+                result = agent._ensure_non_empty_content(content)
+
+                assert result is content
+
+    def test_ensure_non_empty_content_empty(self, env_with_api_key):
+        """Test _ensure_non_empty_content returns fallback for empty content."""
+        with patch("agent_framework.core.agent.AsyncAnthropic"):
+            with patch("agent_framework.core.agent.MCPClient"):
+                agent = ConcreteAgent().create()
+
+                result = agent._ensure_non_empty_content([])
+
+                assert len(result) == 1
+                assert result[0].type == "text"
+                assert result[0].text == "<No text in response>"
 
     def test_print_stats(self, env_with_api_key, capsys):
         """Test _print_stats outputs correct statistics."""
