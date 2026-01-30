@@ -228,6 +228,7 @@ async def list_mailboxes(
 
     try:
         client = _get_client(api_token)
+        await client._ensure_session()
 
         response = await client._call(
             [
@@ -354,6 +355,7 @@ async def get_emails(
 
     try:
         client = _get_client(api_token)
+        await client._ensure_session()
 
         # If role specified, first get the mailbox ID
         target_mailbox_id = mailbox_id
@@ -543,6 +545,7 @@ async def get_email(
 
     try:
         client = _get_client(api_token)
+        await client._ensure_session()
 
         response = await client._call(
             [
@@ -669,6 +672,7 @@ async def search_emails(
 
     try:
         client = _get_client(api_token)
+        await client._ensure_session()
 
         # Build filter
         email_filter: dict[str, Any] = {"text": query}
@@ -854,6 +858,7 @@ async def send_email(
 
     try:
         client = _get_client(api_token)
+        await client._ensure_session()
 
         # Get identities to find the sender
         identity_response = await client._call(
@@ -884,12 +889,27 @@ async def send_email(
 
         # Select identity based on identity_email parameter or use primary
         identity = None
+        use_custom_from = False  # Track if we're using catch-all with custom address
         if identity_email:
-            # Find the identity matching the requested email
+            # First try exact match
             for ident in identities:
                 if ident.get("email", "").lower() == identity_email.lower():
                     identity = ident
                     break
+
+            # If no exact match, try catch-all pattern (*@domain)
+            if not identity:
+                requested_domain = identity_email.lower().split("@")[-1]
+                for ident in identities:
+                    ident_email = ident.get("email", "").lower()
+                    # Check for catch-all pattern like *@domain
+                    if ident_email.startswith("*@"):
+                        catch_all_domain = ident_email[2:]  # Remove "*@" prefix
+                        if catch_all_domain == requested_domain:
+                            identity = ident
+                            use_custom_from = True  # Use requested address, not *@domain
+                            break
+
             if not identity:
                 available = [i.get("email") for i in identities]
                 return {
@@ -901,7 +921,8 @@ async def send_email(
             identity = identities[0]
 
         identity_id = identity["id"]
-        from_address = identity.get("email")
+        # Use requested email if we matched a catch-all, otherwise use identity's email
+        from_address = identity_email if use_custom_from else identity.get("email")
         from_name = identity.get("name", "")
 
         # Build email object
@@ -957,8 +978,8 @@ async def send_email(
                         refs.extend(message_ids)
                         email_create["references"] = refs
 
-        # Get drafts mailbox for temporary storage
-        drafts_response = await client._call(
+        # Get drafts and sent mailboxes
+        mailbox_response = await client._call(
             [
                 [
                     "Mailbox/query",
@@ -967,21 +988,38 @@ async def send_email(
                         "filter": {"role": "drafts"},
                     },
                     "drafts-query",
-                ]
+                ],
+                [
+                    "Mailbox/query",
+                    {
+                        "accountId": client.account_id,
+                        "filter": {"role": "sent"},
+                    },
+                    "sent-query",
+                ],
             ]
         )
 
-        drafts_result = drafts_response.get("methodResponses", [[]])[0]
         drafts_mailbox_id = None
-        if drafts_result[0] == "Mailbox/query":
-            drafts_ids = drafts_result[1].get("ids", [])
-            if drafts_ids:
-                drafts_mailbox_id = drafts_ids[0]
+        sent_mailbox_id = None
+        for resp in mailbox_response.get("methodResponses", []):
+            if resp[0] == "Mailbox/query":
+                ids = resp[1].get("ids") or []
+                if resp[2] == "drafts-query" and ids:
+                    drafts_mailbox_id = ids[0]
+                elif resp[2] == "sent-query" and ids:
+                    sent_mailbox_id = ids[0]
 
         if not drafts_mailbox_id:
             return {
                 "status": "error",
                 "message": "Could not find drafts mailbox",
+            }
+
+        if not sent_mailbox_id:
+            return {
+                "status": "error",
+                "message": "Could not find sent mailbox",
             }
 
         # Set mailbox and keywords
@@ -1011,8 +1049,11 @@ async def send_email(
                         },
                         "onSuccessUpdateEmail": {
                             "#send": {
-                                "mailboxIds": {drafts_mailbox_id: None},  # Remove from drafts
-                                "keywords": {"$draft": None, "$sent": True},
+                                # Move from drafts to sent using JMAP patch notation
+                                f"mailboxIds/{drafts_mailbox_id}": None,
+                                f"mailboxIds/{sent_mailbox_id}": True,
+                                "keywords/$draft": None,
+                                "keywords/$sent": True,
                             }
                         },
                     },
@@ -1031,8 +1072,8 @@ async def send_email(
                 }
 
             if resp[0] == "Email/set":
-                created = resp[1].get("created", {})
-                not_created = resp[1].get("notCreated", {})
+                created = resp[1].get("created") or {}
+                not_created = resp[1].get("notCreated") or {}
                 if "draft" in not_created:
                     error = not_created["draft"]
                     return {
@@ -1041,8 +1082,8 @@ async def send_email(
                     }
 
             if resp[0] == "EmailSubmission/set":
-                created = resp[1].get("created", {})
-                not_created = resp[1].get("notCreated", {})
+                created = resp[1].get("created") or {}
+                not_created = resp[1].get("notCreated") or {}
                 if "send" in not_created:
                     error = not_created["send"]
                     return {
@@ -1118,6 +1159,7 @@ async def move_email(
 
     try:
         client = _get_client(api_token)
+        await client._ensure_session()
 
         # Resolve mailbox ID from role if needed
         target_mailbox_id = to_mailbox_id
@@ -1223,8 +1265,8 @@ async def move_email(
                 "message": f"JMAP error: {result[1].get('description')}",
             }
 
-        updated = result[1].get("updated", {})
-        not_updated = result[1].get("notUpdated", {})
+        updated = result[1].get("updated") or {}
+        not_updated = result[1].get("notUpdated") or {}
 
         if email_id in not_updated:
             error = not_updated[email_id]
@@ -1233,7 +1275,7 @@ async def move_email(
                 "message": f"Failed to move email: {error.get('description', error.get('type'))}",
             }
 
-        if email_id in updated or updated is None:
+        if email_id in updated or not updated:
             logger.info(f"Email moved to mailbox {target_mailbox_id}")
             return {
                 "status": "success",
@@ -1301,6 +1343,7 @@ async def update_email_flags(
 
     try:
         client = _get_client(api_token)
+        await client._ensure_session()
 
         # Build keywords update
         keywords_update: dict[str, bool | None] = {}
@@ -1340,8 +1383,8 @@ async def update_email_flags(
                 "message": f"JMAP error: {result[1].get('description')}",
             }
 
-        _updated = result[1].get("updated", {})  # Reserved for future validation
-        not_updated = result[1].get("notUpdated", {})
+        _updated = result[1].get("updated") or {}  # Reserved for future validation
+        not_updated = result[1].get("notUpdated") or {}
 
         if email_id in not_updated:
             error = not_updated[email_id]
@@ -1410,6 +1453,7 @@ async def delete_email(
 
     try:
         client = _get_client(api_token)
+        await client._ensure_session()
 
         if permanent:
             # Permanently delete
@@ -1440,8 +1484,8 @@ async def delete_email(
                     "message": f"JMAP error: {result[1].get('description')}",
                 }
 
-            destroyed = result[1].get("destroyed", [])
-            not_destroyed = result[1].get("notDestroyed", {})
+            destroyed = result[1].get("destroyed") or []
+            not_destroyed = result[1].get("notDestroyed") or {}
 
             if email_id in not_destroyed:
                 error = not_destroyed[email_id]
