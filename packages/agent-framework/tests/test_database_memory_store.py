@@ -34,18 +34,18 @@ async def database_store(database_url: str):
     """
     from agent_framework.storage.database_memory_store import DatabaseMemoryStore
 
-    store = DatabaseMemoryStore(database_url, cache_ttl=0)  # Disable cache for tests
+    store = DatabaseMemoryStore(database_url, agent_name="test_agent", cache_ttl=0)  # Disable cache for tests
     await store.initialize()
 
-    # Clean up any existing test data
+    # Clean up any existing test data for this agent
     async with store._pool.acquire() as conn:
-        await conn.execute("DELETE FROM memories WHERE key LIKE 'test_%'")
+        await conn.execute("DELETE FROM memories WHERE agent_name = 'test_agent' AND key LIKE 'test_%'")
 
     yield store
 
     # Cleanup after test
     async with store._pool.acquire() as conn:
-        await conn.execute("DELETE FROM memories WHERE key LIKE 'test_%'")
+        await conn.execute("DELETE FROM memories WHERE agent_name = 'test_agent' AND key LIKE 'test_%'")
 
     await store.close()
 
@@ -426,3 +426,181 @@ class TestDatabaseMemoryStoreTagsSerialization:
 
         assert memory is not None
         assert memory.tags == []
+
+
+class TestDatabaseMemoryStoreAgentIsolation:
+    """Tests for agent-level memory isolation in the database store."""
+
+    @pytest.mark.asyncio
+    async def test_different_agents_have_separate_memories(self, database_url: str):
+        """Test that different agents have completely separate memory stores."""
+        from agent_framework.storage.database_memory_store import DatabaseMemoryStore
+
+        chatbot_store = DatabaseMemoryStore(database_url, agent_name="isolation_test_chatbot", cache_ttl=0)
+        pr_store = DatabaseMemoryStore(database_url, agent_name="isolation_test_pr", cache_ttl=0)
+
+        await chatbot_store.initialize()
+        await pr_store.initialize()
+
+        try:
+            # Save memories with the same key to each agent
+            await chatbot_store.save_memory(key="test_user_name", value="Alice")
+            await pr_store.save_memory(key="test_user_name", value="Bob")
+
+            # Each agent should only see its own memory
+            chatbot_memory = await chatbot_store.get_memory("test_user_name")
+            pr_memory = await pr_store.get_memory("test_user_name")
+
+            assert chatbot_memory.value == "Alice"
+            assert pr_memory.value == "Bob"
+
+        finally:
+            # Cleanup
+            async with chatbot_store._pool.acquire() as conn:
+                await conn.execute("DELETE FROM memories WHERE agent_name LIKE 'isolation_test_%'")
+            await chatbot_store.close()
+            await pr_store.close()
+
+    @pytest.mark.asyncio
+    async def test_agent_isolation_get_all_memories(self, database_url: str):
+        """Test that get_all_memories only returns memories for the specified agent."""
+        from agent_framework.storage.database_memory_store import DatabaseMemoryStore
+
+        chatbot_store = DatabaseMemoryStore(database_url, agent_name="getall_test_chatbot", cache_ttl=0)
+        pr_store = DatabaseMemoryStore(database_url, agent_name="getall_test_pr", cache_ttl=0)
+
+        await chatbot_store.initialize()
+        await pr_store.initialize()
+
+        try:
+            # Save multiple memories to each agent
+            for i in range(3):
+                await chatbot_store.save_memory(key=f"test_chat_{i}", value=f"chat value {i}")
+                await pr_store.save_memory(key=f"test_pr_{i}", value=f"pr value {i}")
+
+            # Each agent should only see its own 3 memories
+            chatbot_memories = await chatbot_store.get_all_memories()
+            pr_memories = await pr_store.get_all_memories()
+
+            chatbot_keys = {m.key for m in chatbot_memories}
+            pr_keys = {m.key for m in pr_memories}
+
+            assert len(chatbot_memories) == 3
+            assert len(pr_memories) == 3
+            assert chatbot_keys == {"test_chat_0", "test_chat_1", "test_chat_2"}
+            assert pr_keys == {"test_pr_0", "test_pr_1", "test_pr_2"}
+
+        finally:
+            async with chatbot_store._pool.acquire() as conn:
+                await conn.execute("DELETE FROM memories WHERE agent_name LIKE 'getall_test_%'")
+            await chatbot_store.close()
+            await pr_store.close()
+
+    @pytest.mark.asyncio
+    async def test_agent_isolation_search_memories(self, database_url: str):
+        """Test that search_memories only searches within agent's memories."""
+        from agent_framework.storage.database_memory_store import DatabaseMemoryStore
+
+        chatbot_store = DatabaseMemoryStore(database_url, agent_name="search_test_chatbot", cache_ttl=0)
+        pr_store = DatabaseMemoryStore(database_url, agent_name="search_test_pr", cache_ttl=0)
+
+        await chatbot_store.initialize()
+        await pr_store.initialize()
+
+        try:
+            # Save memories with searchable content
+            await chatbot_store.save_memory(key="test_email", value="alice@chatbot.com")
+            await pr_store.save_memory(key="test_email", value="bob@pr.com")
+
+            # Search should only find memories within the agent's store
+            chatbot_results = await chatbot_store.search_memories("@")
+            pr_results = await pr_store.search_memories("@")
+
+            assert len(chatbot_results) == 1
+            assert chatbot_results[0].value == "alice@chatbot.com"
+
+            assert len(pr_results) == 1
+            assert pr_results[0].value == "bob@pr.com"
+
+        finally:
+            async with chatbot_store._pool.acquire() as conn:
+                await conn.execute("DELETE FROM memories WHERE agent_name LIKE 'search_test_%'")
+            await chatbot_store.close()
+            await pr_store.close()
+
+    @pytest.mark.asyncio
+    async def test_agent_isolation_delete_memory(self, database_url: str):
+        """Test that delete_memory only affects the specified agent."""
+        from agent_framework.storage.database_memory_store import DatabaseMemoryStore
+
+        chatbot_store = DatabaseMemoryStore(database_url, agent_name="delete_test_chatbot", cache_ttl=0)
+        pr_store = DatabaseMemoryStore(database_url, agent_name="delete_test_pr", cache_ttl=0)
+
+        await chatbot_store.initialize()
+        await pr_store.initialize()
+
+        try:
+            # Save same key to both agents
+            await chatbot_store.save_memory(key="test_to_delete", value="chatbot value")
+            await pr_store.save_memory(key="test_to_delete", value="pr value")
+
+            # Delete from chatbot only
+            await chatbot_store.delete_memory("test_to_delete")
+
+            # Chatbot's memory should be gone, PR agent's should remain
+            chatbot_memory = await chatbot_store.get_memory("test_to_delete")
+            pr_memory = await pr_store.get_memory("test_to_delete")
+
+            assert chatbot_memory is None
+            assert pr_memory is not None
+            assert pr_memory.value == "pr value"
+
+        finally:
+            async with chatbot_store._pool.acquire() as conn:
+                await conn.execute("DELETE FROM memories WHERE agent_name LIKE 'delete_test_%'")
+            await chatbot_store.close()
+            await pr_store.close()
+
+    @pytest.mark.asyncio
+    async def test_agent_stats_isolation(self, database_url: str):
+        """Test that get_stats only counts memories for the specified agent."""
+        from agent_framework.storage.database_memory_store import DatabaseMemoryStore
+
+        chatbot_store = DatabaseMemoryStore(database_url, agent_name="stats_test_chatbot", cache_ttl=0)
+        pr_store = DatabaseMemoryStore(database_url, agent_name="stats_test_pr", cache_ttl=0)
+
+        await chatbot_store.initialize()
+        await pr_store.initialize()
+
+        try:
+            # Save different numbers of memories
+            for i in range(5):
+                await chatbot_store.save_memory(key=f"test_chat_{i}", value=f"v{i}", category="cat1")
+
+            for i in range(3):
+                await pr_store.save_memory(key=f"test_pr_{i}", value=f"v{i}", category="cat2")
+
+            chatbot_stats = await chatbot_store.get_stats()
+            pr_stats = await pr_store.get_stats()
+
+            assert chatbot_stats["total_memories"] == 5
+            assert chatbot_stats["agent_name"] == "stats_test_chatbot"
+            assert "cat1" in chatbot_stats["categories"]
+
+            assert pr_stats["total_memories"] == 3
+            assert pr_stats["agent_name"] == "stats_test_pr"
+            assert "cat2" in pr_stats["categories"]
+
+        finally:
+            async with chatbot_store._pool.acquire() as conn:
+                await conn.execute("DELETE FROM memories WHERE agent_name LIKE 'stats_test_%'")
+            await chatbot_store.close()
+            await pr_store.close()
+
+    @pytest.mark.asyncio
+    async def test_agent_name_property(self, database_url: str):
+        """Test that agent_name property returns the correct value."""
+        from agent_framework.storage.database_memory_store import DatabaseMemoryStore
+
+        store = DatabaseMemoryStore(database_url, agent_name="property_test_agent")
+        assert store.agent_name == "property_test_agent"

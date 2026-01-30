@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from agent_framework.storage.memory_store import Memory, MemoryStore
+from agent_framework.storage.memory_store import DEFAULT_AGENT_NAME, Memory, MemoryStore
 
 
 class TestMemory:
@@ -72,9 +72,20 @@ class TestMemoryStore:
         storage_path = temp_dir / "test_memories"
         store = MemoryStore(storage_path=storage_path)
 
-        assert storage_path.exists()
-        assert store.memory_file == storage_path / "memories.json"
+        # Agent-specific subdirectory should be created
+        assert (storage_path / DEFAULT_AGENT_NAME).exists()
+        assert store.memory_file == storage_path / DEFAULT_AGENT_NAME / "memories.json"
         assert len(store.memories) == 0
+        assert store.agent_name == DEFAULT_AGENT_NAME
+
+    def test_memory_store_with_custom_agent_name(self, temp_dir: Path):
+        """Test MemoryStore initialization with custom agent name."""
+        storage_path = temp_dir / "test_memories"
+        store = MemoryStore(storage_path=storage_path, agent_name="chatbot")
+
+        assert (storage_path / "chatbot").exists()
+        assert store.memory_file == storage_path / "chatbot" / "memories.json"
+        assert store.agent_name == "chatbot"
 
     def test_save_new_memory(self, memory_store: MemoryStore):
         """Test saving a new memory."""
@@ -236,3 +247,165 @@ class TestMemoryStore:
         assert memory is not None
         assert memory.value == "data"
         assert memory.importance == 9
+
+    def test_get_stats_includes_agent_name(self, memory_store: MemoryStore):
+        """Test that get_stats includes agent_name."""
+        stats = memory_store.get_stats()
+        assert "agent_name" in stats
+        assert stats["agent_name"] == DEFAULT_AGENT_NAME
+
+
+class TestMemoryStoreAgentIsolation:
+    """Tests for agent-level memory isolation."""
+
+    def test_different_agents_have_separate_memories(self, temp_dir: Path):
+        """Test that different agents have completely separate memory stores."""
+        storage_path = temp_dir / "isolation_test"
+
+        # Create stores for two different agents
+        chatbot_store = MemoryStore(storage_path=storage_path, agent_name="chatbot")
+        pr_agent_store = MemoryStore(storage_path=storage_path, agent_name="pr_agent")
+
+        # Save memories to each agent
+        chatbot_store.save_memory(key="user_name", value="Alice", importance=8)
+        pr_agent_store.save_memory(key="user_name", value="Bob", importance=8)
+
+        # Each agent should only see its own memory
+        assert chatbot_store.get_memory("user_name").value == "Alice"
+        assert pr_agent_store.get_memory("user_name").value == "Bob"
+
+        # Verify they're stored in different directories
+        assert (storage_path / "chatbot" / "memories.json").exists()
+        assert (storage_path / "pr_agent" / "memories.json").exists()
+
+    def test_agent_isolation_with_same_keys(self, temp_dir: Path):
+        """Test that agents can use same keys without collision."""
+        storage_path = temp_dir / "key_collision_test"
+
+        # Create stores for multiple agents
+        agents = ["chatbot", "pr_agent", "security_researcher"]
+        stores = {
+            name: MemoryStore(storage_path=storage_path, agent_name=name)
+            for name in agents
+        }
+
+        # Save a memory with the same key to all agents
+        for i, (name, store) in enumerate(stores.items()):
+            store.save_memory(
+                key="preference",
+                value=f"Value for {name}",
+                importance=i + 1,
+            )
+
+        # Verify each agent has its own value
+        for i, (name, store) in enumerate(stores.items()):
+            memory = store.get_memory("preference")
+            assert memory.value == f"Value for {name}"
+            assert memory.importance == i + 1
+
+    def test_agent_isolation_get_all_memories(self, temp_dir: Path):
+        """Test that get_all_memories only returns memories for the specified agent."""
+        storage_path = temp_dir / "get_all_test"
+
+        chatbot_store = MemoryStore(storage_path=storage_path, agent_name="chatbot")
+        pr_agent_store = MemoryStore(storage_path=storage_path, agent_name="pr_agent")
+
+        # Save multiple memories to each agent
+        for i in range(3):
+            chatbot_store.save_memory(key=f"chat_mem_{i}", value=f"chat value {i}")
+            pr_agent_store.save_memory(key=f"pr_mem_{i}", value=f"pr value {i}")
+
+        # Each agent should only see 3 memories
+        assert len(chatbot_store.get_all_memories()) == 3
+        assert len(pr_agent_store.get_all_memories()) == 3
+
+        # Verify keys are correct
+        chatbot_keys = {m.key for m in chatbot_store.get_all_memories()}
+        pr_keys = {m.key for m in pr_agent_store.get_all_memories()}
+
+        assert chatbot_keys == {"chat_mem_0", "chat_mem_1", "chat_mem_2"}
+        assert pr_keys == {"pr_mem_0", "pr_mem_1", "pr_mem_2"}
+
+    def test_agent_isolation_search_memories(self, temp_dir: Path):
+        """Test that search_memories only searches within agent's memories."""
+        storage_path = temp_dir / "search_test"
+
+        chatbot_store = MemoryStore(storage_path=storage_path, agent_name="chatbot")
+        pr_agent_store = MemoryStore(storage_path=storage_path, agent_name="pr_agent")
+
+        # Save memories with searchable content
+        chatbot_store.save_memory(key="email", value="alice@chatbot.com")
+        pr_agent_store.save_memory(key="email", value="bob@pr.com")
+
+        # Search should only find memories within the agent's store
+        chatbot_results = chatbot_store.search_memories("@")
+        pr_results = pr_agent_store.search_memories("@")
+
+        assert len(chatbot_results) == 1
+        assert chatbot_results[0].value == "alice@chatbot.com"
+
+        assert len(pr_results) == 1
+        assert pr_results[0].value == "bob@pr.com"
+
+    def test_agent_isolation_delete_memory(self, temp_dir: Path):
+        """Test that delete_memory only affects the specified agent."""
+        storage_path = temp_dir / "delete_test"
+
+        chatbot_store = MemoryStore(storage_path=storage_path, agent_name="chatbot")
+        pr_agent_store = MemoryStore(storage_path=storage_path, agent_name="pr_agent")
+
+        # Save same key to both agents
+        chatbot_store.save_memory(key="to_delete", value="chatbot value")
+        pr_agent_store.save_memory(key="to_delete", value="pr value")
+
+        # Delete from chatbot only
+        chatbot_store.delete_memory("to_delete")
+
+        # Chatbot's memory should be gone, PR agent's should remain
+        assert chatbot_store.get_memory("to_delete") is None
+        assert pr_agent_store.get_memory("to_delete") is not None
+        assert pr_agent_store.get_memory("to_delete").value == "pr value"
+
+    def test_agent_persistence_with_isolation(self, temp_dir: Path):
+        """Test that agent-specific memories persist correctly."""
+        storage_path = temp_dir / "persist_isolation_test"
+
+        # Create stores and save memories
+        chatbot_store1 = MemoryStore(storage_path=storage_path, agent_name="chatbot")
+        pr_store1 = MemoryStore(storage_path=storage_path, agent_name="pr_agent")
+
+        chatbot_store1.save_memory(key="persist_key", value="chatbot persist")
+        pr_store1.save_memory(key="persist_key", value="pr persist")
+
+        # Create new store instances (simulating restart)
+        chatbot_store2 = MemoryStore(storage_path=storage_path, agent_name="chatbot")
+        pr_store2 = MemoryStore(storage_path=storage_path, agent_name="pr_agent")
+
+        # Each should load its own memories
+        assert chatbot_store2.get_memory("persist_key").value == "chatbot persist"
+        assert pr_store2.get_memory("persist_key").value == "pr persist"
+
+    def test_agent_stats_isolation(self, temp_dir: Path):
+        """Test that get_stats only counts memories for the specified agent."""
+        storage_path = temp_dir / "stats_test"
+
+        chatbot_store = MemoryStore(storage_path=storage_path, agent_name="chatbot")
+        pr_agent_store = MemoryStore(storage_path=storage_path, agent_name="pr_agent")
+
+        # Save different numbers of memories
+        for i in range(5):
+            chatbot_store.save_memory(key=f"chat_{i}", value=f"v{i}", category="cat1")
+
+        for i in range(3):
+            pr_agent_store.save_memory(key=f"pr_{i}", value=f"v{i}", category="cat2")
+
+        chatbot_stats = chatbot_store.get_stats()
+        pr_stats = pr_agent_store.get_stats()
+
+        assert chatbot_stats["total_memories"] == 5
+        assert chatbot_stats["agent_name"] == "chatbot"
+        assert "cat1" in chatbot_stats["categories"]
+
+        assert pr_stats["total_memories"] == 3
+        assert pr_stats["agent_name"] == "pr_agent"
+        assert "cat2" in pr_stats["categories"]

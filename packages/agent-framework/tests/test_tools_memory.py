@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from agent_framework.storage.memory_store import DEFAULT_AGENT_NAME
 from agent_framework.tools.memory import (
     get_memories,
     get_memory_store,
@@ -20,7 +21,7 @@ class TestGetMemoryStore:
         """Test get_memory_store creates a new instance."""
         from agent_framework.tools import memory
 
-        monkeypatch.setattr(memory, "_file_memory_store", None)
+        memory._file_memory_stores.clear()
 
         with patch("agent_framework.tools.memory.MemoryStore") as mock_store_class:
             mock_store = MagicMock()
@@ -28,11 +29,14 @@ class TestGetMemoryStore:
 
             result = get_memory_store()
 
-            mock_store_class.assert_called_once()
+            mock_store_class.assert_called_once_with(agent_name=DEFAULT_AGENT_NAME)
             assert result is mock_store
 
-    def test_get_memory_store_returns_singleton(self, temp_dir: Path):
-        """Test get_memory_store returns the same instance."""
+    def test_get_memory_store_returns_singleton_per_agent(self, temp_dir: Path):
+        """Test get_memory_store returns the same instance for same agent."""
+        from agent_framework.tools import memory
+
+        memory._file_memory_stores.clear()
 
         with patch("agent_framework.tools.memory.MemoryStore") as mock_store_class:
             mock_store = MagicMock()
@@ -41,9 +45,27 @@ class TestGetMemoryStore:
             result1 = get_memory_store()
             result2 = get_memory_store()
 
-            # Should only create once
+            # Should only create once for same agent
             mock_store_class.assert_called_once()
             assert result1 is result2
+
+    def test_get_memory_store_different_agents(self, temp_dir: Path):
+        """Test get_memory_store returns different instances for different agents."""
+        from agent_framework.tools import memory
+
+        memory._file_memory_stores.clear()
+
+        with patch("agent_framework.tools.memory.MemoryStore") as mock_store_class:
+            mock_chatbot = MagicMock()
+            mock_pr = MagicMock()
+            mock_store_class.side_effect = [mock_chatbot, mock_pr]
+
+            result1 = get_memory_store("chatbot")
+            result2 = get_memory_store("pr_agent")
+
+            # Should create separate stores for each agent
+            assert mock_store_class.call_count == 2
+            assert result1 is not result2
 
 
 class TestSaveMemory:
@@ -74,6 +96,7 @@ class TestSaveMemory:
             )
 
         assert result["status"] == "success"
+        assert result["agent_name"] == DEFAULT_AGENT_NAME
         assert result["memory"]["key"] == "test_key"
         assert result["memory"]["value"] == "test_value"
         assert "Successfully saved" in result["message"]
@@ -137,6 +160,7 @@ class TestGetMemories:
             result = await get_memories(category="cat1", min_importance=5)
 
         assert result["status"] == "success"
+        assert result["agent_name"] == DEFAULT_AGENT_NAME
         assert result["count"] == 1
         assert len(result["memories"]) == 1
         assert result["memories"][0]["key"] == "key1"
@@ -212,6 +236,7 @@ class TestSearchMemories:
             result = await search_memories(query="email")
 
         assert result["status"] == "success"
+        assert result["agent_name"] == DEFAULT_AGENT_NAME
         assert result["query"] == "email"
         assert result["count"] == 1
         assert "matching 'email'" in result["message"]

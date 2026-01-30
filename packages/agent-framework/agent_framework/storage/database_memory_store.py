@@ -3,6 +3,9 @@
 This module provides a database-backed memory store that enables
 agent memory portability across machines while maintaining good
 performance through local caching.
+
+Supports agent-level isolation: each agent can have its own memory namespace
+to prevent memories from bleeding between different agent use cases.
 """
 
 import asyncio
@@ -18,7 +21,7 @@ import asyncpg
 
 from agent_framework.utils.errors import DatabaseNotInitializedError
 
-from .memory_store import Memory
+from .memory_store import DEFAULT_AGENT_NAME, Memory
 
 logger = logging.getLogger(__name__)
 
@@ -97,11 +100,16 @@ class DatabaseMemoryStore:
 
     Provides the same interface as MemoryStore but persists data
     to PostgreSQL for cross-machine portability.
+
+    Supports agent-level isolation via the agent_name parameter.
+    Each agent's memories are stored separately and won't interfere
+    with other agents' data.
     """
 
     def __init__(
         self,
         database_url: str,
+        agent_name: str = DEFAULT_AGENT_NAME,
         cache_ttl: float = DEFAULT_CACHE_TTL,
         min_pool_size: int = 2,
         max_pool_size: int = 10,
@@ -112,17 +120,25 @@ class DatabaseMemoryStore:
         Args:
             database_url: PostgreSQL connection URL
                          (e.g., postgresql://user:pass@host:5432/dbname)  # pragma: allowlist secret
+            agent_name: Agent identifier for memory isolation (default: "shared")
+                       Each agent gets its own namespace in the database.
             cache_ttl: Cache time-to-live in seconds (default: 5 minutes)
             min_pool_size: Minimum connection pool size
             max_pool_size: Maximum connection pool size
         """
         self._database_url = database_url
+        self._agent_name = agent_name
         self._pool: asyncpg.Pool | None = None
         self._cache = MemoryCache(default_ttl=cache_ttl)
         self._min_pool_size = min_pool_size
         self._max_pool_size = max_pool_size
         self._initialized = False
         self._init_lock = asyncio.Lock()
+
+    @property
+    def agent_name(self) -> str:
+        """Get the agent name for this memory store."""
+        return self._agent_name
 
     async def initialize(self) -> None:
         """Initialize connection pool and create table if needed."""
@@ -145,31 +161,97 @@ class DatabaseMemoryStore:
 
         Note: This is called from initialize() before _initialized is set to True,
         so we use self._pool directly instead of _get_connection() to avoid deadlock.
+
+        The table uses a composite primary key (agent_name, key) to support
+        agent-level memory isolation.
         """
         if self._pool is None:
             raise DatabaseNotInitializedError()
         async with self._pool.acquire() as conn:
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS memories (
-                    key VARCHAR(255) PRIMARY KEY,
-                    value TEXT NOT NULL,
-                    category VARCHAR(100),
-                    tags JSONB DEFAULT '[]'::jsonb,
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                    importance INTEGER DEFAULT 5 CHECK (importance >= 1 AND importance <= 10)
+            # Check if table exists and needs migration
+            table_exists = await conn.fetchval("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables
+                    WHERE table_name = 'memories'
                 )
             """)
-            # Create indexes for common queries
-            await conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_memories_category ON memories(category)
-            """)
-            await conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_memories_importance ON memories(importance)
-            """)
-            await conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_memories_updated_at ON memories(updated_at)
-            """)
+
+            if table_exists:
+                # Check if agent_name column exists
+                column_exists = await conn.fetchval("""
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.columns
+                        WHERE table_name = 'memories' AND column_name = 'agent_name'
+                    )
+                """)
+
+                if not column_exists:
+                    # Migrate existing table to add agent_name support
+                    logger.info("Migrating memories table to add agent_name column...")
+
+                    # Add agent_name column with default value
+                    await conn.execute("""
+                        ALTER TABLE memories
+                        ADD COLUMN agent_name VARCHAR(100) NOT NULL DEFAULT 'shared'
+                    """)
+
+                    # Drop old primary key and create new composite key
+                    await conn.execute("""
+                        ALTER TABLE memories DROP CONSTRAINT memories_pkey
+                    """)
+                    await conn.execute("""
+                        ALTER TABLE memories ADD PRIMARY KEY (agent_name, key)
+                    """)
+
+                    # Create new indexes for agent-aware queries
+                    await conn.execute("""
+                        CREATE INDEX IF NOT EXISTS idx_memories_agent_name
+                        ON memories(agent_name)
+                    """)
+                    await conn.execute("""
+                        CREATE INDEX IF NOT EXISTS idx_memories_agent_category
+                        ON memories(agent_name, category)
+                    """)
+                    await conn.execute("""
+                        CREATE INDEX IF NOT EXISTS idx_memories_agent_importance
+                        ON memories(agent_name, importance)
+                    """)
+
+                    logger.info("Migration complete: memories table now supports agent isolation")
+            else:
+                # Create new table with agent_name from the start
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS memories (
+                        agent_name VARCHAR(100) NOT NULL DEFAULT 'shared',
+                        key VARCHAR(255) NOT NULL,
+                        value TEXT NOT NULL,
+                        category VARCHAR(100),
+                        tags JSONB DEFAULT '[]'::jsonb,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                        importance INTEGER DEFAULT 5 CHECK (importance >= 1 AND importance <= 10),
+                        PRIMARY KEY (agent_name, key)
+                    )
+                """)
+
+                # Create indexes for common queries
+                await conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_memories_agent_name
+                    ON memories(agent_name)
+                """)
+                await conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_memories_agent_category
+                    ON memories(agent_name, category)
+                """)
+                await conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_memories_agent_importance
+                    ON memories(agent_name, importance)
+                """)
+                await conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_memories_updated_at
+                    ON memories(updated_at)
+                """)
+
             logger.debug("Database table and indexes ensured")
 
     @asynccontextmanager
@@ -202,7 +284,7 @@ class DatabaseMemoryStore:
         Save or update a memory.
 
         Args:
-            key: Unique identifier for this memory
+            key: Unique identifier for this memory (unique per agent)
             value: The memory content
             category: Optional category
             tags: Optional tags for filtering
@@ -217,18 +299,23 @@ class DatabaseMemoryStore:
         now = datetime.now(UTC)
 
         async with self._get_connection() as conn:
-            # Check if exists to determine created_at
-            existing = await conn.fetchrow("SELECT created_at FROM memories WHERE key = $1", key)
+            # Check if exists to determine created_at (scoped to this agent)
+            existing = await conn.fetchrow(
+                "SELECT created_at FROM memories WHERE agent_name = $1 AND key = $2",
+                self._agent_name,
+                key,
+            )
 
             if existing:
                 # Update existing memory
                 await conn.execute(
                     """
                     UPDATE memories
-                    SET value = $2, category = $3, tags = $4::jsonb,
-                        updated_at = $5, importance = $6
-                    WHERE key = $1
+                    SET value = $3, category = $4, tags = $5::jsonb,
+                        updated_at = $6, importance = $7
+                    WHERE agent_name = $1 AND key = $2
                     """,
+                    self._agent_name,
                     key,
                     value,
                     category,
@@ -237,14 +324,15 @@ class DatabaseMemoryStore:
                     importance,
                 )
                 created_at = existing["created_at"].replace(tzinfo=None)
-                logger.info(f"Updated memory: {key}")
+                logger.info(f"Updated memory for agent '{self._agent_name}': {key}")
             else:
                 # Insert new memory
                 await conn.execute(
                     """
-                    INSERT INTO memories (key, value, category, tags, created_at, updated_at, importance)
-                    VALUES ($1, $2, $3, $4::jsonb, $5, $5, $6)
+                    INSERT INTO memories (agent_name, key, value, category, tags, created_at, updated_at, importance)
+                    VALUES ($1, $2, $3, $4, $5::jsonb, $6, $6, $7)
                     """,
+                    self._agent_name,
                     key,
                     value,
                     category,
@@ -253,7 +341,7 @@ class DatabaseMemoryStore:
                     importance,
                 )
                 created_at = now
-                logger.info(f"Created new memory: {key}")
+                logger.info(f"Created new memory for agent '{self._agent_name}': {key}")
 
         memory = Memory(
             key=key,
@@ -265,8 +353,9 @@ class DatabaseMemoryStore:
             importance=importance,
         )
 
-        # Update cache
-        self._cache.set(key, memory)
+        # Update cache (cache key includes agent name for isolation)
+        cache_key = f"{self._agent_name}:{key}"
+        self._cache.set(cache_key, memory)
         self._cache._invalidate_all_memories()
 
         return memory
@@ -276,25 +365,30 @@ class DatabaseMemoryStore:
         Retrieve a specific memory by key.
 
         Args:
-            key: Memory identifier
+            key: Memory identifier (scoped to this agent)
 
         Returns:
             Memory object if found, None otherwise
         """
-        # Check cache first
-        cached = self._cache.get(key)
+        # Check cache first (cache key includes agent name for isolation)
+        cache_key = f"{self._agent_name}:{key}"
+        cached = self._cache.get(cache_key)
         if cached is not None:
             return cached
 
         # Note: _get_connection() handles initialization automatically
         async with self._get_connection() as conn:
-            row = await conn.fetchrow("SELECT * FROM memories WHERE key = $1", key)
+            row = await conn.fetchrow(
+                "SELECT * FROM memories WHERE agent_name = $1 AND key = $2",
+                self._agent_name,
+                key,
+            )
 
         if row is None:
             return None
 
         memory = self._row_to_memory(row)
-        self._cache.set(key, memory)
+        self._cache.set(cache_key, memory)
         return memory
 
     async def get_all_memories(
@@ -304,7 +398,7 @@ class DatabaseMemoryStore:
         min_importance: int | None = None,
     ) -> list[Memory]:
         """
-        Get all memories, optionally filtered.
+        Get all memories for this agent, optionally filtered.
 
         Args:
             category: Filter by category
@@ -320,10 +414,10 @@ class DatabaseMemoryStore:
             if cached is not None:
                 return cached
 
-        # Build query with filters
-        query = "SELECT * FROM memories WHERE 1=1"
-        params: list[Any] = []
-        param_count = 0
+        # Build query with filters - always filter by agent_name
+        query = "SELECT * FROM memories WHERE agent_name = $1"
+        params: list[Any] = [self._agent_name]
+        param_count = 1
 
         if category is not None:
             param_count += 1
@@ -363,7 +457,7 @@ class DatabaseMemoryStore:
             query: Search query (case-insensitive)
 
         Returns:
-            List of matching Memory objects
+            List of matching Memory objects (scoped to this agent)
         """
         # Note: _get_connection() handles initialization automatically
         # Escape SQL wildcards to prevent wildcard injection attacks
@@ -374,9 +468,11 @@ class DatabaseMemoryStore:
             rows = await conn.fetch(
                 """
                 SELECT * FROM memories
-                WHERE key ILIKE $1 ESCAPE '\\' OR value ILIKE $1 ESCAPE '\\'
+                WHERE agent_name = $1
+                  AND (key ILIKE $2 ESCAPE '\\' OR value ILIKE $2 ESCAPE '\\')
                 ORDER BY importance DESC, updated_at DESC
                 """,
+                self._agent_name,
                 search_pattern,
             )
 
@@ -387,46 +483,62 @@ class DatabaseMemoryStore:
         Delete a memory.
 
         Args:
-            key: Memory identifier
+            key: Memory identifier (scoped to this agent)
 
         Returns:
             True if deleted, False if not found
         """
         # Note: _get_connection() handles initialization automatically
         async with self._get_connection() as conn:
-            result = await conn.execute("DELETE FROM memories WHERE key = $1", key)
+            result = await conn.execute(
+                "DELETE FROM memories WHERE agent_name = $1 AND key = $2",
+                self._agent_name,
+                key,
+            )
 
         deleted = result == "DELETE 1"
         if deleted:
-            self._cache.invalidate(key)
-            logger.info(f"Deleted memory: {key}")
+            cache_key = f"{self._agent_name}:{key}"
+            self._cache.invalidate(cache_key)
+            logger.info(f"Deleted memory for agent '{self._agent_name}': {key}")
 
         return deleted
 
     async def get_stats(self) -> dict[str, Any]:
-        """Get statistics about stored memories."""
+        """Get statistics about stored memories for this agent."""
         # Note: _get_connection() handles initialization automatically
         async with self._get_connection() as conn:
-            # Get total count
-            total = await conn.fetchval("SELECT COUNT(*) FROM memories")
+            # Get total count for this agent
+            total = await conn.fetchval(
+                "SELECT COUNT(*) FROM memories WHERE agent_name = $1",
+                self._agent_name,
+            )
 
-            # Get category counts
+            # Get category counts for this agent
             category_rows = await conn.fetch(
                 """
                 SELECT COALESCE(category, 'uncategorized') as cat, COUNT(*) as cnt
                 FROM memories
+                WHERE agent_name = $1
                 GROUP BY category
-                """
+                """,
+                self._agent_name,
             )
 
-            # Get date range
+            # Get date range for this agent
             dates = await conn.fetchrow(
-                "SELECT MIN(created_at) as oldest, MAX(created_at) as newest FROM memories"
+                """
+                SELECT MIN(created_at) as oldest, MAX(created_at) as newest
+                FROM memories
+                WHERE agent_name = $1
+                """,
+                self._agent_name,
             )
 
         categories = {row["cat"]: row["cnt"] for row in category_rows}
 
         return {
+            "agent_name": self._agent_name,
             "total_memories": total,
             "categories": categories,
             "oldest_memory": dates["oldest"].replace(tzinfo=None)
