@@ -723,7 +723,7 @@ class Agent(ABC):
                 # Call Claude
                 response = await self.client.messages.create(
                     model=self.model,
-                    max_tokens=4096,
+                    max_tokens=16000,
                     system=self.get_system_prompt(),
                     messages=self.messages,
                     tools=cast(list[ToolParam], tools),
@@ -743,11 +743,11 @@ class Agent(ABC):
                     # Extract text response
                     text_response = self._extract_text_from_response(response.content)
 
-                    # Add assistant response to conversation
+                    # Add assistant response to conversation (ensure non-empty)
                     self.messages.append(
                         {
                             "role": "assistant",
-                            "content": response.content,
+                            "content": self._ensure_non_empty_content(response.content),
                         }
                     )
 
@@ -780,16 +780,17 @@ class Agent(ABC):
                         self.messages.append(
                             {
                                 "role": "assistant",
-                                "content": response.content,
+                                "content": self._ensure_non_empty_content(response.content),
                             }
                         )
                         return text_response
 
                     # Add assistant response to conversation (with tool calls)
+                    # Note: tool_use responses should always have content, but ensure non-empty
                     self.messages.append(
                         {
                             "role": "assistant",
-                            "content": response.content,
+                            "content": self._ensure_non_empty_content(response.content),
                         }
                     )
 
@@ -913,7 +914,7 @@ class Agent(ABC):
                     self.messages.append(
                         {
                             "role": "assistant",
-                            "content": response.content,
+                            "content": self._ensure_non_empty_content(response.content),
                         }
                     )
                     return text_response
@@ -1077,7 +1078,32 @@ class Agent(ABC):
             unique_sources = list(dict.fromkeys(sources))  # Remove duplicates
             response_text += "\n\n**Sources:**\n" + "\n".join(unique_sources)
 
+        # Return fallback if response is empty to prevent API errors
+        # (Anthropic requires non-empty content for non-final assistant messages)
+        if not response_text:
+            return "<No text in response>"
+
         return response_text
+
+    def _ensure_non_empty_content(self, content: list[Any]) -> list[Any]:
+        """
+        Ensure content list is not empty for assistant messages.
+
+        The Anthropic API requires all messages (except the optional final
+        assistant message) to have non-empty content. This method returns
+        a fallback text block if the content is empty.
+
+        Args:
+            content: Response content blocks
+
+        Returns:
+            Original content if non-empty, otherwise a fallback text block
+        """
+        if content:
+            return content
+
+        logger.warning("Empty content detected in assistant response, adding fallback")
+        return [TextBlock(type="text", text="<No text in response>")]
 
     def _print_stats(self) -> None:
         """Print token usage statistics."""

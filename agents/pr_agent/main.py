@@ -1,12 +1,14 @@
 """PR Assistant agent.
 
-Analyzes web content, provides content strategy advice, and manages
-user context via persistent memory.
+Analyzes web content, provides content strategy advice, manages
+user context via persistent memory, and can modify website source
+code via Claude Code integration.
 """
 
 import asyncio
 
 from shared import (
+    CLAUDE_CODE_TOOLS,
     COMMUNICATION_TOOLS,
     CONTENT_TOOLS,
     MEMORY_TOOLS,
@@ -20,7 +22,7 @@ PRAgent = create_simple_agent(
     name="PRAgent",
     system_prompt=SYSTEM_PROMPT,
     greeting=USER_GREETING_PROMPT,
-    allowed_tools=CONTENT_TOOLS + MEMORY_TOOLS + COMMUNICATION_TOOLS,
+    allowed_tools=CONTENT_TOOLS + MEMORY_TOOLS + COMMUNICATION_TOOLS + CLAUDE_CODE_TOOLS,
 )
 
 

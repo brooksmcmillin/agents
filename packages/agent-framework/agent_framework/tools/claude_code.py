@@ -10,7 +10,6 @@ import logging
 import os
 import re
 import shutil
-import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -67,9 +66,14 @@ def _get_workspace_path(folder_name: str, working_dir_base: str | None) -> Path:
     workspace_path = base_dir / folder_name
 
     if not workspace_path.exists():
+        # List available workspaces synchronously for error message
+        available = (
+            [d.name for d in base_dir.iterdir() if d.is_dir() and not d.name.startswith(".")]
+            if base_dir.exists()
+            else []
+        )
         raise FileNotFoundError(
-            f"Workspace not found: {workspace_path}. "
-            f"Available workspaces: {list_claude_code_workspaces(str(base_dir))}"
+            f"Workspace not found: {workspace_path}. Available workspaces: {available}"
         )
 
     if not workspace_path.is_dir():
@@ -127,6 +131,7 @@ async def run_claude_code(
         ... )
         >>> print(result['final_response'])
     """
+    workspace_path: Path | None = None
     try:
         workspace_path = _get_workspace_path(folder_name, working_dir_base)
 
@@ -147,84 +152,72 @@ async def run_claude_code(
         if custom_instructions:
             full_command = f"{custom_instructions}\n\n{command}"
 
-        # Prepare the command to send to Claude Code
-        # Using a temporary file to avoid shell escaping issues
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as tmp_file:
-            tmp_file.write(full_command)
-            tmp_file.flush()
-            command_file = tmp_file.name
+        # Build claude command using -p (print mode) to accept input via stdin
+        # This avoids shell escaping issues with --message
+        claude_cmd = [
+            "claude",
+            "-p",
+            "--dangerously-skip-permissions",
+            "--max-turns",
+            str(max_turns),
+        ]
+
+        # Add model if not default
+        if model.lower() != "sonnet":
+            claude_cmd.extend(["--model", model_map[model.lower()]])
+
+        logger.info(f"Running Claude Code in {workspace_path} with command: {command[:100]}...")
+        logger.debug(f"Full command: {' '.join(claude_cmd)}")
+
+        # Run claude code with timeout, piping command via stdin
+        process = await asyncio.create_subprocess_exec(
+            *claude_cmd,
+            cwd=str(workspace_path),
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
 
         try:
-            # Build claude command
-            # Format: claude --message "$(cat command_file)" [--model MODEL] [--max-turns N]
-            claude_cmd = [
-                "claude",
-                "--message",
-                full_command,
-                "--max-turns",
-                str(max_turns),
-            ]
-
-            # Add model if not default
-            if model.lower() != "sonnet":
-                claude_cmd.extend(["--model", model_map[model.lower()]])
-
-            logger.info(f"Running Claude Code in {workspace_path} with command: {command[:100]}...")
-            logger.debug(f"Full command: {' '.join(claude_cmd)}")
-
-            # Run claude code with timeout
-            process = await asyncio.create_subprocess_exec(
-                *claude_cmd,
-                cwd=str(workspace_path),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(input=full_command.encode("utf-8")),
+                timeout=timeout,
             )
+        except TimeoutError:
+            process.kill()
+            await process.wait()
+            raise TimeoutError(f"Claude Code execution exceeded timeout of {timeout}s")
 
-            try:
-                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
-            except TimeoutError:
-                process.kill()
-                await process.wait()
-                raise TimeoutError(f"Claude Code execution exceeded timeout of {timeout}s")
+        output = stdout.decode("utf-8", errors="replace")
+        error_output = stderr.decode("utf-8", errors="replace")
 
-            output = stdout.decode("utf-8", errors="replace")
-            error_output = stderr.decode("utf-8", errors="replace")
+        # Parse output to extract final response and turn count
+        # Claude Code typically outputs conversation in a structured way
+        final_response = output.strip().split("\n")[-1] if output else ""
+        turns_used = output.count("Assistant:")  # Rough estimate of turns used
 
-            # Parse output to extract final response and turn count
-            # Claude Code typically outputs conversation in a structured way
-            final_response = output.strip().split("\n")[-1] if output else ""
-            turns_used = output.count("Assistant:")  # Rough estimate of turns used
+        success = process.returncode == 0
 
-            success = process.returncode == 0
+        result = {
+            "success": success,
+            "output": output,
+            "error_output": error_output if error_output else None,
+            "final_response": final_response,
+            "turns_used": turns_used,
+            "workspace_path": str(workspace_path),
+            "command": command,
+            "exit_code": process.returncode,
+        }
 
-            result = {
-                "success": success,
-                "output": output,
-                "error_output": error_output if error_output else None,
-                "final_response": final_response,
-                "turns_used": turns_used,
-                "workspace_path": str(workspace_path),
-                "command": command,
-                "exit_code": process.returncode,
-            }
+        if not success:
+            logger.warning(f"Claude Code exited with code {process.returncode}: {error_output}")
 
-            if not success:
-                logger.warning(f"Claude Code exited with code {process.returncode}: {error_output}")
+        logger.info(
+            f"Claude Code completed in {workspace_path} - "
+            f"Exit code: {process.returncode}, Turns: {turns_used}"
+        )
 
-            logger.info(
-                f"Claude Code completed in {workspace_path} - "
-                f"Exit code: {process.returncode}, Turns: {turns_used}"
-            )
-
-            return result
-
-        finally:
-            # Clean up temporary command file
-            if "command_file" in locals():
-                try:
-                    os.unlink(command_file)
-                except Exception as e:
-                    logger.warning(f"Failed to delete temp file {command_file}: {e}")
+        return result
 
     except Exception as e:
         logger.error(f"Error running Claude Code: {e}")

@@ -50,3 +50,11 @@ CONTENT_TOOLS = [
 COMMUNICATION_TOOLS = [
     "send_slack_message",
 ]
+
+CLAUDE_CODE_TOOLS = [
+    "run_claude_code",
+    "list_claude_code_workspaces",
+    "create_claude_code_workspace",
+    "delete_claude_code_workspace",
+    "get_claude_code_workspace_status",
+]
