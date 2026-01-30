@@ -7,10 +7,12 @@ import pytest
 
 from agent_framework.storage.memory_store import DEFAULT_AGENT_NAME
 from agent_framework.tools.memory import (
+    InvalidAgentNameError,
     get_memories,
     get_memory_store,
     save_memory,
     search_memories,
+    validate_agent_name,
 )
 
 
@@ -285,3 +287,84 @@ class TestSearchMemories:
 
         assert result["status"] == "error"
         assert "Failed to search memories" in result["message"]
+
+
+class TestAgentNameValidation:
+    """Tests for agent_name validation to prevent security issues."""
+
+    def test_valid_agent_names(self):
+        """Test that valid agent names are accepted."""
+        valid_names = [
+            "chatbot",
+            "pr_agent",
+            "security-researcher",
+            "Agent123",
+            "my_agent_v2",
+            "test-agent-1",
+            "a",  # Single character
+            "A" * 100,  # Max length
+        ]
+        for name in valid_names:
+            assert validate_agent_name(name) == name
+
+    def test_empty_agent_name_rejected(self):
+        """Test that empty agent names are rejected."""
+        with pytest.raises(InvalidAgentNameError, match="cannot be empty"):
+            validate_agent_name("")
+
+    def test_null_bytes_rejected(self):
+        """Test that null bytes in agent names are rejected."""
+        with pytest.raises(InvalidAgentNameError, match="null bytes"):
+            validate_agent_name("agent\x00name")
+
+    def test_path_traversal_rejected(self):
+        """Test that path traversal attempts are rejected."""
+        malicious_names = [
+            "../etc/passwd",
+            "..\\windows\\system32",
+            "agent/../secrets",
+            "/etc/passwd",
+            "\\windows\\system32",
+            "agent/subdir",
+            "agent\\subdir",
+        ]
+        for name in malicious_names:
+            with pytest.raises(InvalidAgentNameError, match="path traversal"):
+                validate_agent_name(name)
+
+    def test_max_length_exceeded_rejected(self):
+        """Test that agent names exceeding max length are rejected."""
+        long_name = "a" * 101  # Exceeds VARCHAR(100)
+        with pytest.raises(InvalidAgentNameError, match="cannot exceed 100 characters"):
+            validate_agent_name(long_name)
+
+    def test_invalid_characters_rejected(self):
+        """Test that invalid characters in agent names are rejected."""
+        invalid_names = [
+            "agent name",  # Space
+            "agent@name",  # @ symbol
+            "agent.name",  # Period (allowed in file paths but dangerous)
+            "agent!name",  # Exclamation
+            "agent#name",  # Hash
+            "agent$name",  # Dollar sign
+            "agent%name",  # Percent
+            "agent;name",  # Semicolon (command injection)
+            "agent|name",  # Pipe (command injection)
+            "agent`name",  # Backtick (command injection)
+            "agent'name",  # Single quote (SQL injection)
+            'agent"name',  # Double quote
+        ]
+        for name in invalid_names:
+            with pytest.raises(
+                InvalidAgentNameError, match="alphanumeric characters, underscores, and hyphens"
+            ):
+                validate_agent_name(name)
+
+    def test_get_memory_store_validates_agent_name(self, temp_dir: Path):
+        """Test that get_memory_store validates the agent name."""
+        from agent_framework.tools import memory
+
+        memory._file_memory_stores.clear()
+
+        with pytest.raises(InvalidAgentNameError, match="path traversal"):
+            get_memory_store(agent_name="../malicious")

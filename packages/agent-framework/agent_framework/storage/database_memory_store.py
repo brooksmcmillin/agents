@@ -216,6 +216,11 @@ class DatabaseMemoryStore:
                         CREATE INDEX IF NOT EXISTS idx_memories_agent_importance
                         ON memories(agent_name, importance)
                     """)
+                    # Ensure updated_at index exists (may have been on old schema)
+                    await conn.execute("""
+                        CREATE INDEX IF NOT EXISTS idx_memories_updated_at
+                        ON memories(updated_at)
+                    """)
 
                     logger.info("Migration complete: memories table now supports agent isolation")
             else:
@@ -356,6 +361,9 @@ class DatabaseMemoryStore:
         # Update cache (cache key includes agent name for isolation)
         cache_key = f"{self._agent_name}:{key}"
         self._cache.set(cache_key, memory)
+        # Note: We only invalidate the all-memories cache, not the individual key cache
+        # The individual key is already updated above, so we just need to ensure
+        # the all-memories list cache is refreshed on next query
         self._cache._invalidate_all_memories()
 
         return memory

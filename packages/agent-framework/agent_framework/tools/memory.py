@@ -19,12 +19,68 @@ Configure via environment variables:
 
 import logging
 import os
+import re
+import threading
 from typing import Any
 
 from ..storage.database_memory_store import DatabaseMemoryStore
 from ..storage.memory_store import DEFAULT_AGENT_NAME, Memory, MemoryStore
 
 logger = logging.getLogger(__name__)
+
+# Validation constants
+MAX_AGENT_NAME_LENGTH = 100  # Matches VARCHAR(100) in database schema
+AGENT_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
+
+# Thread locks for store registry access
+_file_stores_lock = threading.Lock()
+_database_stores_lock = threading.Lock()
+
+
+class InvalidAgentNameError(ValueError):
+    """Raised when an invalid agent_name is provided."""
+
+    pass
+
+
+def validate_agent_name(agent_name: str) -> str:
+    """Validate and sanitize agent_name to prevent security issues.
+
+    Args:
+        agent_name: The agent name to validate
+
+    Returns:
+        The validated agent name (unchanged if valid)
+
+    Raises:
+        InvalidAgentNameError: If the agent name is invalid
+    """
+    if not agent_name:
+        raise InvalidAgentNameError("agent_name cannot be empty")
+
+    # Check for null bytes (could cause issues in file paths and C libraries)
+    if "\x00" in agent_name:
+        raise InvalidAgentNameError("agent_name cannot contain null bytes")
+
+    # Check for path traversal attempts
+    if ".." in agent_name or "/" in agent_name or "\\" in agent_name:
+        raise InvalidAgentNameError(
+            "agent_name cannot contain path traversal characters (../, /, \\)"
+        )
+
+    # Check length (matches database VARCHAR(100))
+    if len(agent_name) > MAX_AGENT_NAME_LENGTH:
+        raise InvalidAgentNameError(
+            f"agent_name cannot exceed {MAX_AGENT_NAME_LENGTH} characters"
+        )
+
+    # Check for valid characters (alphanumeric, underscore, hyphen)
+    if not AGENT_NAME_PATTERN.match(agent_name):
+        raise InvalidAgentNameError(
+            "agent_name must contain only alphanumeric characters, underscores, and hyphens"
+        )
+
+    return agent_name
 
 # Global store instances - keyed by agent_name for isolation
 _file_memory_stores: dict[str, MemoryStore] = {}
@@ -39,40 +95,65 @@ def _get_backend() -> str:
 def get_memory_store(agent_name: str = DEFAULT_AGENT_NAME) -> MemoryStore:
     """Get or create a file-based memory store instance for the specified agent.
 
+    Thread-safe: uses locking to prevent race conditions when multiple threads
+    request the same agent's store simultaneously.
+
     Args:
         agent_name: Agent identifier for memory isolation (default: "shared")
 
     Returns:
         MemoryStore instance for the specified agent
+
+    Raises:
+        InvalidAgentNameError: If the agent name contains invalid characters
     """
-    global _file_memory_stores
-    if agent_name not in _file_memory_stores:
-        _file_memory_stores[agent_name] = MemoryStore(agent_name=agent_name)
-    return _file_memory_stores[agent_name]
+    # Validate agent_name to prevent path traversal and other security issues
+    validated_name = validate_agent_name(agent_name)
+
+    # Thread-safe store creation using double-checked locking pattern
+    if validated_name not in _file_memory_stores:
+        with _file_stores_lock:
+            # Double-check after acquiring lock
+            if validated_name not in _file_memory_stores:
+                _file_memory_stores[validated_name] = MemoryStore(agent_name=validated_name)
+    return _file_memory_stores[validated_name]
 
 
 async def get_database_memory_store(agent_name: str = DEFAULT_AGENT_NAME) -> DatabaseMemoryStore:
     """Get or create a database memory store instance for the specified agent.
+
+    Thread-safe: uses locking to prevent race conditions when multiple threads
+    request the same agent's store simultaneously.
 
     Args:
         agent_name: Agent identifier for memory isolation (default: "shared")
 
     Returns:
         DatabaseMemoryStore instance for the specified agent
+
+    Raises:
+        InvalidAgentNameError: If the agent name contains invalid characters
+        ValueError: If DATABASE_URL is not configured
     """
-    global _database_memory_stores
-    if agent_name not in _database_memory_stores:
-        # Check both MEMORY_DATABASE_URL and DATABASE_URL for flexibility
-        database_url = os.environ.get("MEMORY_DATABASE_URL") or os.environ.get("DATABASE_URL")
-        if not database_url:
-            raise ValueError(
-                "MEMORY_DATABASE_URL or DATABASE_URL environment variable required when using database backend"
-            )
-        _database_memory_stores[agent_name] = DatabaseMemoryStore(
-            database_url, agent_name=agent_name
-        )
-        await _database_memory_stores[agent_name].initialize()
-    return _database_memory_stores[agent_name]
+    # Validate agent_name to prevent security issues
+    validated_name = validate_agent_name(agent_name)
+
+    # Thread-safe store creation using double-checked locking pattern
+    if validated_name not in _database_memory_stores:
+        with _database_stores_lock:
+            # Double-check after acquiring lock
+            if validated_name not in _database_memory_stores:
+                # Check both MEMORY_DATABASE_URL and DATABASE_URL for flexibility
+                database_url = os.environ.get("MEMORY_DATABASE_URL") or os.environ.get("DATABASE_URL")
+                if not database_url:
+                    raise ValueError(
+                        "MEMORY_DATABASE_URL or DATABASE_URL environment variable required when using database backend"
+                    )
+                _database_memory_stores[validated_name] = DatabaseMemoryStore(
+                    database_url, agent_name=validated_name
+                )
+                await _database_memory_stores[validated_name].initialize()
+    return _database_memory_stores[validated_name]
 
 
 async def configure_memory_store(
@@ -94,8 +175,13 @@ async def configure_memory_store(
         storage_path: File storage path (optional, default: ./memories)
         cache_ttl: Cache TTL in seconds for database backend (default: 5 minutes)
         agent_name: Agent identifier for memory isolation (default: "shared")
+
+    Raises:
+        InvalidAgentNameError: If the agent name contains invalid characters
+        ValueError: If database backend is selected but database_url is not provided
     """
-    global _file_memory_stores, _database_memory_stores
+    # Validate agent_name first
+    validated_name = validate_agent_name(agent_name)
 
     os.environ["MEMORY_BACKEND"] = backend
 
@@ -103,17 +189,19 @@ async def configure_memory_store(
         if not database_url:
             raise ValueError("database_url required for database backend")
         os.environ["MEMORY_DATABASE_URL"] = database_url
-        _database_memory_stores[agent_name] = DatabaseMemoryStore(
-            database_url, agent_name=agent_name, cache_ttl=cache_ttl
-        )
-        await _database_memory_stores[agent_name].initialize()
-        logger.info(f"Configured database memory backend for agent '{agent_name}'")
+        with _database_stores_lock:
+            _database_memory_stores[validated_name] = DatabaseMemoryStore(
+                database_url, agent_name=validated_name, cache_ttl=cache_ttl
+            )
+            await _database_memory_stores[validated_name].initialize()
+        logger.info(f"Configured database memory backend for agent '{validated_name}'")
     else:
         path = storage_path or "./memories"
-        _file_memory_stores[agent_name] = MemoryStore(
-            storage_path=path, agent_name=agent_name
-        )
-        logger.info(f"Configured file memory backend at {path} for agent '{agent_name}'")
+        with _file_stores_lock:
+            _file_memory_stores[validated_name] = MemoryStore(
+                storage_path=path, agent_name=validated_name
+            )
+        logger.info(f"Configured file memory backend at {path} for agent '{validated_name}'")
 
 
 async def save_memory(
@@ -452,7 +540,9 @@ TOOL_SCHEMAS = [
                 "agent_name": {
                     "type": "string",
                     "default": "shared",
-                    "description": "Agent identifier for memory isolation (e.g., 'chatbot', 'pr_agent'). Default: 'shared'",
+                    "maxLength": 100,
+                    "pattern": "^[a-zA-Z0-9_-]+$",
+                    "description": "Agent identifier for memory isolation (e.g., 'chatbot', 'pr_agent'). Must contain only alphanumeric characters, underscores, and hyphens. Default: 'shared'",
                 },
             },
             "required": ["key", "value"],
@@ -494,7 +584,9 @@ TOOL_SCHEMAS = [
                 "agent_name": {
                     "type": "string",
                     "default": "shared",
-                    "description": "Agent identifier for memory isolation (e.g., 'chatbot', 'pr_agent'). Default: 'shared'",
+                    "maxLength": 100,
+                    "pattern": "^[a-zA-Z0-9_-]+$",
+                    "description": "Agent identifier for memory isolation (e.g., 'chatbot', 'pr_agent'). Must contain only alphanumeric characters, underscores, and hyphens. Default: 'shared'",
                 },
             },
             "required": [],
@@ -524,7 +616,9 @@ TOOL_SCHEMAS = [
                 "agent_name": {
                     "type": "string",
                     "default": "shared",
-                    "description": "Agent identifier for memory isolation (e.g., 'chatbot', 'pr_agent'). Default: 'shared'",
+                    "maxLength": 100,
+                    "pattern": "^[a-zA-Z0-9_-]+$",
+                    "description": "Agent identifier for memory isolation (e.g., 'chatbot', 'pr_agent'). Must contain only alphanumeric characters, underscores, and hyphens. Default: 'shared'",
                 },
             },
             "required": ["query"],
@@ -546,7 +640,9 @@ TOOL_SCHEMAS = [
                 "agent_name": {
                     "type": "string",
                     "default": "shared",
-                    "description": "Agent identifier for memory isolation (e.g., 'chatbot', 'pr_agent'). Default: 'shared'",
+                    "maxLength": 100,
+                    "pattern": "^[a-zA-Z0-9_-]+$",
+                    "description": "Agent identifier for memory isolation (e.g., 'chatbot', 'pr_agent'). Must contain only alphanumeric characters, underscores, and hyphens. Default: 'shared'",
                 },
             },
             "required": ["key"],
@@ -565,7 +661,9 @@ TOOL_SCHEMAS = [
                 "agent_name": {
                     "type": "string",
                     "default": "shared",
-                    "description": "Agent identifier for memory isolation (e.g., 'chatbot', 'pr_agent'). Default: 'shared'",
+                    "maxLength": 100,
+                    "pattern": "^[a-zA-Z0-9_-]+$",
+                    "description": "Agent identifier for memory isolation (e.g., 'chatbot', 'pr_agent'). Must contain only alphanumeric characters, underscores, and hyphens. Default: 'shared'",
                 },
             },
             "required": [],
