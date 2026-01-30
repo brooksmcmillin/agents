@@ -345,6 +345,7 @@ class Agent(ABC):
             if lakera_key:
                 self.security_guard = _LakeraGuard(
                     api_key=lakera_key,
+                    project_id=settings.lakera_project_id,
                     fail_open=settings.lakera_fail_open,
                 )
                 logger.info("Lakera Guard security checks enabled")
