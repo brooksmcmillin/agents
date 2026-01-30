@@ -76,6 +76,15 @@ WEB_SEARCH_MAX_USES = 10  # Maximum web searches allowed per turn (Anthropic API
 HIGH_IMPORTANCE_THRESHOLD = 7  # Minimum importance level for memory injection
 MAX_INJECTED_MEMORIES = 10  # Maximum memories to inject after context trimming
 
+# Memory tools that should have agent_name auto-injected for isolation
+MEMORY_TOOLS = frozenset({
+    "save_memory",
+    "get_memories",
+    "search_memories",
+    "delete_memory",
+    "get_memory_stats",
+})
+
 # Module-level logger (will be configured per-agent)
 logger = logging.getLogger(__name__)
 
@@ -462,6 +471,9 @@ class Agent(ABC):
         This allows the MCP server to be restarted between calls
         without losing the agent's conversation context.
 
+        For memory tools, automatically injects the agent_name parameter
+        to ensure memory isolation between different agents.
+
         Args:
             tool_name: Name of the tool to call
             arguments: Tool arguments
@@ -469,6 +481,14 @@ class Agent(ABC):
         Returns:
             Tool result
         """
+        # Auto-inject agent_name for memory tools to enforce isolation
+        if tool_name in MEMORY_TOOLS:
+            # Only inject if not already specified (allow explicit override)
+            if "agent_name" not in arguments:
+                arguments = {**arguments, "agent_name": self.get_agent_name()}
+                logger.debug(
+                    f"Auto-injected agent_name='{self.get_agent_name()}' for {tool_name}"
+                )
 
         # Local tools should take precedence over remote tools if there are any name collisions.
         # TODO: Throw an error if there are name collisions?
@@ -1127,12 +1147,14 @@ class Agent(ABC):
 
         This helps preserve key information after context trimming.
         Memories are injected as a system-style user message.
+        Uses the agent's name for memory isolation.
         """
         try:
             from ..tools.memory import get_memory_store
 
-            store = get_memory_store()
-            # Get high-importance memories
+            # Use agent's name for memory isolation
+            store = get_memory_store(agent_name=self.get_agent_name())
+            # Get high-importance memories for this specific agent
             memories = store.get_all_memories(min_importance=HIGH_IMPORTANCE_THRESHOLD)
 
             if not memories:
