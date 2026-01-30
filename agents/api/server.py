@@ -115,6 +115,7 @@ def _build_registry() -> dict[str, tuple[type[Agent], dict[str, Any] | None, str
     """
     from agents.business_advisor.main import BusinessAdvisorAgent
     from agents.chatbot.main import ChatbotAgent
+    from agents.events.main import EventsAgent
     from agents.pr_agent.main import PRAgent
     from agents.security_researcher.main import SecurityResearcherAgent
     from agents.task_manager.main import TaskManagerAgent
@@ -125,6 +126,11 @@ def _build_registry() -> dict[str, tuple[type[Agent], dict[str, Any] | None, str
             ChatbotAgent,
             None,
             "General-purpose chatbot with full MCP tool access",
+        ),
+        "events": (
+            EventsAgent,
+            None,
+            "Local events discovery with preference learning",
         ),
         "pr": (
             PRAgent,

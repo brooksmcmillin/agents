@@ -53,6 +53,7 @@ coverage.json
 root_coverage.json
 coverage/
 *.cover
+.claude.json
 
 # Type checking
 .mypy_cache/
