@@ -23,6 +23,7 @@ from .fastmail import (
     list_mailboxes,
     move_email,
     search_emails,
+    send_agent_report,
     send_email,
     update_email_flags,
 )
@@ -99,6 +100,7 @@ __all__ = [
     "get_email",
     "search_emails",
     "send_email",
+    "send_agent_report",
     "move_email",
     "update_email_flags",
     "delete_email",

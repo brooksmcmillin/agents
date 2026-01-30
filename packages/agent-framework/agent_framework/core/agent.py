@@ -85,6 +85,11 @@ MEMORY_TOOLS = frozenset({
     "get_memory_stats",
 })
 
+# Agent email tools that should have agent_name auto-injected
+AGENT_EMAIL_TOOLS = frozenset({
+    "send_agent_report",
+})
+
 # Module-level logger (will be configured per-agent)
 logger = logging.getLogger(__name__)
 
@@ -481,8 +486,8 @@ class Agent(ABC):
         Returns:
             Tool result
         """
-        # Auto-inject agent_name for memory tools to enforce isolation
-        if tool_name in MEMORY_TOOLS:
+        # Auto-inject agent_name for memory tools and agent email tools
+        if tool_name in MEMORY_TOOLS or tool_name in AGENT_EMAIL_TOOLS:
             # Only inject if not already specified (allow explicit override)
             if "agent_name" not in arguments:
                 arguments = {**arguments, "agent_name": self.get_agent_name()}

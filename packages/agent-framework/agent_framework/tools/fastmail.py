@@ -811,6 +811,7 @@ async def send_email(
     bcc: list[str] | None = None,
     reply_to_email_id: str | None = None,
     is_html: bool = False,
+    identity_email: str | None = None,
     api_token: str | None = None,
 ) -> dict[str, Any]:
     """
@@ -827,6 +828,8 @@ async def send_email(
         bcc: Optional list of BCC recipients
         reply_to_email_id: Optional email ID to reply to (sets In-Reply-To header)
         is_html: If True, body is treated as HTML (default: False for plain text)
+        identity_email: Optional email address to send from. Must match a configured
+            identity in FastMail. If not specified, uses the primary identity.
         api_token: Optional FastMail API token.
 
     Returns:
@@ -879,8 +882,24 @@ async def send_email(
                 "message": "No email identity found. Cannot send email.",
             }
 
-        # Use the first identity (primary)
-        identity = identities[0]
+        # Select identity based on identity_email parameter or use primary
+        identity = None
+        if identity_email:
+            # Find the identity matching the requested email
+            for ident in identities:
+                if ident.get("email", "").lower() == identity_email.lower():
+                    identity = ident
+                    break
+            if not identity:
+                available = [i.get("email") for i in identities]
+                return {
+                    "status": "error",
+                    "message": f"Identity '{identity_email}' not found. Available identities: {available}",
+                }
+        else:
+            # Use the first identity (primary)
+            identity = identities[0]
+
         identity_id = identity["id"]
         from_address = identity.get("email")
         from_name = identity.get("name", "")
@@ -1483,6 +1502,89 @@ async def delete_email(
         }
 
 
+async def send_agent_report(
+    subject: str,
+    body: str,
+    is_html: bool = False,
+    agent_name: str | None = None,
+    api_token: str | None = None,
+) -> dict[str, Any]:
+    """
+    Send a report/notification email from an agent to the admin.
+
+    This tool is designed for agents to send status updates, reports, and
+    notifications. The sender email is automatically derived from the agent name
+    (e.g., chatbot@brooksmcmillin.com) and the recipient is the configured
+    admin email address.
+
+    IMPORTANT: This tool requires:
+    1. ADMIN_EMAIL_ADDRESS environment variable set
+    2. AGENT_EMAIL_DOMAIN environment variable (defaults to brooksmcmillin.com)
+    3. The agent's email identity configured in FastMail
+
+    The agent_name parameter is automatically injected by the Agent class.
+
+    Args:
+        subject: Email subject line
+        body: Email body content (plain text or HTML)
+        is_html: If True, body is treated as HTML (default: False for plain text)
+        agent_name: Agent name (auto-injected by Agent class). Used to derive
+            the sender email address as {agent_name}@{domain}.
+        api_token: Optional FastMail API token.
+
+    Returns:
+        Dictionary containing:
+            - status: "success" or "error"
+            - email_id: ID of the created email (on success)
+            - from_address: The sender email address used
+            - to_address: The admin email address
+            - message: Status message
+    """
+    from ..core.config import settings
+
+    # Validate required configuration
+    if not settings.admin_email_address:
+        return {
+            "status": "error",
+            "message": "ADMIN_EMAIL_ADDRESS environment variable is not configured. "
+            "Set it to the email address where agent reports should be sent.",
+        }
+
+    if not agent_name:
+        return {
+            "status": "error",
+            "message": "agent_name is required. This should be auto-injected by the Agent class.",
+        }
+
+    # Derive agent email from agent name and domain
+    # Sanitize agent name for email (lowercase, replace spaces/underscores with hyphens)
+    safe_agent_name = agent_name.lower().replace("_", "-").replace(" ", "-")
+    # Remove any characters that aren't valid in email local part
+    safe_agent_name = "".join(c for c in safe_agent_name if c.isalnum() or c == "-")
+    from_email = f"{safe_agent_name}@{settings.agent_email_domain}"
+
+    logger.info(
+        f"Agent '{agent_name}' sending report to {settings.admin_email_address} "
+        f"from {from_email}, subject: {subject}"
+    )
+
+    # Use send_email with the agent's identity
+    result = await send_email(
+        to=[settings.admin_email_address],
+        subject=subject,
+        body=body,
+        is_html=is_html,
+        identity_email=from_email,
+        api_token=api_token,
+    )
+
+    # Add additional context to the result
+    result["from_address"] = from_email
+    result["to_address"] = settings.admin_email_address
+
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Tool schema for MCP server auto-registration
 # ---------------------------------------------------------------------------
@@ -1676,6 +1778,10 @@ TOOL_SCHEMAS = [
                     "default": False,
                     "description": "If true, body is treated as HTML (default: false for plain text)",
                 },
+                "identity_email": {
+                    "type": "string",
+                    "description": "Optional email address to send from. Must match a configured identity in FastMail. If not specified, uses the primary identity.",
+                },
                 "api_token": {
                     "type": "string",
                     "description": "Optional FastMail API token",
@@ -1774,5 +1880,40 @@ TOOL_SCHEMAS = [
             "required": ["email_id"],
         },
         "handler": delete_email,
+    },
+    {
+        "name": "send_agent_report",
+        "description": (
+            "Send a report/notification email from this agent to the admin. "
+            "Use this to send status updates, reports, task completions, alerts, or any "
+            "notification to the system administrator. The sender email is automatically "
+            "derived from your agent name (e.g., chatbot@brooksmcmillin.com) and the "
+            "recipient is the configured admin email address. Requires ADMIN_EMAIL_ADDRESS "
+            "to be configured and the agent's email identity set up in FastMail."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "subject": {
+                    "type": "string",
+                    "description": "Email subject line (be descriptive, e.g., 'Daily Task Report - Jan 30')",
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Email body content (plain text or HTML). Include relevant details, summaries, or data.",
+                },
+                "is_html": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "If true, body is treated as HTML (default: false for plain text)",
+                },
+                "api_token": {
+                    "type": "string",
+                    "description": "Optional FastMail API token",
+                },
+            },
+            "required": ["subject", "body"],
+        },
+        "handler": send_agent_report,
     },
 ]
