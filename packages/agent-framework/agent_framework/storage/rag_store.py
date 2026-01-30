@@ -18,7 +18,7 @@ import json
 import logging
 import re
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 import asyncpg
@@ -46,10 +46,10 @@ class Document(BaseModel):
     )
     content_hash: str = Field(..., description="Hash of content for deduplication")
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(UTC), description="When this document was created"
+        default_factory=lambda: datetime.now(), description="When this document was created"
     )
     updated_at: datetime = Field(
-        default_factory=lambda: datetime.now(UTC), description="When this document was last updated"
+        default_factory=lambda: datetime.now(), description="When this document was last updated"
     )
 
     def to_dict(self) -> dict[str, Any]:
@@ -109,13 +109,29 @@ class RAGStore:
 
         logger.info(f"Initialized RAG store with table: {table_name}")
 
+    @staticmethod
+    async def _init_connection(conn: asyncpg.Connection) -> None:
+        """Initialize connection with JSON codec for JSONB columns."""
+        logger.debug("Registering JSONB codec for connection")
+        await conn.set_type_codec(
+            "jsonb",
+            encoder=json.dumps,
+            decoder=json.loads,
+            schema="pg_catalog",
+        )
+
     async def initialize(self) -> None:
         """Initialize the database connection and create tables if needed."""
         if self._pool is not None:
             return
 
         logger.info("Connecting to PostgreSQL database...")
-        self._pool = await asyncpg.create_pool(self.database_url, min_size=1, max_size=10)
+        self._pool = await asyncpg.create_pool(
+            self.database_url,
+            min_size=1,
+            max_size=10,
+            init=RAGStore._init_connection,
+        )
 
         # Create pgvector extension and table if they don't exist
         async with self._pool.acquire() as conn:
@@ -204,7 +220,7 @@ class RAGStore:
 
         doc_id = document_id or str(uuid.uuid4())
         content_hash = self._generate_content_hash(content)
-        now = datetime.now(UTC)
+        now = datetime.now()
 
         # Generate embedding
         logger.info(f"Generating embedding for document {doc_id}")
@@ -330,7 +346,9 @@ class RAGStore:
                 doc = Document(
                     id=row["id"],
                     content=row["content"],
-                    metadata=dict(row["metadata"]) if row["metadata"] else {},
+                    metadata=json.loads(row["metadata"])
+                    if isinstance(row["metadata"], str)
+                    else (row["metadata"] or {}),
                     content_hash=row["content_hash"],
                     created_at=row["created_at"],
                     updated_at=row["updated_at"],
@@ -370,7 +388,9 @@ class RAGStore:
         return Document(
             id=row["id"],
             content=row["content"],
-            metadata=dict(row["metadata"]) if row["metadata"] else {},
+            metadata=json.loads(row["metadata"])
+            if isinstance(row["metadata"], str)
+            else (row["metadata"] or {}),
             content_hash=row["content_hash"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
@@ -447,7 +467,9 @@ class RAGStore:
             Document(
                 id=row["id"],
                 content=row["content"],
-                metadata=dict(row["metadata"]) if row["metadata"] else {},
+                metadata=json.loads(row["metadata"])
+                if isinstance(row["metadata"], str)
+                else (row["metadata"] or {}),
                 content_hash=row["content_hash"],
                 created_at=row["created_at"],
                 updated_at=row["updated_at"],
