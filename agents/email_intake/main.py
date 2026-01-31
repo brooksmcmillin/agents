@@ -17,7 +17,12 @@ Usage:
 Environment Variables:
     INTAKE_EMAIL_ADDRESS: The email address to monitor for incoming tasks
     ADMIN_EMAIL_ADDRESS: Only process emails from this address
+    INTAKE_SHARED_SECRET: Required secret that must appear in email body (security)
     FASTMAIL_API_TOKEN: Required for email access
+
+Security:
+    This agent requires a shared secret to prevent email spoofing attacks.
+    The secret must be present in the email body to be processed.
 """
 
 import argparse
@@ -203,8 +208,16 @@ async def check_and_process_emails(dry_run: bool = False) -> int:
         logger.error("FASTMAIL_API_TOKEN not configured")
         return 0
 
+    if not settings.intake_shared_secret:
+        logger.error(
+            "INTAKE_SHARED_SECRET not configured - required for security. "
+            "Generate a random string and add it to your .env file."
+        )
+        return 0
+
     intake_email = settings.intake_email_address.lower()
     admin_email = settings.admin_email_address.lower()
+    shared_secret = settings.intake_shared_secret
 
     logger.info(f"Checking emails to: {intake_email}")
     logger.info(f"From admin: {admin_email}")
@@ -262,6 +275,19 @@ async def check_and_process_emails(dry_run: bool = False) -> int:
 
         # Use text body, fall back to stripping HTML
         body = body_text or _strip_html(body_html)
+
+        # Security: Validate shared secret is present in the email
+        # This prevents email spoofing attacks where an attacker forges the From header
+        if shared_secret not in body:
+            logger.warning(
+                f"SECURITY: Rejecting email - missing shared secret. "
+                f"Subject: {subject}, From: {sender_email}"
+            )
+            continue
+
+        # Remove the shared secret from the body before processing
+        # so it doesn't get passed to agents or included in responses
+        body = body.replace(shared_secret, "[SECRET_REDACTED]")
 
         # Determine which agent to use
         agent_name = determine_agent(subject, body)
@@ -350,9 +376,10 @@ def show_status() -> None:
 
     print("\nEmail Intake Agent Status")
     print("=" * 40)
-    print(f"Intake Email: {settings.intake_email_address or 'NOT CONFIGURED'}")
-    print(f"Admin Email:  {settings.admin_email_address or 'NOT CONFIGURED'}")
-    print(f"FastMail:     {'Configured' if settings.fastmail_api_token else 'NOT CONFIGURED'}")
+    print(f"Intake Email:   {settings.intake_email_address or 'NOT CONFIGURED'}")
+    print(f"Admin Email:    {settings.admin_email_address or 'NOT CONFIGURED'}")
+    print(f"Shared Secret:  {'Configured' if settings.intake_shared_secret else 'NOT CONFIGURED (REQUIRED)'}")
+    print(f"FastMail:       {'Configured' if settings.fastmail_api_token else 'NOT CONFIGURED'}")
     print()
 
     # Check which agents are available

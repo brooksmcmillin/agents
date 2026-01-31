@@ -437,7 +437,16 @@ FASTMAIL_API_TOKEN=your_token_here
 
 # Optional: Email intake agent address (for receiving task requests)
 INTAKE_EMAIL_ADDRESS=tasks@brooksmcmillin.com
+
+# REQUIRED for email intake: Shared secret to prevent spoofing attacks
+# Generate with: python -c "import secrets; print(secrets.token_urlsafe(32))"
+# Include this secret somewhere in your email body when sending tasks
+INTAKE_SHARED_SECRET=your_random_secret_here
 ```
+
+**Security Note:** The email intake agent requires a shared secret in the email body
+to prevent email spoofing attacks. Without this, an attacker could forge emails
+appearing to come from the admin address and execute arbitrary agent tasks.
 
 You'll also need to set up email identities in FastMail for each agent:
 - `chatbot@brooksmcmillin.com`
