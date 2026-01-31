@@ -71,6 +71,16 @@ class Settings(BaseSettings):
         description="Domain for agent email addresses. Each agent sends from "
         "{agent_name}@{domain} (e.g., chatbot@brooksmcmillin.com).",
     )
+    intake_email_address: str | None = Field(
+        default=None,
+        description="Email address monitored by the email intake agent. "
+        "Emails sent to this address from ADMIN_EMAIL_ADDRESS will be processed.",
+    )
+    intake_shared_secret: str | None = Field(
+        default=None,
+        description="Shared secret that must be present in email body for intake processing. "
+        "Required for security - prevents email spoofing attacks. Generate a random string.",
+    )
 
     # Slack Integration
     slack_webhook_url: str | None = Field(

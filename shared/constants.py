@@ -55,6 +55,19 @@ EMAIL_TOOLS = [
     "send_agent_report",
 ]
 
+# Full FastMail email tools for agents that need complete email access
+FASTMAIL_TOOLS = [
+    "list_mailboxes",
+    "get_emails",
+    "get_email",
+    "search_emails",
+    "send_email",
+    "send_agent_report",
+    "move_email",
+    "update_email_flags",
+    "delete_email",
+]
+
 CLAUDE_CODE_TOOLS = [
     "run_claude_code",
     "list_claude_code_workspaces",

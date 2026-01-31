@@ -14,6 +14,7 @@ This is a multi-agent system built with Claude (Anthropic SDK) and Model Context
    - `business_advisor/` - Business strategy and monetization advisor
    - `task_manager/` - Interactive task management agent
    - `code_reviewer/` - Batch code review runner (5 specialized review agents)
+   - `email_intake/` - Email inbox monitor that routes tasks to appropriate agents
    - `api/` - REST API server providing HTTP access to agents
    - `webui/` - Modern React web interface for agents (requires Node.js)
    - `notifier/` - Lightweight task notification script (Slack)
@@ -60,6 +61,11 @@ uv run python -m agents.task_manager.main
 uv run python -m agents.code_reviewer.main /path/to/review --parallel
 # Or just specific agents: --agents security,deps
 # Or skip email: --no-email
+
+# Run email intake agent (checks inbox and routes to agents)
+uv run python -m agents.email_intake.main
+# Interactive mode: --interactive
+# Dry run (don't send replies): --dry-run
 
 # Run the REST API server (HTTP access to agents)
 uv run python -m agents.api
@@ -428,12 +434,25 @@ AGENT_EMAIL_DOMAIN=brooksmcmillin.com
 
 # Required: FastMail API token
 FASTMAIL_API_TOKEN=your_token_here
+
+# Optional: Email intake agent address (for receiving task requests)
+INTAKE_EMAIL_ADDRESS=tasks@brooksmcmillin.com
+
+# REQUIRED for email intake: Shared secret to prevent spoofing attacks
+# Generate with: python -c "import secrets; print(secrets.token_urlsafe(32))"
+# Include this secret somewhere in your email body when sending tasks
+INTAKE_SHARED_SECRET=your_random_secret_here
 ```
+
+**Security Note:** The email intake agent requires a shared secret in the email body
+to prevent email spoofing attacks. Without this, an attacker could forge emails
+appearing to come from the admin address and execute arbitrary agent tasks.
 
 You'll also need to set up email identities in FastMail for each agent:
 - `chatbot@brooksmcmillin.com`
 - `pr-agent@brooksmcmillin.com`
 - `task-manager@brooksmcmillin.com`
+- `email-intake@brooksmcmillin.com` (or your INTAKE_EMAIL_ADDRESS)
 - etc.
 
 The `agent_name` parameter is automatically injected by the Agent class, so agents
