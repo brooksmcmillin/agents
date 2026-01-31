@@ -3,8 +3,6 @@ name: Claude Code Review
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-    paths:
-      - "**/*.py"
 
 jobs:
   claude-review:
