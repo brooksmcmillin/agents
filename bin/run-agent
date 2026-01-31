@@ -2,9 +2,10 @@
 """CLI runner for individual agents.
 
 Usage:
-    uv run python run_agent.py pr       # Run PR agent
-    uv run python run_agent.py tasks    # Run Task Manager agent
-    uv run python run_agent.py --list   # List available agents
+    uv run python bin/run-agent pr                    # Run PR agent interactively
+    uv run python bin/run-agent pr "Your message"    # Run once with message and exit
+    uv run python bin/run-agent tasks                 # Run Task Manager agent
+    uv run python bin/run-agent --list                # List available agents
 """
 
 import argparse
@@ -57,6 +58,49 @@ def list_agents() -> None:
         print(f"  • {name}")
 
 
+async def run_once(
+    agent_class: type,
+    agent_kwargs: dict | None,
+    message: str,
+    quiet: bool = False,
+) -> None:
+    """Run an agent with a single message and exit.
+
+    Args:
+        agent_class: Agent class to instantiate
+        agent_kwargs: Keyword arguments to pass to agent constructor
+        message: The message to send to the agent
+        quiet: If True, suppress status messages (only show response)
+    """
+    try:
+        agent = agent_class(**(agent_kwargs or {}))
+
+        if not quiet:
+            print(f"Running {agent_class.__name__}...\n")
+
+        response = await agent.process_message(message)
+
+        print(response)
+
+        if not quiet:
+            print(f"\n---")
+            print(
+                f"Tokens: {agent.total_input_tokens:,} input, "
+                f"{agent.total_output_tokens:,} output"
+            )
+
+    except ValueError as e:
+        print(f"\nConfiguration error: {e}", file=sys.stderr)
+        print("\nPlease ensure:", file=sys.stderr)
+        print("1. You have a .env file with ANTHROPIC_API_KEY set", file=sys.stderr)
+        print("2. The API key is valid", file=sys.stderr)
+        sys.exit(1)
+
+    except Exception as e:
+        print(f"\nError: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
 async def main() -> None:
     """Parse arguments and run the specified agent."""
     parser = argparse.ArgumentParser(
@@ -64,9 +108,20 @@ async def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-    uv run python run_agent.py pr       # Run PR agent
-    uv run python run_agent.py tasks    # Run Task Manager agent
-    uv run python run_agent.py --list   # List available agents
+    uv run python bin/run-agent pr                        # Interactive mode
+    uv run python bin/run-agent pr "Analyze my website"  # One-off execution
+    uv run python bin/run-agent chatbot "Hello!"         # Quick question
+    uv run python bin/run-agent --list                    # List available agents
+
+One-off mode:
+    When a MESSAGE is provided, the agent processes it once and exits.
+    This is useful for scripting, automation, and quick tasks.
+
+    # Quiet mode for scripting (only outputs the response)
+    uv run python bin/run-agent pr -q "Summarize this doc"
+
+    # Pipe output to other commands
+    uv run python bin/run-agent pr -q "List 5 blog ideas" | head -10
 """,
     )
     parser.add_argument(
@@ -76,10 +131,21 @@ Examples:
         help="Agent to run",
     )
     parser.add_argument(
+        "message",
+        nargs="?",
+        help="Message to send (if provided, runs once and exits)",
+    )
+    parser.add_argument(
         "--list",
         "-l",
         action="store_true",
         help="List available agents",
+    )
+    parser.add_argument(
+        "--quiet",
+        "-q",
+        action="store_true",
+        help="Quiet mode: only output the agent's response (for scripting)",
     )
 
     args = parser.parse_args()
@@ -93,8 +159,14 @@ Examples:
         sys.exit(1)
 
     agent_class, agent_kwargs = AGENTS[args.agent]
-    print(f"Starting {args.agent} agent...")
-    await run_agent(agent_class, agent_kwargs)
+
+    if args.message:
+        # One-off mode: process single message and exit
+        await run_once(agent_class, agent_kwargs, args.message, quiet=args.quiet)
+    else:
+        # Interactive mode
+        print(f"Starting {args.agent} agent...")
+        await run_agent(agent_class, agent_kwargs)
 
 
 if __name__ == "__main__":
