@@ -90,6 +90,7 @@ async def run_claude_code(
     model: str = "sonnet",
     working_dir_base: str | None = None,
     custom_instructions: str | None = None,
+    env: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Run headless Claude Code in a workspace folder.
 
@@ -105,6 +106,7 @@ async def run_claude_code(
         model: Claude model to use - "sonnet", "haiku", or "opus" (default: "sonnet")
         working_dir_base: Base directory for workspaces (optional, uses env var or default)
         custom_instructions: Optional custom instructions to prepend to command
+        env: Optional environment variables to pass to the subprocess
 
     Returns:
         Dict with:
@@ -152,11 +154,11 @@ async def run_claude_code(
         if custom_instructions:
             full_command = f"{custom_instructions}\n\n{command}"
 
-        # Build claude command using -p (print mode) to accept input via stdin
-        # This avoids shell escaping issues with --message
+        # Build claude command with prompt passed as argument to -p
         claude_cmd = [
             "claude",
             "-p",
+            full_command,  # Pass prompt directly as argument
             "--dangerously-skip-permissions",
             "--max-turns",
             str(max_turns),
@@ -167,29 +169,27 @@ async def run_claude_code(
             claude_cmd.extend(["--model", model_map[model.lower()]])
 
         logger.info(f"Running Claude Code in {workspace_path} with command: {command[:100]}...")
-        logger.debug(f"Full command: {' '.join(claude_cmd)}")
 
-        # Run claude code with timeout, piping command via stdin
+        # Run claude and wait for completion
         process = await asyncio.create_subprocess_exec(
             *claude_cmd,
             cwd=str(workspace_path),
-            stdin=asyncio.subprocess.PIPE,
+            stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=env,
         )
-
         try:
             stdout, stderr = await asyncio.wait_for(
-                process.communicate(input=full_command.encode("utf-8")),
+                process.communicate(),
                 timeout=timeout,
             )
+            output = stdout.decode("utf-8", errors="replace")
+            error_output = stderr.decode("utf-8", errors="replace")
         except TimeoutError:
             process.kill()
             await process.wait()
             raise TimeoutError(f"Claude Code execution exceeded timeout of {timeout}s")
-
-        output = stdout.decode("utf-8", errors="replace")
-        error_output = stderr.decode("utf-8", errors="replace")
 
         # Parse output to extract final response and turn count
         # Claude Code typically outputs conversation in a structured way

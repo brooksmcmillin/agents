@@ -560,13 +560,14 @@ class TestRunClaudeCode:
                     working_dir_base=str(workspace_dir),
                 )
 
-                # Verify the input includes both custom instructions and command
-                communicate_call = mock_process.communicate.call_args
-                input_bytes = communicate_call[1]["input"]
-                input_str = input_bytes.decode("utf-8")
+                # Verify the -p argument includes both custom instructions and command
+                call_args = mock_exec.call_args[0]
+                # Find the argument after -p
+                p_index = call_args.index("-p")
+                prompt_arg = call_args[p_index + 1]
 
-                assert "Always use TypeScript" in input_str
-                assert "Do the task" in input_str
+                assert "Always use TypeScript" in prompt_arg
+                assert "Do the task" in prompt_arg
 
     @pytest.mark.asyncio
     async def test_run_with_different_model(self, tmp_path):
@@ -621,8 +622,8 @@ class TestRunClaudeCode:
         assert "Unknown model" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_run_uses_stdin_not_message_flag(self, tmp_path):
-        """Test that run_claude_code uses stdin instead of --message flag."""
+    async def test_run_passes_prompt_as_argument(self, tmp_path):
+        """Test that run_claude_code passes prompt as argument to -p flag."""
         workspace_dir = tmp_path / "workspaces"
         workspace_dir.mkdir()
         project_dir = workspace_dir / "project"
@@ -639,26 +640,26 @@ class TestRunClaudeCode:
                 mock_process.returncode = 0
                 mock_exec.return_value = mock_process
 
+                test_command = "Test command with special chars: \"quotes\" and 'apostrophes'"
                 await run_claude_code(
                     folder_name="project",
-                    command="Test command with special chars: \"quotes\" and 'apostrophes'",
+                    command=test_command,
                     working_dir_base=str(workspace_dir),
                 )
 
-                # Verify --message is NOT in args (we use stdin now)
+                # Verify --message is NOT in args
                 call_args = mock_exec.call_args[0]
                 assert "--message" not in call_args
 
-                # Verify -p flag is used for print mode
+                # Verify -p flag is used with prompt as next argument
                 assert "-p" in call_args
+                p_index = call_args.index("-p")
+                prompt_arg = call_args[p_index + 1]
+                assert prompt_arg == test_command
 
-                # Verify stdin is set to PIPE
+                # Verify stdin is DEVNULL (not used for input)
                 call_kwargs = mock_exec.call_args[1]
-                assert call_kwargs.get("stdin") == asyncio.subprocess.PIPE
-
-                # Verify command was passed via stdin
-                communicate_call = mock_process.communicate.call_args
-                assert "input" in communicate_call[1]
+                assert call_kwargs.get("stdin") == asyncio.subprocess.DEVNULL
 
     @pytest.mark.asyncio
     async def test_run_uses_dangerously_skip_permissions(self, tmp_path):
