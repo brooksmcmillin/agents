@@ -5,6 +5,7 @@ This module provides the foundational Agent class that handles:
 - Tool execution via MCP
 - Token usage tracking
 - Interactive CLI interface
+- Permission-based access control via ExecutionContext
 """
 
 import asyncio
@@ -16,6 +17,14 @@ import sys
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TextIO, cast
+
+from agent_framework.permissions import (
+    AgentIdentity,
+    ExecutionContext,
+    Permission,
+    PermissionSet,
+    get_required_permissions,
+)
 
 from anthropic import AsyncAnthropic
 from anthropic.types import (
@@ -278,13 +287,20 @@ class Agent(ABC):
     This class provides the core agentic loop that:
     1. Accepts user requests
     2. Calls Claude via Anthropic SDK
-    3. Executes MCP tools as needed
+    3. Executes MCP tools as needed (with permission checking)
     4. Processes results and continues until done
 
     Subclasses should override:
     - get_system_prompt(): Return the system prompt for the agent
     - get_greeting(): Return the greeting message shown to users (optional)
     - get_agent_name(): Return the agent name for display (optional)
+    - get_default_permissions(): Return the agent's default permission set (optional)
+
+    Permission Model:
+    - Agents have a default permission set (overridable via get_default_permissions)
+    - When called with an ExecutionContext, permissions are the intersection
+      of the context permissions and the agent's defaults
+    - Tools check permissions before execution
     """
 
     def __init__(
@@ -390,6 +406,9 @@ class Agent(ABC):
         self.total_input_tokens = 0
         self.total_output_tokens = 0
 
+        # Execution context (set per-request, not at init)
+        self._execution_context: ExecutionContext | None = None
+
         # Initialize observability (Langfuse)
         self._observability_enabled = False
         if OBSERVABILITY_AVAILABLE and init_observability is not None:
@@ -438,6 +457,38 @@ class Agent(ABC):
         """
         return f"Hello! I'm {self.get_agent_name()}. How can I help you today?"
 
+    def get_default_permissions(self) -> PermissionSet:
+        """
+        Return the default permission set for this agent.
+
+        Override this to customize the agent's default permissions.
+        When an agent is called with an ExecutionContext, the effective
+        permissions are the intersection of the context and agent defaults.
+
+        Returns:
+            PermissionSet - defaults to full_access()
+        """
+        return PermissionSet.full_access()
+
+    def get_execution_context(self) -> ExecutionContext:
+        """
+        Get the current execution context.
+
+        If no context was set (e.g., direct CLI invocation), creates
+        a default context with the agent's default permissions.
+
+        Returns:
+            Current ExecutionContext
+        """
+        if self._execution_context is not None:
+            return self._execution_context
+
+        # Create default context for direct invocation
+        return ExecutionContext(
+            caller=AgentIdentity(name=self.get_agent_name(), source="direct"),
+            permissions=self.get_default_permissions(),
+        )
+
     def _create_remote_mcp_client(self, url: str) -> RemoteMCPClient:
         """
         Create a RemoteMCPClient with the configured options.
@@ -471,7 +522,7 @@ class Agent(ABC):
         self, tool_name: str, arguments: dict[str, Any]
     ) -> dict[str, Any]:
         """
-        Call an MCP tool with automatic reconnection.
+        Call an MCP tool with automatic reconnection and permission checking.
 
         This allows the MCP server to be restarted between calls
         without losing the agent's conversation context.
@@ -479,13 +530,39 @@ class Agent(ABC):
         For memory tools, automatically injects the agent_name parameter
         to ensure memory isolation between different agents.
 
+        Permission checking:
+        - Checks required permissions for the tool against current context
+        - Raises PermissionError if permissions are insufficient
+
         Args:
             tool_name: Name of the tool to call
             arguments: Tool arguments
 
         Returns:
             Tool result
+
+        Raises:
+            PermissionError: If the current context lacks required permissions
         """
+        # Check permissions before executing the tool
+        context = self.get_execution_context()
+        required_perms = get_required_permissions(tool_name)
+        missing_perms = [p for p in required_perms if not context.can(p)]
+
+        if missing_perms:
+            missing_names = [p.name for p in missing_perms]
+            logger.warning(
+                f"Permission denied for tool '{tool_name}': "
+                f"{context.caller.name} lacks {missing_names}"
+            )
+            raise PermissionError(
+                f"Permission denied: {context.caller.name} cannot execute '{tool_name}'. "
+                f"Required permissions: {[p.name for p in required_perms]}. "
+                f"Missing: {missing_names}."
+            )
+
+        logger.debug(f"Permission check passed for {tool_name}: {context.caller.name}")
+
         # Auto-inject agent_name for memory tools and agent email tools
         if tool_name in MEMORY_TOOLS or tool_name in AGENT_EMAIL_TOOLS:
             # Only inject if not already specified (allow explicit override)
@@ -647,6 +724,7 @@ class Agent(ABC):
         user_message: str,
         user_id: str | None = None,
         session_id: str | None = None,
+        execution_context: ExecutionContext | None = None,
     ) -> str:
         """
         Process a user message and return the agent's response.
@@ -655,17 +733,43 @@ class Agent(ABC):
         1. Manage context (trim if needed, inject memories)
         2. Add user message to conversation
         3. Call Claude with available tools
-        4. Execute any tool calls via MCP
+        4. Execute any tool calls via MCP (with permission checking)
         5. Continue until Claude provides a final response
 
         Args:
             user_message: The user's input message
             user_id: Optional user ID for observability tracing
             session_id: Optional session/conversation ID for observability tracing
+            execution_context: Optional execution context for permission control.
+                When provided, the effective permissions are the intersection
+                of the context permissions and the agent's default permissions.
+                This enables permission propagation through agent chains.
 
         Returns:
             The agent's response as a string
         """
+        # Set execution context for this request
+        if execution_context is not None:
+            # Intersect with agent's default permissions (most restrictive wins)
+            effective_permissions = execution_context.permissions.intersection(
+                self.get_default_permissions()
+            )
+            # Create a new context with the effective permissions
+            self._execution_context = ExecutionContext(
+                caller=execution_context.caller.delegate_to(self.get_agent_name())
+                if execution_context.caller.name != self.get_agent_name()
+                else execution_context.caller,
+                permissions=effective_permissions,
+                parent=execution_context,
+                metadata=execution_context.metadata,
+            )
+            logger.info(
+                f"Processing with context: {self._execution_context.caller}, "
+                f"permissions: {self._execution_context.permissions}"
+            )
+        else:
+            # No context provided - use defaults (will be created lazily)
+            self._execution_context = None
         # Start observability trace for this message
         trace_ctx = None
         if self._observability_enabled and start_trace is not None:
