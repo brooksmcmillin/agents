@@ -3,8 +3,6 @@ name: Claude Security Review
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-    paths:
-      - "**/*.py"
 
 jobs:
   claude-security-review:
