@@ -109,8 +109,27 @@ AGENT_KEYWORDS = {
 }
 
 
+def _match_keyword(keyword: str, content: str) -> bool:
+    """Match a keyword using word boundaries to avoid false positives.
+
+    Args:
+        keyword: The keyword to search for
+        content: The content to search in (should be lowercase)
+
+    Returns:
+        True if keyword matches as a whole word/phrase
+    """
+    # Use word boundaries to match whole words only
+    # This prevents 'task' from matching inside 'attack'
+    pattern = r"\b" + re.escape(keyword) + r"\b"
+    return bool(re.search(pattern, content))
+
+
 def determine_agent(subject: str, body: str) -> str:
     """Determine which agent should handle the task based on content.
+
+    Uses word boundary matching to avoid false positives from substring
+    collisions (e.g., 'task' inside 'attack').
 
     Args:
         subject: Email subject line
@@ -121,10 +140,10 @@ def determine_agent(subject: str, body: str) -> str:
     """
     content = f"{subject} {body}".lower()
 
-    # Score each agent based on keyword matches
+    # Score each agent based on keyword matches (using word boundaries)
     scores: dict[str, int] = {}
     for agent, keywords in AGENT_KEYWORDS.items():
-        score = sum(1 for kw in keywords if kw in content)
+        score = sum(1 for kw in keywords if _match_keyword(kw, content))
         if score > 0:
             scores[agent] = score
 
@@ -289,6 +308,12 @@ async def check_and_process_emails(dry_run: bool = False) -> int:
         # so it doesn't get passed to agents or included in responses
         body = body.replace(shared_secret, "[SECRET_REDACTED]")
 
+        # Mark as read immediately to prevent reprocessing if agent/reply fails
+        # This prevents duplicate task execution on retry
+        if not dry_run:
+            await update_email_flags(email_id, mark_read=True)
+            logger.debug(f"Marked email as read: {email_id}")
+
         # Determine which agent to use
         agent_name = determine_agent(subject, body)
         logger.info(f"Routing to agent: {agent_name}")
@@ -344,10 +369,7 @@ Processed by Email Intake Agent at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
             logger.info("Reply sent successfully")
 
-            # Mark as read
-            await update_email_flags(email_id, mark_read=True)
-
-            # Archive the email
+            # Archive the email (already marked as read earlier)
             archive_result = await move_email(email_id, to_mailbox_role="archive")
             if archive_result.get("status") == "success":
                 logger.info("Email archived")
