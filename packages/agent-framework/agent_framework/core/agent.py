@@ -9,6 +9,7 @@ This module provides the foundational Agent class that handles:
 """
 
 import asyncio
+import contextvars
 import json
 import logging
 import os
@@ -101,6 +102,12 @@ AGENT_EMAIL_TOOLS = frozenset({
 
 # Module-level logger (will be configured per-agent)
 logger = logging.getLogger(__name__)
+
+# Request-scoped execution context using ContextVar for thread/async safety
+# This ensures concurrent requests don't share or leak permission contexts
+_execution_context_var: contextvars.ContextVar[ExecutionContext | None] = (
+    contextvars.ContextVar("execution_context", default=None)
+)
 
 
 def _read_multiline_input(prompt: str) -> str:
@@ -406,9 +413,6 @@ class Agent(ABC):
         self.total_input_tokens = 0
         self.total_output_tokens = 0
 
-        # Execution context (set per-request, not at init)
-        self._execution_context: ExecutionContext | None = None
-
         # Initialize observability (Langfuse)
         self._observability_enabled = False
         if OBSERVABILITY_AVAILABLE and init_observability is not None:
@@ -474,14 +478,18 @@ class Agent(ABC):
         """
         Get the current execution context.
 
+        Uses contextvars for request-scoped storage to ensure concurrent
+        requests don't share or leak permission contexts.
+
         If no context was set (e.g., direct CLI invocation), creates
         a default context with the agent's default permissions.
 
         Returns:
             Current ExecutionContext
         """
-        if self._execution_context is not None:
-            return self._execution_context
+        ctx = _execution_context_var.get()
+        if ctx is not None:
+            return ctx
 
         # Create default context for direct invocation
         return ExecutionContext(
@@ -748,28 +756,33 @@ class Agent(ABC):
         Returns:
             The agent's response as a string
         """
-        # Set execution context for this request
+        # Set execution context for this request using ContextVar for async safety
+        # This ensures concurrent requests don't share or leak permission contexts
+        context_token = None
         if execution_context is not None:
             # Intersect with agent's default permissions (most restrictive wins)
             effective_permissions = execution_context.permissions.intersection(
                 self.get_default_permissions()
             )
+            # Determine the caller identity - delegate only if from a different agent
+            if execution_context.caller.name != self.get_agent_name():
+                caller_identity = execution_context.caller.delegate_to(self.get_agent_name())
+            else:
+                caller_identity = execution_context.caller
+
             # Create a new context with the effective permissions
-            self._execution_context = ExecutionContext(
-                caller=execution_context.caller.delegate_to(self.get_agent_name())
-                if execution_context.caller.name != self.get_agent_name()
-                else execution_context.caller,
+            new_context = ExecutionContext(
+                caller=caller_identity,
                 permissions=effective_permissions,
                 parent=execution_context,
                 metadata=execution_context.metadata,
             )
+            context_token = _execution_context_var.set(new_context)
             logger.info(
-                f"Processing with context: {self._execution_context.caller}, "
-                f"permissions: {self._execution_context.permissions}"
+                f"Processing with context: {new_context.caller}, "
+                f"permissions: {new_context.permissions}"
             )
-        else:
-            # No context provided - use defaults (will be created lazily)
-            self._execution_context = None
+
         # Start observability trace for this message
         trace_ctx = None
         if self._observability_enabled and start_trace is not None:
@@ -793,6 +806,10 @@ class Agent(ABC):
             exc_info = sys.exc_info()
             raise
         finally:
+            # Reset execution context to prevent leaking between requests
+            if context_token is not None:
+                _execution_context_var.reset(context_token)
+
             if trace_ctx is not None and exc_info is not None:
                 trace_ctx.__exit__(*exc_info)
             elif trace_ctx is not None:
@@ -974,15 +991,16 @@ class Agent(ABC):
                             )
 
                         except PermissionError as e:
-                            # Handle auth errors
-                            logger.warning(f"Authentication error for {tool_call.name}: {e}")
+                            # Handle permission errors gracefully - return as tool error
+                            # so Claude can explain the limitation to the user naturally
+                            logger.warning(f"Permission denied for {tool_call.name}: {e}")
                             tool_span_exc_info = (type(e), e, e.__traceback__)
 
                             # End tool span with error
                             if tool_span is not None:
                                 tool_span.end(
-                                    output=f"Authentication required: {e}",
-                                    level="ERROR",
+                                    output=f"Permission denied: {e}",
+                                    level="WARNING",
                                     metadata={"error_type": "PermissionError"},
                                 )
 
@@ -990,7 +1008,7 @@ class Agent(ABC):
                                 {
                                     "type": "tool_result",
                                     "tool_use_id": tool_call.id,
-                                    "content": f"Authentication required: {e}",
+                                    "content": f"Permission denied: {e}",
                                     "is_error": True,
                                 }
                             )
