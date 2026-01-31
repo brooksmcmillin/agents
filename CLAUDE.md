@@ -13,6 +13,7 @@ This is a multi-agent system built with Claude (Anthropic SDK) and Model Context
    - `security_researcher/` - AI security research expert with RAG knowledge base
    - `business_advisor/` - Business strategy and monetization advisor
    - `task_manager/` - Interactive task management agent
+   - `code_reviewer/` - Batch code review runner (5 specialized review agents)
    - `api/` - REST API server providing HTTP access to agents
    - `webui/` - Modern React web interface for agents (requires Node.js)
    - `notifier/` - Lightweight task notification script (Slack)
@@ -54,6 +55,11 @@ uv run python -m agents.business_advisor.main
 
 # Run the task manager agent (requires remote MCP server)
 uv run python -m agents.task_manager.main
+
+# Run code review on a directory (sends email report)
+uv run python -m agents.code_reviewer.main /path/to/review --parallel
+# Or just specific agents: --agents security,deps
+# Or skip email: --no-email
 
 # Run the REST API server (HTTP access to agents)
 uv run python -m agents.api
