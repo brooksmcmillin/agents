@@ -23,6 +23,11 @@ Environment Variables:
 Security:
     This agent requires a shared secret to prevent email spoofing attacks.
     The secret must be present in the email body to be processed.
+
+    By default, agents invoked by email intake run with READ + SEND permissions
+    only (no WRITE, DELETE, or EXECUTE). This prevents email-triggered tasks
+    from making destructive changes. Use --allow-writes to grant WRITE permission
+    or --full-access to grant all permissions.
 """
 
 import argparse
@@ -34,6 +39,13 @@ import sys
 from datetime import datetime
 
 from dotenv import load_dotenv
+
+from agent_framework import (
+    AgentIdentity,
+    ExecutionContext,
+    Permission,
+    PermissionSet,
+)
 
 load_dotenv()
 
@@ -153,12 +165,18 @@ def determine_agent(subject: str, body: str) -> str:
     return "chatbot"
 
 
-async def run_agent_task(agent_name: str, task: str) -> str:
-    """Run a task through the specified agent.
+async def run_agent_task(
+    agent_name: str,
+    task: str,
+    permissions: PermissionSet | None = None,
+) -> str:
+    """Run a task through the specified agent with permission restrictions.
 
     Args:
         agent_name: Name of the agent to use
         task: The task/prompt to send to the agent
+        permissions: Permission set to apply. If None, uses default
+            read-only + send permissions (analysis + email only).
 
     Returns:
         The agent's response text
@@ -177,12 +195,31 @@ async def run_agent_task(agent_name: str, task: str) -> str:
 
     logger.info(f"Running {agent_name} agent: {description}")
 
+    # Default to read + send (analysis + email replies only)
+    if permissions is None:
+        permissions = PermissionSet([Permission.READ, Permission.SEND])
+
+    # Create execution context with email intake as the caller
+    execution_context = ExecutionContext(
+        caller=AgentIdentity(
+            name="EmailIntakeAgent",
+            source="email",
+            metadata={"agent_name": agent_name},
+        ),
+        permissions=permissions,
+    )
+
+    logger.info(f"Using permissions: {permissions}")
+
     try:
         # Create agent instance
         agent: Agent = agent_class(**(kwargs or {}))
 
-        # Process the task
-        response = await agent.process_message(task)
+        # Process the task with the restricted execution context
+        response = await agent.process_message(
+            task,
+            execution_context=execution_context,
+        )
 
         logger.info(
             f"Agent completed (tokens: {agent.total_input_tokens} in, "
@@ -191,16 +228,25 @@ async def run_agent_task(agent_name: str, task: str) -> str:
 
         return response
 
+    except PermissionError as e:
+        logger.warning(f"Permission denied for {agent_name}: {e}")
+        return f"Permission denied: {e}"
+
     except Exception as e:
         logger.exception(f"Agent {agent_name} failed")
         return f"Error running {agent_name} agent: {e!s}"
 
 
-async def check_and_process_emails(dry_run: bool = False) -> int:
+async def check_and_process_emails(
+    dry_run: bool = False,
+    permissions: PermissionSet | None = None,
+) -> int:
     """Check inbox for new emails and process them.
 
     Args:
         dry_run: If True, don't actually send replies or modify emails
+        permissions: Permission set to apply to delegated agents.
+            Defaults to READ + SEND (analysis + email only).
 
     Returns:
         Number of emails processed
@@ -328,8 +374,8 @@ Body:
 
 Provide a helpful response to this request."""
 
-        # Run the agent
-        agent_response = await run_agent_task(agent_name, task_prompt)
+        # Run the agent with the specified permissions
+        agent_response = await run_agent_task(agent_name, task_prompt, permissions)
 
         # Compose reply
         reply_body = f"""Your request has been processed by the {agent_name} agent.
@@ -404,6 +450,13 @@ def show_status() -> None:
     print(f"FastMail:       {'Configured' if settings.fastmail_api_token else 'NOT CONFIGURED'}")
     print()
 
+    # Show default permission model
+    default_perms = PermissionSet([Permission.READ, Permission.SEND])
+    print("Default Permissions for Delegated Agents:")
+    print(f"  {default_perms}")
+    print("  (Use --allow-writes or --full-access to grant more permissions)")
+    print()
+
     # Check which agents are available
     try:
         from agents.api.server import _build_registry
@@ -471,7 +524,45 @@ def parse_args() -> argparse.Namespace:
         help="Show configuration status and exit",
     )
 
+    # Permission options
+    perm_group = parser.add_mutually_exclusive_group()
+    perm_group.add_argument(
+        "--allow-writes",
+        action="store_true",
+        help="Allow delegated agents to write/modify data (adds WRITE permission)",
+    )
+    perm_group.add_argument(
+        "--full-access",
+        action="store_true",
+        help="Grant full access to delegated agents (all permissions except ADMIN)",
+    )
+    perm_group.add_argument(
+        "--read-only",
+        action="store_true",
+        help="Only allow read operations (no sending, writing, or executing)",
+    )
+
     return parser.parse_args()
+
+
+def get_permissions_from_args(args: argparse.Namespace) -> PermissionSet:
+    """Determine permissions based on command-line arguments.
+
+    Args:
+        args: Parsed command-line arguments
+
+    Returns:
+        PermissionSet based on the flags
+    """
+    if args.full_access:
+        return PermissionSet.full_access()
+    elif args.allow_writes:
+        return PermissionSet([Permission.READ, Permission.WRITE, Permission.SEND])
+    elif args.read_only:
+        return PermissionSet.read_only()
+    else:
+        # Default: read + send (analysis + email replies only)
+        return PermissionSet([Permission.READ, Permission.SEND])
 
 
 async def main() -> int:
@@ -486,9 +577,13 @@ async def main() -> int:
         await interactive_mode()
         return 0
 
+    # Get permissions based on command-line arguments
+    permissions = get_permissions_from_args(args)
+
     # Default: run once and process emails
     logger.info("Email Intake Agent starting...")
-    count = await check_and_process_emails(dry_run=args.dry_run)
+    logger.info(f"Agent permissions: {permissions}")
+    count = await check_and_process_emails(dry_run=args.dry_run, permissions=permissions)
     logger.info(f"Done. Processed {count} emails.")
     return 0
 

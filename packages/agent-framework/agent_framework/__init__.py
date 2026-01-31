@@ -14,6 +14,14 @@ from .observability import (
     shutdown_observability,
     start_trace,
 )
+from .permissions import (
+    AgentIdentity,
+    ExecutionContext,
+    Permission,
+    PermissionSet,
+    TOOL_PERMISSIONS,
+    get_required_permissions,
+)
 from .security import LakeraGuard, LakeraSecurityResult, SecurityCheckError
 from .server.server import create_mcp_server
 from .utils.errors import ContentPolicyError, PromptInjectionError, SecurityError
@@ -40,4 +48,11 @@ __all__ = [
     "get_langfuse",
     "start_trace",
     "observe_tool_call",
+    # Permissions
+    "AgentIdentity",
+    "ExecutionContext",
+    "Permission",
+    "PermissionSet",
+    "TOOL_PERMISSIONS",
+    "get_required_permissions",
 ]
