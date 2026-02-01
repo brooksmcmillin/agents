@@ -16,7 +16,6 @@ TOOL_PERMISSIONS: dict[str, set[Permission]] = {
     # =========================================================================
     "fetch_web_content": {Permission.READ},
     "analyze_website": {Permission.READ},
-
     # =========================================================================
     # Memory Tools - READ for retrieval, WRITE for modification
     # =========================================================================
@@ -26,7 +25,6 @@ TOOL_PERMISSIONS: dict[str, set[Permission]] = {
     "save_memory": {Permission.WRITE},
     "delete_memory": {Permission.DELETE},
     "configure_memory_store": {Permission.ADMIN},
-
     # =========================================================================
     # RAG Document Tools - READ for search, WRITE for modification
     # =========================================================================
@@ -36,7 +34,6 @@ TOOL_PERMISSIONS: dict[str, set[Permission]] = {
     "get_rag_stats": {Permission.READ},
     "add_document": {Permission.WRITE},
     "delete_document": {Permission.DELETE},
-
     # =========================================================================
     # FastMail Email Tools - READ for retrieval, SEND for sending
     # =========================================================================
@@ -49,24 +46,20 @@ TOOL_PERMISSIONS: dict[str, set[Permission]] = {
     "move_email": {Permission.WRITE},
     "update_email_flags": {Permission.WRITE},
     "delete_email": {Permission.DELETE},
-
     # =========================================================================
     # Communication Tools - SEND required
     # =========================================================================
     "send_slack_message": {Permission.SEND},
-
     # =========================================================================
     # Social Media Tools - READ for stats, WRITE for posting
     # =========================================================================
     "get_social_media_stats": {Permission.READ},
     # Future: "post_to_twitter": {Permission.SEND},
     # Future: "post_to_linkedin": {Permission.SEND},
-
     # =========================================================================
     # Content Suggestion Tools - READ only (generates suggestions)
     # =========================================================================
     "suggest_content_topics": {Permission.READ},
-
     # =========================================================================
     # Claude Code Tools - EXECUTE required for running code
     # =========================================================================
@@ -168,19 +161,42 @@ def get_tool_permissions_by_category() -> dict[str, dict[str, set[Permission]]]:
 
     category_prefixes = {
         "web_analysis": ["fetch_web", "analyze_website"],
-        "memory": ["save_memory", "get_memories", "search_memories",
-                   "delete_memory", "get_memory_stats", "configure_memory"],
-        "rag": ["add_document", "search_documents", "get_document",
-                "list_documents", "delete_document", "get_rag_stats"],
-        "email": ["list_mailboxes", "get_email", "search_emails",
-                  "send_email", "send_agent_report", "move_email",
-                  "update_email_flags", "delete_email"],
+        "memory": [
+            "save_memory",
+            "get_memories",
+            "search_memories",
+            "delete_memory",
+            "get_memory_stats",
+            "configure_memory",
+        ],
+        "rag": [
+            "add_document",
+            "search_documents",
+            "get_document",
+            "list_documents",
+            "delete_document",
+            "get_rag_stats",
+        ],
+        "email": [
+            "list_mailboxes",
+            "get_email",
+            "search_emails",
+            "send_email",
+            "send_agent_report",
+            "move_email",
+            "update_email_flags",
+            "delete_email",
+        ],
         "communication": ["send_slack"],
         "social_media": ["get_social_media"],
         "content": ["suggest_content"],
-        "claude_code": ["run_claude_code", "list_claude_code",
-                        "create_claude_code", "delete_claude_code",
-                        "get_claude_code"],
+        "claude_code": [
+            "run_claude_code",
+            "list_claude_code",
+            "create_claude_code",
+            "delete_claude_code",
+            "get_claude_code",
+        ],
     }
 
     for tool_name, perms in TOOL_PERMISSIONS.items():

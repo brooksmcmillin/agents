@@ -284,10 +284,7 @@ class TestMemoryStoreAgentIsolation:
 
         # Create stores for multiple agents
         agents = ["chatbot", "pr_agent", "security_researcher"]
-        stores = {
-            name: MemoryStore(storage_path=storage_path, agent_name=name)
-            for name in agents
-        }
+        stores = {name: MemoryStore(storage_path=storage_path, agent_name=name) for name in agents}
 
         # Save a memory with the same key to all agents
         for i, (name, store) in enumerate(stores.items()):
