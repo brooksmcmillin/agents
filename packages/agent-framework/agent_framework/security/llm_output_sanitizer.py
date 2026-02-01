@@ -1,35 +1,49 @@
-"""Secure handling of LLM-to-LLM output passing.
+"""Secure handling of LLM-to-LLM communication.
 
-This module provides protection against indirect prompt injection attacks
-when one LLM's output is passed as input to another LLM. This is critical
-for multi-agent systems where agents delegate tasks to other LLM-powered tools.
+This module provides protection against prompt injection attacks in both
+directions of LLM-to-LLM communication:
+
+1. OUTPUT SANITIZATION: When one LLM's output is passed to another LLM
+2. INPUT VALIDATION: When one LLM sends commands/instructions to another LLM
+
+This is critical for multi-agent systems where agents delegate tasks to
+other LLM-powered tools (e.g., PR agent calling Claude Code).
 
 Security Concerns Addressed:
 1. Indirect prompt injection - Malicious content in LLM output manipulating the receiving LLM
 2. Instruction smuggling - Hidden instructions embedded in tool output
 3. Context manipulation - Attempts to alter the receiving LLM's understanding of its role
 4. Token flooding - Excessive output designed to overflow context windows
+5. Command injection - Manipulated LLM sending malicious commands to subordinate LLMs
 
 Defense Strategies:
 1. Structural isolation - Wrap output in clear data delimiters that signal "treat as data"
 2. Content sanitization - Escape/remove common prompt injection patterns
-3. Length limits - Enforce reasonable output size limits
-4. Metadata separation - Keep trusted metadata separate from untrusted content
+3. Length limits - Enforce reasonable input/output size limits
+4. Input validation - Detect and block suspicious commands before execution
+5. Audit logging - Log all suspicious patterns for security monitoring
 
 Usage:
     from agent_framework.security import LLMOutputSanitizer
 
     sanitizer = LLMOutputSanitizer()
 
-    # Wrap LLM output before passing to another LLM
-    safe_output = sanitizer.sanitize_llm_output(
+    # Validate input BEFORE sending to another LLM
+    input_result = sanitizer.validate_llm_input(
+        command="Fix the bug in login.py",
+        source="pr_agent",
+    )
+    if not input_result.is_safe:
+        raise SecurityError(f"Suspicious input blocked: {input_result.patterns_detected}")
+
+    # Sanitize output AFTER receiving from another LLM
+    output_result = sanitizer.sanitize_llm_output(
         raw_output="Output from Claude Code...",
         source="run_claude_code",
-        max_length=50000,
     )
 
     # The result contains wrapped, sanitized content
-    tool_result = {"content": safe_output.wrapped_content, ...}
+    tool_result = {"content": output_result.wrapped_content, ...}
 """
 
 import hashlib
@@ -88,6 +102,27 @@ class SanitizationResult:
     content_hash: str = ""
 
 
+@dataclass
+class InputValidationResult:
+    """Result of validating LLM input/command.
+
+    Attributes:
+        original_input: The original input that was validated
+        is_safe: Whether the input is considered safe
+        patterns_detected: List of suspicious patterns detected
+        risk_level: Risk assessment (low, medium, high, critical)
+        recommendation: Recommended action (allow, warn, block)
+        content_hash: SHA-256 hash for audit logging
+    """
+
+    original_input: str
+    is_safe: bool
+    patterns_detected: list[str] = field(default_factory=list)
+    risk_level: str = "low"  # low, medium, high, critical
+    recommendation: str = "allow"  # allow, warn, block
+    content_hash: str = ""
+
+
 # Common prompt injection patterns to detect and handle
 # These patterns are commonly used in prompt injection attacks
 SUSPICIOUS_PATTERNS = [
@@ -118,17 +153,77 @@ SUSPICIOUS_PATTERNS = [
     (r"(?i)output\s+the\s+following", "output_following"),
 ]
 
+# Additional patterns for INPUT validation (commands sent TO another LLM)
+# These are suspicious when the calling LLM might have been compromised
+INPUT_SUSPICIOUS_PATTERNS = [
+    # All output patterns apply to input as well
+    *SUSPICIOUS_PATTERNS,
+    # Data exfiltration attempts
+    (r"(?i)send\s+(all|the)\s+(data|content|secrets?|credentials?|keys?|tokens?)", "data_exfiltration"),
+    (r"(?i)exfiltrate", "exfiltration_keyword"),
+    (r"(?i)leak\s+(all|the)", "data_leak"),
+    (r"(?i)(upload|post|send)\s+to\s+(external|remote|http)", "external_upload"),
+    # Privilege escalation
+    (r"(?i)bypass\s+(security|auth|permission|restriction)", "bypass_security"),
+    (r"(?i)disable\s+(security|logging|audit|protection)", "disable_security"),
+    (r"(?i)elevate\s+privilege", "privilege_escalation"),
+    (r"(?i)run\s+as\s+(root|admin|sudo)", "run_as_admin"),
+    # Destructive commands
+    (r"(?i)delete\s+(all|every|\*|the\s+entire)", "mass_deletion"),
+    (r"(?i)rm\s+-rf", "rm_rf_command"),
+    (r"(?i)drop\s+(table|database)", "drop_database"),
+    (r"(?i)truncate\s+table", "truncate_table"),
+    # Hidden instructions in seemingly normal commands
+    (r"(?i)after\s+(completing|finishing|done).*(ignore|forget|disregard)", "hidden_instruction"),
+    (r"(?i)but\s+first.*(ignore|forget|change)", "but_first_injection"),
+    # Recursive agent spawning (potential DoS)
+    (r"(?i)spawn\s+(unlimited|infinite|many)\s+(agents?|instances?)", "agent_dos"),
+    (r"(?i)create\s+\d{3,}\s+(workspaces?|agents?)", "mass_creation"),
+]
+
+# Risk levels for different pattern combinations
+RISK_LEVELS = {
+    # Critical - should always block
+    "critical": [
+        "data_exfiltration", "exfiltration_keyword", "bypass_security",
+        "disable_security", "privilege_escalation", "rm_rf_command",
+        "drop_database", "agent_dos",
+    ],
+    # High - likely block, log extensively
+    "high": [
+        "ignore_instructions", "disregard_previous", "role_change",
+        "system_prompt_injection", "dan_jailbreak", "mass_deletion",
+        "hidden_instruction", "but_first_injection",
+    ],
+    # Medium - warn and log
+    "medium": [
+        "forget_context", "new_instructions", "developer_mode",
+        "pretend_capability", "external_upload", "run_as_admin",
+    ],
+    # Low - just log
+    "low": [
+        "act_as", "assistant_injection", "human_injection", "user_injection",
+        "code_block_system", "instruction_tag", "return_only",
+    ],
+}
+
 
 class LLMOutputSanitizer:
-    """Sanitizes LLM output for safe passing to another LLM.
+    """Sanitizes LLM input and output for safe LLM-to-LLM communication.
 
     This class provides multiple layers of protection against prompt injection
-    attacks that can occur when one LLM's output is passed to another LLM.
+    attacks that can occur in multi-agent systems:
+
+    1. OUTPUT SANITIZATION: Protects receiving LLM from malicious content in
+       tool/agent outputs
+    2. INPUT VALIDATION: Detects when a potentially compromised LLM tries to
+       send malicious commands to subordinate LLMs
 
     Attributes:
         max_length: Maximum allowed output length
         escape_suspicious: Whether to escape suspicious patterns (vs just detect)
         strict_mode: If True, removes suspicious patterns entirely; if False, escapes them
+        block_on_critical: If True, mark input as unsafe when critical patterns detected
     """
 
     def __init__(
@@ -136,6 +231,7 @@ class LLMOutputSanitizer:
         max_length: int = DEFAULT_MAX_OUTPUT_LENGTH,
         escape_suspicious: bool = True,
         strict_mode: bool = False,
+        block_on_critical: bool = True,
         custom_patterns: list[tuple[str, str]] | None = None,
     ):
         """Initialize the sanitizer.
@@ -144,20 +240,138 @@ class LLMOutputSanitizer:
             max_length: Maximum output length in characters
             escape_suspicious: Whether to escape suspicious patterns
             strict_mode: If True, removes suspicious patterns entirely
+            block_on_critical: If True, mark input as unsafe when critical patterns detected
             custom_patterns: Additional regex patterns to detect (pattern, name)
         """
         self.max_length = max_length
         self.escape_suspicious = escape_suspicious
         self.strict_mode = strict_mode
+        self.block_on_critical = block_on_critical
 
-        # Compile patterns for efficiency
-        self._patterns = [
+        # Compile output patterns for efficiency
+        self._output_patterns = [
             (re.compile(pattern), name) for pattern, name in SUSPICIOUS_PATTERNS
         ]
+
+        # Compile input patterns (superset of output patterns)
+        self._input_patterns = [
+            (re.compile(pattern), name) for pattern, name in INPUT_SUSPICIOUS_PATTERNS
+        ]
+
         if custom_patterns:
-            self._patterns.extend(
+            compiled_custom = [
                 (re.compile(pattern), name) for pattern, name in custom_patterns
+            ]
+            self._output_patterns.extend(compiled_custom)
+            self._input_patterns.extend(compiled_custom)
+
+        # For backward compatibility
+        self._patterns = self._output_patterns
+
+    def validate_llm_input(
+        self,
+        command: str,
+        source: str = "unknown",
+        max_length: int | None = None,
+    ) -> InputValidationResult:
+        """Validate input/command from one LLM before passing to another LLM.
+
+        This method detects potentially malicious commands that a compromised
+        or manipulated LLM might try to send to a subordinate LLM (like Claude Code).
+
+        The validation:
+        1. Checks for suspicious patterns (prompt injection, data exfiltration, etc.)
+        2. Assesses risk level based on patterns detected
+        3. Recommends action (allow, warn, block)
+        4. Logs all findings for security audit
+
+        Args:
+            command: The command/input to validate
+            source: Name of the source LLM/agent (for logging)
+            max_length: Maximum allowed input length
+
+        Returns:
+            InputValidationResult with safety assessment
+        """
+        effective_max_length = max_length or self.max_length
+        patterns_detected: list[str] = []
+
+        # Compute hash for audit logging
+        content_hash = hashlib.sha256(command.encode()).hexdigest()[:16]
+
+        # Check length
+        if len(command) > effective_max_length:
+            logger.warning(
+                f"LLM input from {source} exceeds max length ({len(command)} > {effective_max_length})"
             )
+            return InputValidationResult(
+                original_input=command,
+                is_safe=False,
+                patterns_detected=["input_too_long"],
+                risk_level="high",
+                recommendation="block",
+                content_hash=content_hash,
+            )
+
+        # Detect suspicious patterns
+        for pattern, name in self._input_patterns:
+            if pattern.search(command):
+                patterns_detected.append(name)
+
+        # Determine risk level based on detected patterns
+        risk_level = "low"
+        recommendation = "allow"
+
+        if patterns_detected:
+            # Check for critical patterns first
+            critical_found = [p for p in patterns_detected if p in RISK_LEVELS["critical"]]
+            high_found = [p for p in patterns_detected if p in RISK_LEVELS["high"]]
+            medium_found = [p for p in patterns_detected if p in RISK_LEVELS["medium"]]
+
+            if critical_found:
+                risk_level = "critical"
+                recommendation = "block"
+                logger.error(
+                    f"CRITICAL: LLM input from {source} contains critical security patterns: "
+                    f"{critical_found}. Full patterns: {patterns_detected}. Hash: {content_hash}"
+                )
+            elif high_found:
+                risk_level = "high"
+                recommendation = "block"
+                logger.warning(
+                    f"HIGH RISK: LLM input from {source} contains high-risk patterns: "
+                    f"{high_found}. Full patterns: {patterns_detected}. Hash: {content_hash}"
+                )
+            elif medium_found:
+                risk_level = "medium"
+                recommendation = "warn"
+                logger.warning(
+                    f"MEDIUM RISK: LLM input from {source} contains suspicious patterns: "
+                    f"{medium_found}. Full patterns: {patterns_detected}. Hash: {content_hash}"
+                )
+            else:
+                risk_level = "low"
+                recommendation = "allow"
+                logger.info(
+                    f"LOW RISK: LLM input from {source} contains minor patterns: "
+                    f"{patterns_detected}. Hash: {content_hash}"
+                )
+
+        # Determine if safe
+        is_safe = recommendation == "allow" or (
+            recommendation == "warn" and not self.block_on_critical
+        )
+        if self.block_on_critical and risk_level in ("critical", "high"):
+            is_safe = False
+
+        return InputValidationResult(
+            original_input=command,
+            is_safe=is_safe,
+            patterns_detected=patterns_detected,
+            risk_level=risk_level,
+            recommendation=recommendation,
+            content_hash=content_hash,
+        )
 
     def sanitize_llm_output(
         self,

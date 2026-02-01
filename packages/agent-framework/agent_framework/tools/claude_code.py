@@ -5,15 +5,20 @@ code in isolated workspace directories, enabling meta-programming and
 delegation to Claude Code for complex coding tasks.
 
 Security Note:
-    The output from Claude Code (an LLM) is automatically sanitized before
-    being returned to the calling agent (another LLM). This prevents indirect
-    prompt injection attacks where malicious content in the subprocess output
-    could manipulate the parent agent's behavior.
+    This tool implements bi-directional security for LLM-to-LLM communication:
 
-    The sanitization includes:
-    - Structural isolation with clear data delimiters
-    - Detection and escaping of common prompt injection patterns
-    - Length limits to prevent context overflow attacks
+    INPUT VALIDATION (commands TO Claude Code):
+    - Detects potentially malicious commands from compromised calling LLMs
+    - Blocks critical patterns (data exfiltration, privilege escalation, etc.)
+    - Logs all suspicious patterns for security monitoring
+
+    OUTPUT SANITIZATION (results FROM Claude Code):
+    - Wraps output in structural isolation markers
+    - Escapes common prompt injection patterns
+    - Enforces length limits to prevent context overflow
+
+    Both protections are ALWAYS enabled and cannot be disabled by LLMs.
+    This prevents a compromised LLM from bypassing security controls.
 """
 
 import asyncio
@@ -28,11 +33,13 @@ from agent_framework.security import LLMOutputSanitizer
 
 logger = logging.getLogger(__name__)
 
-# Shared sanitizer instance for LLM output
-_output_sanitizer = LLMOutputSanitizer(
+# Shared sanitizer instance for LLM input/output
+# Security controls are always enabled and cannot be disabled by LLMs
+_llm_sanitizer = LLMOutputSanitizer(
     max_length=100000,  # 100K character limit
     escape_suspicious=True,
-    strict_mode=False,  # Escape rather than remove
+    strict_mode=False,  # Escape rather than remove for output
+    block_on_critical=True,  # Block dangerous input patterns
 )
 
 # Default base directory for workspaces (configurable via environment)
@@ -111,7 +118,8 @@ async def run_claude_code(
     working_dir_base: str | None = None,
     custom_instructions: str | None = None,
     env: dict[str, str] | None = None,
-    sanitize_output: bool = True,
+    *,
+    _sanitize_output: bool = True,  # Internal only - not exposed to LLMs
 ) -> dict[str, Any]:
     """Run headless Claude Code in a workspace folder.
 
@@ -119,10 +127,18 @@ async def run_claude_code(
     waits for completion, and returns the results. Useful for delegating
     complex coding tasks to Claude Code while maintaining isolation.
 
-    Security: By default, output is sanitized to prevent indirect prompt
-    injection attacks when the output is passed to another LLM. This includes
-    structural isolation (data boundary markers), detection and escaping of
-    suspicious patterns, and length limits.
+    Security (ALWAYS enabled, cannot be bypassed by LLMs):
+
+    INPUT VALIDATION:
+    - Commands are validated for malicious patterns before execution
+    - Critical patterns (data exfiltration, privilege escalation) are blocked
+    - High-risk patterns (prompt injection) are blocked
+    - All suspicious patterns are logged for security audit
+
+    OUTPUT SANITIZATION:
+    - Output is wrapped in structural isolation markers
+    - Prompt injection patterns are escaped
+    - Length limits prevent context overflow attacks
 
     Args:
         folder_name: Name of workspace folder (must exist in workspaces directory)
@@ -133,23 +149,23 @@ async def run_claude_code(
         working_dir_base: Base directory for workspaces (optional, uses env var or default)
         custom_instructions: Optional custom instructions to prepend to command
         env: Optional environment variables to pass to the subprocess
-        sanitize_output: Whether to sanitize output for safe LLM-to-LLM passing (default: True)
 
     Returns:
         Dict with:
             - success: bool - Whether command completed successfully
-            - output: str - Full conversation output from Claude Code (sanitized if enabled)
-            - final_response: str - Last response from Claude (sanitized if enabled)
+            - output: str - Full conversation output from Claude Code (sanitized)
+            - final_response: str - Last response from Claude (sanitized)
             - turns_used: int - Number of agentic turns used
             - workspace_path: str - Full path to workspace
             - command: str - The command that was executed
             - exit_code: int - Process exit code
-            - _sanitization: dict - Sanitization metadata (if sanitize_output=True)
+            - _security: dict - Security metadata (input validation + output sanitization)
 
     Raises:
         ValueError: If folder_name is invalid or model is unknown
         FileNotFoundError: If workspace doesn't exist
         TimeoutError: If command execution exceeds timeout
+        PermissionError: If command contains blocked security patterns
 
     Example:
         >>> result = await run_claude_code(
@@ -162,8 +178,46 @@ async def run_claude_code(
         >>> print(result['final_response'])
     """
     workspace_path: Path | None = None
+    input_validation_result = None
     try:
         workspace_path = _get_workspace_path(folder_name, working_dir_base)
+
+        # SECURITY: Validate input command for malicious patterns
+        # This protects against compromised LLMs sending dangerous commands
+        input_validation_result = _llm_sanitizer.validate_llm_input(
+            command, source="run_claude_code.command"
+        )
+
+        if not input_validation_result.is_safe:
+            logger.error(
+                f"BLOCKED: Potentially malicious command from LLM. "
+                f"Risk: {input_validation_result.risk_level}, "
+                f"Patterns: {input_validation_result.patterns_detected}, "
+                f"Hash: {input_validation_result.content_hash}"
+            )
+            raise PermissionError(
+                f"Command blocked due to security concerns. "
+                f"Risk level: {input_validation_result.risk_level}. "
+                f"Detected patterns: {input_validation_result.patterns_detected}. "
+                f"This may indicate the calling agent has been compromised."
+            )
+
+        # Also validate custom_instructions if provided
+        if custom_instructions:
+            custom_validation = _llm_sanitizer.validate_llm_input(
+                custom_instructions, source="run_claude_code.custom_instructions"
+            )
+            if not custom_validation.is_safe:
+                logger.error(
+                    f"BLOCKED: Potentially malicious custom_instructions. "
+                    f"Risk: {custom_validation.risk_level}, "
+                    f"Patterns: {custom_validation.patterns_detected}"
+                )
+                raise PermissionError(
+                    f"Custom instructions blocked due to security concerns. "
+                    f"Risk level: {custom_validation.risk_level}. "
+                    f"Detected patterns: {custom_validation.patterns_detected}."
+                )
 
         # Validate model
         model_map = {"sonnet": "sonnet", "haiku": "haiku", "opus": "opus"}
@@ -226,22 +280,23 @@ async def run_claude_code(
 
         success = process.returncode == 0
 
-        # Apply output sanitization if enabled (protects against prompt injection)
-        sanitization_metadata: dict[str, Any] = {}
-        if sanitize_output and output:
+        # SECURITY: Apply output sanitization (protects against prompt injection)
+        # This is ALWAYS enabled to protect the calling LLM from malicious output
+        output_sanitization: dict[str, Any] = {}
+        if _sanitize_output and output:
             # Sanitize main output
-            output_result = _output_sanitizer.sanitize_llm_output(
+            output_result = _llm_sanitizer.sanitize_llm_output(
                 output, source="run_claude_code.output"
             )
             sanitized_output = output_result.wrapped_content
 
             # Sanitize final response
-            response_result = _output_sanitizer.sanitize_llm_output(
+            response_result = _llm_sanitizer.sanitize_llm_output(
                 final_response, source="run_claude_code.final_response"
             )
             sanitized_final_response = response_result.wrapped_content
 
-            sanitization_metadata = {
+            output_sanitization = {
                 "enabled": True,
                 "output_patterns_detected": output_result.patterns_detected,
                 "output_was_truncated": output_result.was_truncated,
@@ -260,7 +315,19 @@ async def run_claude_code(
         else:
             sanitized_output = output
             sanitized_final_response = final_response
-            sanitization_metadata = {"enabled": False}
+            output_sanitization = {"enabled": False}
+
+        # Build security metadata combining input validation and output sanitization
+        security_metadata: dict[str, Any] = {
+            "input_validation": {
+                "patterns_detected": (
+                    input_validation_result.patterns_detected if input_validation_result else []
+                ),
+                "risk_level": input_validation_result.risk_level if input_validation_result else "unknown",
+                "input_hash": input_validation_result.content_hash if input_validation_result else "",
+            },
+            "output_sanitization": output_sanitization,
+        }
 
         result: dict[str, Any] = {
             "success": success,
@@ -271,7 +338,7 @@ async def run_claude_code(
             "workspace_path": str(workspace_path),
             "command": command,
             "exit_code": process.returncode,
-            "_sanitization": sanitization_metadata,
+            "_security": security_metadata,
         }
 
         if not success:
@@ -631,7 +698,9 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "description": (
             "Run headless Claude Code in a workspace folder. "
             "Spawns a Claude Code instance, sends it a command, and returns results. "
-            "Useful for delegating complex coding tasks to Claude Code in isolated workspaces."
+            "Useful for delegating complex coding tasks to Claude Code in isolated workspaces. "
+            "SECURITY: Input commands are validated and output is sanitized automatically "
+            "to prevent prompt injection attacks. These protections cannot be disabled."
         ),
         "input_schema": {
             "type": "object",
@@ -667,14 +736,6 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "custom_instructions": {
                     "type": "string",
                     "description": "Optional custom instructions to prepend to the command",
-                },
-                "sanitize_output": {
-                    "type": "boolean",
-                    "description": (
-                        "Whether to sanitize output for safe LLM-to-LLM passing. "
-                        "Prevents prompt injection attacks. Default: true"
-                    ),
-                    "default": True,
                 },
             },
             "required": ["folder_name", "command"],
