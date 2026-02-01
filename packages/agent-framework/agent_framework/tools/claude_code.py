@@ -3,6 +3,17 @@
 These tools allow agents to spawn headless Claude Code instances to work on
 code in isolated workspace directories, enabling meta-programming and
 delegation to Claude Code for complex coding tasks.
+
+Security Note:
+    The output from Claude Code (an LLM) is automatically sanitized before
+    being returned to the calling agent (another LLM). This prevents indirect
+    prompt injection attacks where malicious content in the subprocess output
+    could manipulate the parent agent's behavior.
+
+    The sanitization includes:
+    - Structural isolation with clear data delimiters
+    - Detection and escaping of common prompt injection patterns
+    - Length limits to prevent context overflow attacks
 """
 
 import asyncio
@@ -13,7 +24,16 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from agent_framework.security import LLMOutputSanitizer
+
 logger = logging.getLogger(__name__)
+
+# Shared sanitizer instance for LLM output
+_output_sanitizer = LLMOutputSanitizer(
+    max_length=100000,  # 100K character limit
+    escape_suspicious=True,
+    strict_mode=False,  # Escape rather than remove
+)
 
 # Default base directory for workspaces (configurable via environment)
 DEFAULT_WORKSPACES_DIR = os.environ.get(
@@ -91,12 +111,18 @@ async def run_claude_code(
     working_dir_base: str | None = None,
     custom_instructions: str | None = None,
     env: dict[str, str] | None = None,
+    sanitize_output: bool = True,
 ) -> dict[str, Any]:
     """Run headless Claude Code in a workspace folder.
 
     This tool spawns a headless Claude Code instance, sends it a command,
     waits for completion, and returns the results. Useful for delegating
     complex coding tasks to Claude Code while maintaining isolation.
+
+    Security: By default, output is sanitized to prevent indirect prompt
+    injection attacks when the output is passed to another LLM. This includes
+    structural isolation (data boundary markers), detection and escaping of
+    suspicious patterns, and length limits.
 
     Args:
         folder_name: Name of workspace folder (must exist in workspaces directory)
@@ -107,16 +133,18 @@ async def run_claude_code(
         working_dir_base: Base directory for workspaces (optional, uses env var or default)
         custom_instructions: Optional custom instructions to prepend to command
         env: Optional environment variables to pass to the subprocess
+        sanitize_output: Whether to sanitize output for safe LLM-to-LLM passing (default: True)
 
     Returns:
         Dict with:
             - success: bool - Whether command completed successfully
-            - output: str - Full conversation output from Claude Code
-            - final_response: str - Last response from Claude
+            - output: str - Full conversation output from Claude Code (sanitized if enabled)
+            - final_response: str - Last response from Claude (sanitized if enabled)
             - turns_used: int - Number of agentic turns used
             - workspace_path: str - Full path to workspace
             - command: str - The command that was executed
             - exit_code: int - Process exit code
+            - _sanitization: dict - Sanitization metadata (if sanitize_output=True)
 
     Raises:
         ValueError: If folder_name is invalid or model is unknown
@@ -198,15 +226,52 @@ async def run_claude_code(
 
         success = process.returncode == 0
 
-        result = {
+        # Apply output sanitization if enabled (protects against prompt injection)
+        sanitization_metadata: dict[str, Any] = {}
+        if sanitize_output and output:
+            # Sanitize main output
+            output_result = _output_sanitizer.sanitize_llm_output(
+                output, source="run_claude_code.output"
+            )
+            sanitized_output = output_result.wrapped_content
+
+            # Sanitize final response
+            response_result = _output_sanitizer.sanitize_llm_output(
+                final_response, source="run_claude_code.final_response"
+            )
+            sanitized_final_response = response_result.wrapped_content
+
+            sanitization_metadata = {
+                "enabled": True,
+                "output_patterns_detected": output_result.patterns_detected,
+                "output_was_truncated": output_result.was_truncated,
+                "response_patterns_detected": response_result.patterns_detected,
+                "output_hash": output_result.content_hash,
+            }
+
+            # Log if suspicious patterns were detected
+            if output_result.patterns_detected or response_result.patterns_detected:
+                all_patterns = list(
+                    set(output_result.patterns_detected + response_result.patterns_detected)
+                )
+                logger.warning(
+                    f"Claude Code output contained suspicious patterns that were sanitized: {all_patterns}"
+                )
+        else:
+            sanitized_output = output
+            sanitized_final_response = final_response
+            sanitization_metadata = {"enabled": False}
+
+        result: dict[str, Any] = {
             "success": success,
-            "output": output,
+            "output": sanitized_output,
             "error_output": error_output if error_output else None,
-            "final_response": final_response,
+            "final_response": sanitized_final_response,
             "turns_used": turns_used,
             "workspace_path": str(workspace_path),
             "command": command,
             "exit_code": process.returncode,
+            "_sanitization": sanitization_metadata,
         }
 
         if not success:
@@ -602,6 +667,14 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "custom_instructions": {
                     "type": "string",
                     "description": "Optional custom instructions to prepend to the command",
+                },
+                "sanitize_output": {
+                    "type": "boolean",
+                    "description": (
+                        "Whether to sanitize output for safe LLM-to-LLM passing. "
+                        "Prevents prompt injection attacks. Default: true"
+                    ),
+                    "default": True,
                 },
             },
             "required": ["folder_name", "command"],
