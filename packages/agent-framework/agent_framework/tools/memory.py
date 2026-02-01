@@ -70,9 +70,7 @@ def validate_agent_name(agent_name: str) -> str:
 
     # Check length (matches database VARCHAR(100))
     if len(agent_name) > MAX_AGENT_NAME_LENGTH:
-        raise InvalidAgentNameError(
-            f"agent_name cannot exceed {MAX_AGENT_NAME_LENGTH} characters"
-        )
+        raise InvalidAgentNameError(f"agent_name cannot exceed {MAX_AGENT_NAME_LENGTH} characters")
 
     # Check for valid characters (alphanumeric, underscore, hyphen)
     if not AGENT_NAME_PATTERN.match(agent_name):
@@ -81,6 +79,7 @@ def validate_agent_name(agent_name: str) -> str:
         )
 
     return agent_name
+
 
 # Global store instances - keyed by agent_name for isolation
 _file_memory_stores: dict[str, MemoryStore] = {}
@@ -144,7 +143,9 @@ async def get_database_memory_store(agent_name: str = DEFAULT_AGENT_NAME) -> Dat
             # Double-check after acquiring lock
             if validated_name not in _database_memory_stores:
                 # Check both MEMORY_DATABASE_URL and DATABASE_URL for flexibility
-                database_url = os.environ.get("MEMORY_DATABASE_URL") or os.environ.get("DATABASE_URL")
+                database_url = os.environ.get("MEMORY_DATABASE_URL") or os.environ.get(
+                    "DATABASE_URL"
+                )
                 if not database_url:
                     raise ValueError(
                         "MEMORY_DATABASE_URL or DATABASE_URL environment variable required when using database backend"
@@ -627,9 +628,7 @@ TOOL_SCHEMAS = [
     },
     {
         "name": "delete_memory",
-        "description": (
-            "Delete a memory by key. Memories are isolated per agent."
-        ),
+        "description": ("Delete a memory by key. Memories are isolated per agent."),
         "input_schema": {
             "type": "object",
             "properties": {

@@ -290,15 +290,15 @@ app = FastAPI(
 )
 
 # Configure CORS for web UI
-# Allow any origin in development, specific origins in production
-allow_origins = (
-    ["*"]
-    if os.getenv("DEV_MODE", "false").lower() == "true"
-    else [
-        "http://localhost:5173",  # Vite dev server
-        "http://localhost:8080",  # Production (same origin)
-    ]
-)
+# Use explicit localhost origins plus any configured extras (even in dev mode)
+allow_origins = [
+    "http://localhost:5173",  # Vite dev server
+    "http://localhost:8080",  # Production (same origin)
+    "http://127.0.0.1:5173",  # Vite dev server (IP)
+    "http://127.0.0.1:8080",  # Production (IP)
+]
+if extra_origins := os.getenv("CORS_ALLOWED_ORIGINS"):
+    allow_origins.extend(origin.strip() for origin in extra_origins.split(",") if origin.strip())
 
 app.add_middleware(
     CORSMiddleware,
@@ -341,7 +341,7 @@ async def verify_api_key(
 # Rate Limiting (optional)
 # ---------------------------------------------------------------------------
 
-_rate_limit_enabled = os.getenv("RATE_LIMIT_ENABLED", "false").lower() == "true"
+_rate_limit_enabled = os.getenv("RATE_LIMIT_ENABLED", "true").lower() == "true"
 
 if _rate_limit_enabled:
     from slowapi import Limiter, _rate_limit_exceeded_handler

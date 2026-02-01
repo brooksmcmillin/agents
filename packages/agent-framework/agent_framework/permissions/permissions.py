@@ -155,8 +155,15 @@ class PermissionSet:
         Returns:
             PermissionSet with all permissions except ADMIN
         """
-        return cls([Permission.READ, Permission.WRITE, Permission.DELETE,
-                    Permission.EXECUTE, Permission.SEND])
+        return cls(
+            [
+                Permission.READ,
+                Permission.WRITE,
+                Permission.DELETE,
+                Permission.EXECUTE,
+                Permission.SEND,
+            ]
+        )
 
     @classmethod
     def admin(cls) -> PermissionSet:

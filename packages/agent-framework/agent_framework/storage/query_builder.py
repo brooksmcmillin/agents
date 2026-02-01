@@ -104,6 +104,9 @@ class MetadataFilterBuilder:
             query += " WHERE " + self.get_where_clause()
 
         if order_by:
+            # Validate: column name with optional ASC/DESC to prevent SQL injection
+            if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*(\s+(ASC|DESC))?$", order_by, re.IGNORECASE):
+                raise ValueError(f"Invalid order_by: '{order_by}'")
             query += f" ORDER BY {order_by}"
 
         if limit is not None:

@@ -34,18 +34,24 @@ async def database_store(database_url: str):
     """
     from agent_framework.storage.database_memory_store import DatabaseMemoryStore
 
-    store = DatabaseMemoryStore(database_url, agent_name="test_agent", cache_ttl=0)  # Disable cache for tests
+    store = DatabaseMemoryStore(
+        database_url, agent_name="test_agent", cache_ttl=0
+    )  # Disable cache for tests
     await store.initialize()
 
     # Clean up any existing test data for this agent
     async with store._pool.acquire() as conn:
-        await conn.execute("DELETE FROM memories WHERE agent_name = 'test_agent' AND key LIKE 'test_%'")
+        await conn.execute(
+            "DELETE FROM memories WHERE agent_name = 'test_agent' AND key LIKE 'test_%'"
+        )
 
     yield store
 
     # Cleanup after test
     async with store._pool.acquire() as conn:
-        await conn.execute("DELETE FROM memories WHERE agent_name = 'test_agent' AND key LIKE 'test_%'")
+        await conn.execute(
+            "DELETE FROM memories WHERE agent_name = 'test_agent' AND key LIKE 'test_%'"
+        )
 
     await store.close()
 
@@ -436,7 +442,9 @@ class TestDatabaseMemoryStoreAgentIsolation:
         """Test that different agents have completely separate memory stores."""
         from agent_framework.storage.database_memory_store import DatabaseMemoryStore
 
-        chatbot_store = DatabaseMemoryStore(database_url, agent_name="isolation_test_chatbot", cache_ttl=0)
+        chatbot_store = DatabaseMemoryStore(
+            database_url, agent_name="isolation_test_chatbot", cache_ttl=0
+        )
         pr_store = DatabaseMemoryStore(database_url, agent_name="isolation_test_pr", cache_ttl=0)
 
         await chatbot_store.initialize()
@@ -466,7 +474,9 @@ class TestDatabaseMemoryStoreAgentIsolation:
         """Test that get_all_memories only returns memories for the specified agent."""
         from agent_framework.storage.database_memory_store import DatabaseMemoryStore
 
-        chatbot_store = DatabaseMemoryStore(database_url, agent_name="getall_test_chatbot", cache_ttl=0)
+        chatbot_store = DatabaseMemoryStore(
+            database_url, agent_name="getall_test_chatbot", cache_ttl=0
+        )
         pr_store = DatabaseMemoryStore(database_url, agent_name="getall_test_pr", cache_ttl=0)
 
         await chatbot_store.initialize()
@@ -501,7 +511,9 @@ class TestDatabaseMemoryStoreAgentIsolation:
         """Test that search_memories only searches within agent's memories."""
         from agent_framework.storage.database_memory_store import DatabaseMemoryStore
 
-        chatbot_store = DatabaseMemoryStore(database_url, agent_name="search_test_chatbot", cache_ttl=0)
+        chatbot_store = DatabaseMemoryStore(
+            database_url, agent_name="search_test_chatbot", cache_ttl=0
+        )
         pr_store = DatabaseMemoryStore(database_url, agent_name="search_test_pr", cache_ttl=0)
 
         await chatbot_store.initialize()
@@ -533,7 +545,9 @@ class TestDatabaseMemoryStoreAgentIsolation:
         """Test that delete_memory only affects the specified agent."""
         from agent_framework.storage.database_memory_store import DatabaseMemoryStore
 
-        chatbot_store = DatabaseMemoryStore(database_url, agent_name="delete_test_chatbot", cache_ttl=0)
+        chatbot_store = DatabaseMemoryStore(
+            database_url, agent_name="delete_test_chatbot", cache_ttl=0
+        )
         pr_store = DatabaseMemoryStore(database_url, agent_name="delete_test_pr", cache_ttl=0)
 
         await chatbot_store.initialize()
@@ -566,7 +580,9 @@ class TestDatabaseMemoryStoreAgentIsolation:
         """Test that get_stats only counts memories for the specified agent."""
         from agent_framework.storage.database_memory_store import DatabaseMemoryStore
 
-        chatbot_store = DatabaseMemoryStore(database_url, agent_name="stats_test_chatbot", cache_ttl=0)
+        chatbot_store = DatabaseMemoryStore(
+            database_url, agent_name="stats_test_chatbot", cache_ttl=0
+        )
         pr_store = DatabaseMemoryStore(database_url, agent_name="stats_test_pr", cache_ttl=0)
 
         await chatbot_store.initialize()
@@ -575,7 +591,9 @@ class TestDatabaseMemoryStoreAgentIsolation:
         try:
             # Save different numbers of memories
             for i in range(5):
-                await chatbot_store.save_memory(key=f"test_chat_{i}", value=f"v{i}", category="cat1")
+                await chatbot_store.save_memory(
+                    key=f"test_chat_{i}", value=f"v{i}", category="cat1"
+                )
 
             for i in range(3):
                 await pr_store.save_memory(key=f"test_pr_{i}", value=f"v{i}", category="cat2")

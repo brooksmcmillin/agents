@@ -42,12 +42,12 @@ from dotenv import load_dotenv
 project_root = Path(__file__).parent.parent.parent
 os.chdir(project_root)
 
-import pymupdf4llm  # noqa: E402
 from agent_framework.tools.rag import (  # noqa: E402
     add_document,
     get_rag_stats,
     list_documents,
 )
+from pypdf import PdfReader  # noqa: E402
 
 load_dotenv()
 
@@ -69,20 +69,24 @@ CHUNK_OVERLAP_CHARS = 500  # Overlap between chunks for context continuity
 
 
 def extract_text_from_pdf(file_path: Path) -> str:
-    """Extract text from PDF as markdown."""
-    result = pymupdf4llm.to_markdown(str(file_path))
+    """Extract text from PDF using pypdf."""
+    try:
+        reader = PdfReader(str(file_path))
+        text_parts = []
+        for page in reader.pages:
+            text = page.extract_text()
+            if text:
+                text_parts.append(text.strip())
 
-    if isinstance(result, list):
-        markdown_text = "\n\n".join(
-            page.get("text", "") if isinstance(page, dict) else str(page) for page in result
-        )
-    else:
-        markdown_text = result
+        full_text = "\n\n".join(text_parts)
 
-    if not markdown_text or not markdown_text.strip():
-        raise ValueError(f"No extractable text found in PDF: {file_path}")
+        if not full_text.strip():
+            raise ValueError(f"No extractable text found in PDF: {file_path}")
 
-    return markdown_text
+        return full_text
+
+    except Exception as e:
+        raise ValueError(f"Failed to extract text from PDF: {e}") from e
 
 
 def chunk_text(
