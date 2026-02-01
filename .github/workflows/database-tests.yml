@@ -60,5 +60,6 @@ jobs:
       - name: Run API integration tests
         env:
           DATABASE_URL: postgresql://test_user:test_password@localhost:5432/test_agents
+          RATE_LIMIT_ENABLED: "false"
         run: |
           uv run pytest tests/integration/test_api_conversations.py -v

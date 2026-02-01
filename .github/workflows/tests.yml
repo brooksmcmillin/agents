@@ -53,6 +53,7 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/agents_test
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          RATE_LIMIT_ENABLED: "false"
         run: |
           uv run pytest agents/api/test_server.py -v --cov=agents.api --cov-report=xml --cov-report=term
 
