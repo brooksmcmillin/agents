@@ -110,6 +110,11 @@ class Settings(BaseSettings):
         description="Twilio phone number in E.164 format (e.g., +15551234567). "
         "Used as the 'from' number for SMS messages.",
     )
+    admin_phone_number: str | None = Field(
+        default=None,
+        description="Admin phone number in E.164 format (e.g., +15551234567). "
+        "SMS messages from agents are sent only to this number for security.",
+    )
 
     # Logging
     log_level: str = Field(default="INFO", description="Logging level")

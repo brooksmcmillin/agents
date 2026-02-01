@@ -308,8 +308,8 @@ The MCP server exposes **37 tools** across 10 categories (defined in `packages/a
 - `send_slack_message` - Send Slack notification via webhook
 
 ### Twilio SMS Tools (2 tools)
-*Requires Twilio Account SID, Auth Token, and Phone Number*
-- `send_sms` - Send SMS text message to any phone number worldwide
+*Requires Twilio Account SID, Auth Token, Phone Number, and Admin Phone Number*
+- `send_sms_to_admin` - Send SMS notification to admin phone number (security-restricted)
 - `get_sms_status` - Get delivery status of a previously sent SMS message
 
 ### Social Media Tools (1 tool)
@@ -463,23 +463,26 @@ You'll also need to set up email identities in FastMail for each agent:
 The `agent_name` parameter is automatically injected by the Agent class, so agents
 simply call the tool with subject and body - the from/to are handled automatically.
 
-**Send SMS via Twilio:**
+**Send SMS to Admin via Twilio:**
 ```python
-# Send an SMS message (requires TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER)
-result = await send_sms(
-    to="+15551234567",  # E.164 format or 10-digit US number
-    body="Hello from the agent! Your task has been completed.",
+# Send an SMS to the admin (requires TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN,
+# TWILIO_PHONE_NUMBER, and ADMIN_PHONE_NUMBER)
+# The agent_name is automatically injected by the Agent class
+result = await send_sms_to_admin(
+    body="Task completed: processed 15 customer inquiries with 94% satisfaction.",
 )
 
 # Returns:
 # {
 #     "success": True,
 #     "message_sid": "SM1234567890abcdef",
-#     "to": "+15551234567",
-#     "from": "+15559876543",
+#     "to": "+15559876543",  # ADMIN_PHONE_NUMBER
+#     "from": "+15551234567",  # TWILIO_PHONE_NUMBER
 #     "status": "queued",
-#     "segments": 1
+#     "segments": 1,
+#     "agent_name": "chatbot"
 # }
+# Message received: "[Chatbot] Task completed: processed 15 customer inquiries..."
 
 # Check delivery status
 status = await get_sms_status(message_sid="SM1234567890abcdef")
@@ -489,17 +492,22 @@ status = await get_sms_status(message_sid="SM1234567890abcdef")
 #     "success": True,
 #     "message_sid": "SM1234567890abcdef",
 #     "status": "delivered",  # or "queued", "sent", "failed", "undelivered"
-#     "to": "+15551234567",
-#     "from": "+15559876543",
+#     "to": "+15559876543",
+#     "from": "+15551234567",
 #     "date_sent": "2026-01-30T10:30:00Z"
 # }
 ```
 
+**Security Note:** For security, `send_sms_to_admin` can ONLY send messages to the
+configured `ADMIN_PHONE_NUMBER`. This prevents agents from sending unsolicited
+messages to arbitrary phone numbers, similar to how `send_agent_report` restricts
+email recipients.
+
 This is perfect for:
-- Sending notifications and alerts to users via SMS
-- Two-factor authentication reminders
+- Sending urgent alerts that need immediate attention
 - Task completion notifications
-- Time-sensitive alerts that need immediate attention
+- Error alerts and system status updates
+- Time-sensitive notifications when email isn't fast enough
 
 **Adding a New Tool:**
 
