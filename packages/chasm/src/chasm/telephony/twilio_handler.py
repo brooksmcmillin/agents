@@ -339,7 +339,7 @@ class TwilioCallHandler:
                 "from_": call.from_,
             }
 
-        except Exception as e:
+        except Exception:
             logger.exception(f"Failed to initiate call to {to_number}")
             raise
 
@@ -370,11 +370,11 @@ class TwilioCallHandler:
 
             client = Client(self.config.account_sid, self.config.auth_token)
 
-            call = client.calls(call_sid).update(status="completed")
+            client.calls(call_sid).update(status="completed")
             logger.info(f"Call ended: {call_sid}")
 
             return True
 
-        except Exception as e:
+        except Exception:
             logger.exception(f"Failed to end call {call_sid}")
             return False

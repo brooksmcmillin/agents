@@ -267,7 +267,7 @@ class CallAdapter:
                         await self._process_user_input(
                             transcript, websocket, session, audio_out_queue
                         )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     continue
                 except Exception as e:
                     logger.error(f"Error processing transcript: {e}")
@@ -285,7 +285,7 @@ class CallAdapter:
                     await self._send_audio_to_twilio(
                         websocket, session, audio_chunk
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     continue
                 except Exception as e:
                     logger.error(f"Error sending audio: {e}")

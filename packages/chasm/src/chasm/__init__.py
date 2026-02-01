@@ -18,8 +18,8 @@ Install telephony support:
 
 __version__ = "0.2.0"
 
-from .voice_adapter import VoiceAdapter
 from .call_adapter import CallAdapter, CallSession, CallState
+from .voice_adapter import VoiceAdapter
 
 __all__ = [
     "VoiceAdapter",

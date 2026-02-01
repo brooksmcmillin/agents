@@ -51,11 +51,11 @@ def create_app() -> Any:
     try:
         from fastapi import FastAPI, Request, Response, WebSocket
         from fastapi.responses import HTMLResponse
-    except ImportError:
+    except ImportError as err:
         raise ImportError(
             "FastAPI is required for the call server. "
             "Install with: pip install chasm[telephony]"
-        )
+        ) from err
 
     from agent_framework import Agent
 
