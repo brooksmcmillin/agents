@@ -7,7 +7,7 @@ to enable auditing and access control decisions.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 
@@ -44,7 +44,7 @@ class AgentIdentity:
     source: str = "unknown"
     original_caller: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def delegate_to(self, agent_name: str) -> AgentIdentity:
         """Create a new identity for delegation to another agent.
@@ -145,7 +145,7 @@ class AgentIdentity:
         if isinstance(created_at, str):
             created_at = datetime.fromisoformat(created_at)
         elif created_at is None:
-            created_at = datetime.now(timezone.utc)
+            created_at = datetime.now(UTC)
 
         return cls(
             name=data["name"],

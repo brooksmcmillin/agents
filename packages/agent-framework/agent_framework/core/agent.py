@@ -19,14 +19,6 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TextIO, cast
 
-from agent_framework.permissions import (
-    AgentIdentity,
-    ExecutionContext,
-    Permission,
-    PermissionSet,
-    get_required_permissions,
-)
-
 from anthropic import AsyncAnthropic
 from anthropic.types import (
     MessageParam,
@@ -38,6 +30,12 @@ from anthropic.types import (
 )
 from dotenv import load_dotenv
 
+from agent_framework.permissions import (
+    AgentIdentity,
+    ExecutionContext,
+    PermissionSet,
+    get_required_permissions,
+)
 from agent_framework.utils.errors import MissingAPIKeyError
 
 from .config import settings
@@ -87,26 +85,30 @@ HIGH_IMPORTANCE_THRESHOLD = 7  # Minimum importance level for memory injection
 MAX_INJECTED_MEMORIES = 10  # Maximum memories to inject after context trimming
 
 # Memory tools that should have agent_name auto-injected for isolation
-MEMORY_TOOLS = frozenset({
-    "save_memory",
-    "get_memories",
-    "search_memories",
-    "delete_memory",
-    "get_memory_stats",
-})
+MEMORY_TOOLS = frozenset(
+    {
+        "save_memory",
+        "get_memories",
+        "search_memories",
+        "delete_memory",
+        "get_memory_stats",
+    }
+)
 
 # Agent email tools that should have agent_name auto-injected
-AGENT_EMAIL_TOOLS = frozenset({
-    "send_agent_report",
-})
+AGENT_EMAIL_TOOLS = frozenset(
+    {
+        "send_agent_report",
+    }
+)
 
 # Module-level logger (will be configured per-agent)
 logger = logging.getLogger(__name__)
 
 # Request-scoped execution context using ContextVar for thread/async safety
 # This ensures concurrent requests don't share or leak permission contexts
-_execution_context_var: contextvars.ContextVar[ExecutionContext | None] = (
-    contextvars.ContextVar("execution_context", default=None)
+_execution_context_var: contextvars.ContextVar[ExecutionContext | None] = contextvars.ContextVar(
+    "execution_context", default=None
 )
 
 
@@ -572,13 +574,12 @@ class Agent(ABC):
         logger.debug(f"Permission check passed for {tool_name}: {context.caller.name}")
 
         # Auto-inject agent_name for memory tools and agent email tools
-        if tool_name in MEMORY_TOOLS or tool_name in AGENT_EMAIL_TOOLS:
-            # Only inject if not already specified (allow explicit override)
-            if "agent_name" not in arguments:
-                arguments = {**arguments, "agent_name": self.get_agent_name()}
-                logger.debug(
-                    f"Auto-injected agent_name='{self.get_agent_name()}' for {tool_name}"
-                )
+        # Only inject if not already specified (allow explicit override)
+        if (
+            tool_name in MEMORY_TOOLS or tool_name in AGENT_EMAIL_TOOLS
+        ) and "agent_name" not in arguments:
+            arguments = {**arguments, "agent_name": self.get_agent_name()}
+            logger.debug(f"Auto-injected agent_name='{self.get_agent_name()}' for {tool_name}")
 
         # Local tools should take precedence over remote tools if there are any name collisions.
         # TODO: Throw an error if there are name collisions?

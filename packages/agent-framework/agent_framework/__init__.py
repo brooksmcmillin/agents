@@ -15,11 +15,11 @@ from .observability import (
     start_trace,
 )
 from .permissions import (
+    TOOL_PERMISSIONS,
     AgentIdentity,
     ExecutionContext,
     Permission,
     PermissionSet,
-    TOOL_PERMISSIONS,
     get_required_permissions,
 )
 from .security import LakeraGuard, LakeraSecurityResult, SecurityCheckError

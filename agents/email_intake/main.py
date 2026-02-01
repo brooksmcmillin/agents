@@ -33,12 +33,9 @@ Security:
 import argparse
 import asyncio
 import logging
-import os
 import re
 import sys
 from datetime import datetime
-
-from dotenv import load_dotenv
 
 from agent_framework import (
     AgentIdentity,
@@ -46,6 +43,7 @@ from agent_framework import (
     Permission,
     PermissionSet,
 )
+from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -390,7 +388,7 @@ AGENT RESPONSE:
 {agent_response}
 
 ---
-Processed by Email Intake Agent at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Processed by Email Intake Agent at {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 """
 
         if dry_run:
@@ -446,7 +444,9 @@ def show_status() -> None:
     print("=" * 40)
     print(f"Intake Email:   {settings.intake_email_address or 'NOT CONFIGURED'}")
     print(f"Admin Email:    {settings.admin_email_address or 'NOT CONFIGURED'}")
-    print(f"Shared Secret:  {'Configured' if settings.intake_shared_secret else 'NOT CONFIGURED (REQUIRED)'}")
+    print(
+        f"Shared Secret:  {'Configured' if settings.intake_shared_secret else 'NOT CONFIGURED (REQUIRED)'}"
+    )
     print(f"FastMail:       {'Configured' if settings.fastmail_api_token else 'NOT CONFIGURED'}")
     print()
 
