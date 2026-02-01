@@ -269,7 +269,7 @@ while not done:
 
 ## MCP Tools
 
-The MCP server exposes **35 tools** across 9 categories (defined in `packages/agent-framework/agent_framework/tools/`):
+The MCP server exposes **37 tools** across 10 categories (defined in `packages/agent-framework/agent_framework/tools/`):
 
 ### Web Analysis Tools (2 tools)
 - `fetch_web_content` - Fetch web content as clean markdown for LLM reading and analysis
@@ -306,6 +306,11 @@ The MCP server exposes **35 tools** across 9 categories (defined in `packages/ag
 
 ### Communication Tools (1 tool)
 - `send_slack_message` - Send Slack notification via webhook
+
+### Twilio SMS Tools (2 tools)
+*Requires Twilio Account SID, Auth Token, and Phone Number*
+- `send_sms` - Send SMS text message to any phone number worldwide
+- `get_sms_status` - Get delivery status of a previously sent SMS message
 
 ### Social Media Tools (1 tool)
 - `get_social_media_stats` - Social media metrics (Twitter, LinkedIn) - currently uses mock data, ready for OAuth integration
@@ -457,6 +462,44 @@ You'll also need to set up email identities in FastMail for each agent:
 
 The `agent_name` parameter is automatically injected by the Agent class, so agents
 simply call the tool with subject and body - the from/to are handled automatically.
+
+**Send SMS via Twilio:**
+```python
+# Send an SMS message (requires TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER)
+result = await send_sms(
+    to="+15551234567",  # E.164 format or 10-digit US number
+    body="Hello from the agent! Your task has been completed.",
+)
+
+# Returns:
+# {
+#     "success": True,
+#     "message_sid": "SM1234567890abcdef",
+#     "to": "+15551234567",
+#     "from": "+15559876543",
+#     "status": "queued",
+#     "segments": 1
+# }
+
+# Check delivery status
+status = await get_sms_status(message_sid="SM1234567890abcdef")
+
+# Returns:
+# {
+#     "success": True,
+#     "message_sid": "SM1234567890abcdef",
+#     "status": "delivered",  # or "queued", "sent", "failed", "undelivered"
+#     "to": "+15551234567",
+#     "from": "+15559876543",
+#     "date_sent": "2026-01-30T10:30:00Z"
+# }
+```
+
+This is perfect for:
+- Sending notifications and alerts to users via SMS
+- Two-factor authentication reminders
+- Task completion notifications
+- Time-sensitive alerts that need immediate attention
 
 **Adding a New Tool:**
 

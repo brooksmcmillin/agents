@@ -96,6 +96,21 @@ class Settings(BaseSettings):
         default=None, description="Slack Signing Secret for request verification"
     )
 
+    # Twilio Integration (SMS and Voice)
+    twilio_account_sid: str | None = Field(
+        default=None,
+        description="Twilio Account SID. Get from: https://console.twilio.com/",
+    )
+    twilio_auth_token: str | None = Field(
+        default=None,
+        description="Twilio Auth Token. Get from: https://console.twilio.com/",
+    )
+    twilio_phone_number: str | None = Field(
+        default=None,
+        description="Twilio phone number in E.164 format (e.g., +15551234567). "
+        "Used as the 'from' number for SMS messages.",
+    )
+
     # Logging
     log_level: str = Field(default="INFO", description="Logging level")
     log_dir: Path = Field(
