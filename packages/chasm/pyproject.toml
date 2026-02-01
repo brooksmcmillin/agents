@@ -1,6 +1,6 @@
 [project]
 name = "chasm"
-version = "0.1.0"
+version = "0.2.0"
 description = "Voice interface for agent-framework agents"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -10,6 +10,15 @@ dependencies = [
     "deepgram-sdk>=3.0.0",
     "pyaudio>=0.2.14",
     "python-dotenv>=1.2.1",
+]
+
+[project.optional-dependencies]
+# Telephony integration for voice calling
+telephony = [
+    "twilio>=9.0.0",
+    "fastapi>=0.115.0",
+    "uvicorn>=0.34.0",
+    "websockets>=14.0",
 ]
 
 [tool.setuptools]
