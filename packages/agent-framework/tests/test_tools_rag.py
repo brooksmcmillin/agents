@@ -509,45 +509,39 @@ class TestPDFExtraction:
 
     def test_extract_text_from_pdf_success(self, tmp_path):
         """Test extracting text from a valid PDF."""
-        with patch(
-            "agent_framework.tools.rag.pymupdf4llm.to_markdown",
-            return_value="# Document Title\n\nPage 1 content",
-        ):
+        mock_page = MagicMock()
+        mock_page.extract_text.return_value = "Page 1 content"
+        mock_reader = MagicMock()
+        mock_reader.pages = [mock_page]
+
+        with patch("agent_framework.tools.rag.PdfReader", return_value=mock_reader):
             result = extract_text_from_pdf(tmp_path / "test.pdf")
 
         assert "Page 1 content" in result
-        assert "# Document Title" in result
 
-    def test_extract_text_from_pdf_with_markdown_structure(self, tmp_path):
-        """Test that PDF extraction preserves markdown structure."""
-        markdown_content = """# Main Title
+    def test_extract_text_from_pdf_multiple_pages(self, tmp_path):
+        """Test that PDF extraction handles multiple pages."""
+        mock_page1 = MagicMock()
+        mock_page1.extract_text.return_value = "Page 1 content"
+        mock_page2 = MagicMock()
+        mock_page2.extract_text.return_value = "Page 2 content"
+        mock_reader = MagicMock()
+        mock_reader.pages = [mock_page1, mock_page2]
 
-## Section 1
-
-Some content here.
-
-## Section 2
-
-| Column A | Column B |
-|----------|----------|
-| Value 1  | Value 2  |
-"""
-        with patch(
-            "agent_framework.tools.rag.pymupdf4llm.to_markdown",
-            return_value=markdown_content,
-        ):
+        with patch("agent_framework.tools.rag.PdfReader", return_value=mock_reader):
             result = extract_text_from_pdf(tmp_path / "test.pdf")
 
-        assert "# Main Title" in result
-        assert "## Section 1" in result
-        assert "| Column A |" in result
+        assert "Page 1 content" in result
+        assert "Page 2 content" in result
 
     def test_extract_text_from_pdf_no_text(self, tmp_path):
         """Test handling PDF with no extractable text."""
-        with patch(
-            "agent_framework.tools.rag.pymupdf4llm.to_markdown",
-            return_value="",
-        ):
+        mock_page = MagicMock()
+        mock_page.extract_text.return_value = ""
+        mock_reader = MagicMock()
+        mock_reader.pages = [mock_page]
+
+        with patch("agent_framework.tools.rag.PdfReader", return_value=mock_reader):
             with pytest.raises(ValueError) as exc_info:
                 extract_text_from_pdf(tmp_path / "empty.pdf")
 
@@ -556,7 +550,7 @@ Some content here.
     def test_extract_text_from_pdf_error_handling(self, tmp_path):
         """Test handling PDF extraction errors."""
         with patch(
-            "agent_framework.tools.rag.pymupdf4llm.to_markdown",
+            "agent_framework.tools.rag.PdfReader",
             side_effect=Exception("PDF parsing failed"),
         ):
             with pytest.raises(ValueError) as exc_info:
@@ -589,10 +583,12 @@ Some content here.
         pdf_file = tmp_path / "report.pdf"
         pdf_file.write_bytes(b"fake pdf content")
 
-        with patch(
-            "agent_framework.tools.rag.pymupdf4llm.to_markdown",
-            return_value="# Report\n\nExtracted content",
-        ):
+        mock_page = MagicMock()
+        mock_page.extract_text.return_value = "Extracted content from report"
+        mock_reader = MagicMock()
+        mock_reader.pages = [mock_page]
+
+        with patch("agent_framework.tools.rag.PdfReader", return_value=mock_reader):
             text, metadata = extract_text_from_file(pdf_file)
 
         assert "Extracted content" in text

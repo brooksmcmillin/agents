@@ -14,7 +14,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-import pymupdf4llm
+from pypdf import PdfReader
 
 from ..core.config import settings
 from ..storage.rag_store import RAGStore
@@ -29,42 +29,33 @@ SUPPORTED_EXTENSIONS = {".pdf"}
 
 
 def extract_text_from_pdf(file_path: Path) -> str:
-    """
-    Extract text content from a PDF file as clean markdown.
+    """Extract text content from a PDF file.
 
-    Uses PyMuPDF (via pymupdf4llm) for better extraction of:
-    - Complex layouts (academic papers, multi-column documents)
-    - Tables and figures
-    - Mathematical notation
-    - Document structure (headings, lists, etc.)
+    Uses pypdf for reliable text extraction from PDF documents.
 
     Args:
         file_path: Path to the PDF file
 
     Returns:
-        Extracted text content as markdown
+        Extracted text content
 
     Raises:
         ValueError: If the file cannot be read or has no extractable text
     """
     try:
-        # pymupdf4llm extracts PDF content as clean markdown
-        # This handles complex layouts, tables, and preserves structure
-        result = pymupdf4llm.to_markdown(str(file_path))
+        reader = PdfReader(str(file_path))
+        text_parts = []
+        for page in reader.pages:
+            text = page.extract_text()
+            if text:
+                text_parts.append(text.strip())
 
-        # to_markdown can return str or list[dict] depending on options
-        if isinstance(result, list):
-            # Join page results if returned as list
-            markdown_text = "\n\n".join(
-                page.get("text", "") if isinstance(page, dict) else str(page) for page in result
-            )
-        else:
-            markdown_text = result
+        full_text = "\n\n".join(text_parts)
 
-        if not markdown_text or not markdown_text.strip():
+        if not full_text.strip():
             raise ValueError(f"No extractable text found in PDF: {file_path}")
 
-        return markdown_text
+        return full_text
 
     except Exception as e:
         raise ValueError(f"Failed to extract text from PDF: {e}") from e

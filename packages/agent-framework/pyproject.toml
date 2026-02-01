@@ -34,7 +34,7 @@ dependencies = [
     "asyncpg>=0.30.0",
     # RAG-specific dependencies
     "openai>=1.0.0",
-    "pymupdf4llm>=0.0.17",
+    "pypdf>=4.0.0",
     "lxml>=6.0.2",
     # Observability
     "langfuse>=3.0.0",
