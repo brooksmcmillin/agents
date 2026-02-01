@@ -122,6 +122,19 @@ class Settings(BaseSettings):
         "SMS messages from agents are sent only to this number for security.",
     )
 
+    # SMS Phone Pool for two-way conversations
+    twilio_phone_pool: str | None = Field(
+        default=None,
+        description="Comma-separated list of Twilio phone numbers for the SMS phone pool. "
+        "E.164 format (e.g., +15551234567,+15551234568). Used for two-way SMS conversations "
+        "where admin replies need to be routed back to the correct agent conversation.",
+    )
+    sms_lock_timeout_minutes: int = Field(
+        default=30,
+        description="Default timeout in minutes for SMS phone locks. After this time, "
+        "the phone is released back to the pool if no reply is received.",
+    )
+
     # Logging
     log_level: str = Field(default="INFO", description="Logging level")
     log_dir: Path = Field(

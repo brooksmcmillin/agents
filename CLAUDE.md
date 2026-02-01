@@ -269,7 +269,7 @@ while not done:
 
 ## MCP Tools
 
-The MCP server exposes **37 tools** across 10 categories (defined in `packages/agent-framework/agent_framework/tools/`):
+The MCP server exposes **40 tools** across 11 categories (defined in `packages/agent-framework/agent_framework/tools/`):
 
 ### Web Analysis Tools (2 tools)
 - `fetch_web_content` - Fetch web content as clean markdown for LLM reading and analysis
@@ -311,6 +311,12 @@ The MCP server exposes **37 tools** across 10 categories (defined in `packages/a
 *Requires Twilio Account SID, Auth Token, Phone Number, and Admin Phone Number*
 - `send_sms_to_admin` - Send SMS notification to admin phone number (security-restricted)
 - `get_sms_status` - Get delivery status of a previously sent SMS message
+
+### Twilio SMS Clarification Tools (3 tools)
+*Requires DATABASE_URL and TWILIO_PHONE_POOL for two-way SMS conversations*
+- `send_sms_clarification` - Send SMS to admin requesting clarification with automatic reply routing
+- `get_sms_clarification_status` - Check status of pending SMS clarification for a conversation
+- `get_sms_phone_pool_status` - Get current status of the SMS phone pool including availability
 
 ### Social Media Tools (1 tool)
 - `get_social_media_stats` - Social media metrics (Twitter, LinkedIn) - currently uses mock data, ready for OAuth integration
@@ -508,6 +514,73 @@ This is perfect for:
 - Task completion notifications
 - Error alerts and system status updates
 - Time-sensitive notifications when email isn't fast enough
+
+**Two-Way SMS Clarification (Agent-Admin Conversation):**
+
+For scenarios where an agent needs to ask the admin for clarification and wait for a response,
+use the SMS Clarification tools with a phone pool:
+
+```python
+# Agent requests clarification from admin
+# Requires: DATABASE_URL, TWILIO_PHONE_POOL (comma-separated phone numbers)
+result = await send_sms_clarification(
+    question="Should I prioritize the security fix or the new feature?",
+    conversation_id="conv-abc123",  # Required for reply routing
+    timeout_minutes=30,  # Optional, defaults to 30
+)
+
+# Returns:
+# {
+#     "success": True,
+#     "method": "sms",
+#     "phone_number": "+15551234567",  # Pool phone used for this conversation
+#     "message_sid": "SM...",
+#     "expires_at": "2026-01-30T11:00:00",
+#     "message": "Clarification request sent. The conversation will resume when the admin replies."
+# }
+
+# If no phones available, falls back to email:
+# {
+#     "success": True,
+#     "method": "email",
+#     "fallback_reason": "All SMS phone numbers are in use (pool exhausted)",
+#     "email_id": "M12345"
+# }
+
+# Check status of pending clarification
+status = await get_sms_clarification_status(conversation_id="conv-abc123")
+
+# Check phone pool availability
+pool_status = await get_sms_phone_pool_status()
+# {
+#     "configured": True,
+#     "total_phones": 3,
+#     "available": 2,
+#     "locked": 1,
+#     "phones": [...]
+# }
+```
+
+**How the Phone Pool Works:**
+1. When an agent calls `send_sms_clarification`, it acquires a phone from the pool
+2. The phone is "locked" to that conversation until the admin replies or timeout expires
+3. Admin receives SMS from that specific Twilio number
+4. When admin replies, the webhook routes the reply to the correct conversation based on which phone received it
+5. After processing the reply, the phone is released back to the pool
+
+**Configuration for SMS Phone Pool:**
+```bash
+# .env
+DATABASE_URL=postgresql://user:pass@localhost:5432/agents
+TWILIO_PHONE_POOL=+15551234567,+15551234568,+15551234569  # Comma-separated
+SMS_LOCK_TIMEOUT_MINUTES=30  # Optional, default 30
+```
+
+**Twilio Webhook Configuration:**
+Configure your Twilio phone numbers to send incoming SMS to:
+```
+POST https://your-domain.com/webhooks/sms/incoming
+```
 
 **Adding a New Tool:**
 
