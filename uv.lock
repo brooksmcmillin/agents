@@ -595,7 +595,7 @@ wheels = [
 
 [[package]]
 name = "chasm"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "packages/chasm" }
 dependencies = [
     { name = "agent-framework" },
@@ -610,9 +610,14 @@ requires-dist = [
     { name = "agent-framework", editable = "packages/agent-framework" },
     { name = "cartesia", specifier = ">=1.0.0" },
     { name = "deepgram-sdk", specifier = ">=3.0.0" },
+    { name = "fastapi", marker = "extra == 'telephony'", specifier = ">=0.115.0" },
     { name = "pyaudio", specifier = ">=0.2.14" },
     { name = "python-dotenv", specifier = ">=1.2.1" },
+    { name = "twilio", marker = "extra == 'telephony'", specifier = ">=9.0.0" },
+    { name = "uvicorn", marker = "extra == 'telephony'", specifier = ">=0.34.0" },
+    { name = "websockets", marker = "extra == 'telephony'", specifier = ">=14.0" },
 ]
+provides-extras = ["telephony"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "deptry", specifier = ">=0.24.0" }]
