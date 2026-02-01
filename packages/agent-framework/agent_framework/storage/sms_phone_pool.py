@@ -215,31 +215,46 @@ class SMSPhonePoolManager:
         timeout = timeout_minutes or self._default_lock_timeout
 
         async with self._pool.acquire() as conn:
-            # First, release expired locks
-            await self._release_expired_locks(conn)
-
-            # Try to acquire an available phone
+            # Atomic operation: release expired locks AND acquire in single statement
+            # This prevents race conditions where another request could grab a just-released phone
             now = datetime.now(UTC)
             expires_at = now + timedelta(minutes=timeout)
 
             row = await conn.fetchrow(
                 """
-                UPDATE sms_phone_pool
-                SET status = 'locked',
-                    locked_to_conversation_id = $1,
-                    locked_to_agent = $2,
-                    locked_at = $3,
-                    lock_expires_at = $4,
-                    question_text = $5,
-                    message_sid = NULL
-                WHERE phone_number = (
-                    SELECT phone_number FROM sms_phone_pool
-                    WHERE status = 'available'
-                    ORDER BY created_at
-                    LIMIT 1
-                    FOR UPDATE SKIP LOCKED
+                WITH release_expired AS (
+                    -- First, release any expired locks atomically
+                    UPDATE sms_phone_pool
+                    SET status = 'available',
+                        locked_to_conversation_id = NULL,
+                        locked_to_agent = NULL,
+                        locked_at = NULL,
+                        lock_expires_at = NULL,
+                        question_text = NULL,
+                        message_sid = NULL
+                    WHERE status = 'locked' AND lock_expires_at < NOW()
+                    RETURNING phone_number
+                ),
+                acquire_phone AS (
+                    -- Then acquire an available phone (including just-released ones)
+                    UPDATE sms_phone_pool
+                    SET status = 'locked',
+                        locked_to_conversation_id = $1,
+                        locked_to_agent = $2,
+                        locked_at = $3,
+                        lock_expires_at = $4,
+                        question_text = $5,
+                        message_sid = NULL
+                    WHERE phone_number = (
+                        SELECT phone_number FROM sms_phone_pool
+                        WHERE status = 'available'
+                        ORDER BY created_at
+                        LIMIT 1
+                        FOR UPDATE SKIP LOCKED
+                    )
+                    RETURNING *
                 )
-                RETURNING *
+                SELECT * FROM acquire_phone
                 """,
                 conversation_id,
                 agent_name,
@@ -530,15 +545,19 @@ class SMSPhonePoolManager:
         return count
 
     def _row_to_entry(self, row: asyncpg.Record) -> PhonePoolEntry:
-        """Convert a database row to PhonePoolEntry."""
+        """Convert a database row to PhonePoolEntry.
+
+        Preserves timezone info from database (TIMESTAMP WITH TIME ZONE).
+        All datetime fields are kept as timezone-aware UTC.
+        """
         return PhonePoolEntry(
             phone_number=row["phone_number"],
             status=row["status"],
             locked_to_conversation_id=row["locked_to_conversation_id"],
             locked_to_agent=row["locked_to_agent"],
-            locked_at=row["locked_at"].replace(tzinfo=None) if row["locked_at"] else None,
-            lock_expires_at=row["lock_expires_at"].replace(tzinfo=None) if row["lock_expires_at"] else None,
+            locked_at=row["locked_at"].astimezone(UTC) if row["locked_at"] else None,
+            lock_expires_at=row["lock_expires_at"].astimezone(UTC) if row["lock_expires_at"] else None,
             question_text=row["question_text"],
             message_sid=row["message_sid"],
-            created_at=row["created_at"].replace(tzinfo=None) if row["created_at"] else None,
+            created_at=row["created_at"].astimezone(UTC) if row["created_at"] else None,
         )

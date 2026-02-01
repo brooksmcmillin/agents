@@ -440,9 +440,10 @@ async def get_sms_clarification_status(
             }
 
         # Check if expired
+        # Note: entry.lock_expires_at is timezone-aware UTC from the database
         from datetime import datetime, UTC
         now = datetime.now(UTC)
-        if entry.lock_expires_at and entry.lock_expires_at.replace(tzinfo=UTC) < now:
+        if entry.lock_expires_at and entry.lock_expires_at < now:
             return {
                 "has_pending": False,
                 "status": "expired",

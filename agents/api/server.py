@@ -1217,6 +1217,9 @@ async def handle_incoming_sms(request: Request):
             media_type="text/xml",
         )
 
+    # Track whether we have a phone lock that needs releasing
+    phone_locked = False
+
     try:
         await phone_pool.initialize()
 
@@ -1230,6 +1233,8 @@ async def handle_incoming_sms(request: Request):
                 media_type="text/xml",
             )
 
+        # We have a valid locked phone - mark for cleanup
+        phone_locked = True
         conversation_id = phone_entry.locked_to_conversation_id
         agent_name = phone_entry.locked_to_agent
 
@@ -1252,7 +1257,6 @@ async def handle_incoming_sms(request: Request):
         conv = await store.get_conversation_with_messages(conversation_id)
         if conv is None:
             logger.error(f"Conversation {conversation_id} not found")
-            await phone_pool.release(to_phone)
             return Response(
                 content='<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
                 media_type="text/xml",
@@ -1293,13 +1297,18 @@ async def handle_incoming_sms(request: Request):
             agent_name=agent_name,
         )
 
-        # Release the phone back to pool
-        await phone_pool.release(to_phone)
-
         logger.info(f"SMS conversation completed for {conversation_id}")
 
     except Exception as e:
         logger.exception(f"Error handling incoming SMS: {e}")
+
+    finally:
+        # Always release the phone back to pool if we acquired a lock
+        if phone_locked:
+            try:
+                await phone_pool.release(to_phone)
+            except Exception as release_error:
+                logger.error(f"Failed to release phone {to_phone}: {release_error}")
 
     # Return empty TwiML (we handle responses async)
     return Response(
