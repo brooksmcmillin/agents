@@ -55,6 +55,8 @@ from .rag import (
 from .slack import TOOL_SCHEMAS as _slack_schemas
 from .slack import send_slack_message
 from .social_media import TOOL_SCHEMAS as _social_media_schemas
+from .twilio_sms import TOOL_SCHEMAS as _twilio_sms_schemas
+from .twilio_sms import get_sms_status, send_sms_to_admin
 from .social_media import get_social_media_stats
 from .web_analyzer import TOOL_SCHEMAS as _web_analyzer_schemas
 from .web_analyzer import analyze_website
@@ -66,6 +68,7 @@ ALL_TOOL_SCHEMAS: list[dict] = [
     *_web_analyzer_schemas,
     *_memory_schemas,
     *_slack_schemas,
+    *_twilio_sms_schemas,
     *_social_media_schemas,
     *_content_suggestions_schemas,
     *_rag_schemas,
@@ -86,6 +89,8 @@ __all__ = [
     "save_memory",
     "search_memories",
     "send_slack_message",
+    "send_sms_to_admin",
+    "get_sms_status",
     "suggest_content_topics",
     # RAG tools
     "add_document",
