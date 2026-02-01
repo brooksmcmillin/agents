@@ -12,6 +12,11 @@ Setup:
        - TWILIO_AUTH_TOKEN
        - TWILIO_PHONE_NUMBER
 
+Security:
+    - Request signature validation is ALWAYS enabled in production
+    - Set CHASM_ENVIRONMENT=development to disable validation for local testing
+    - Stream tokens are used to authenticate WebSocket connections
+
 Example usage with FastAPI:
     from fastapi import FastAPI, WebSocket, Request
     from chasm.telephony import TwilioCallHandler
@@ -32,6 +37,7 @@ Example usage with FastAPI:
         await twilio_handler.handle_media_stream(websocket)
 """
 
+import base64
 import hashlib
 import hmac
 import logging
@@ -45,6 +51,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 logger = logging.getLogger(__name__)
+
+# Environment check for validation
+_ENVIRONMENT = os.getenv("CHASM_ENVIRONMENT", "production").lower()
+_IS_DEVELOPMENT = _ENVIRONMENT in ("development", "dev", "local", "test")
 
 
 @dataclass
@@ -96,6 +106,11 @@ class TwilioCallHandler:
     voice calls from Twilio. It integrates with CallAdapter for the actual
     voice conversation handling.
 
+    Security:
+        - Request signature validation is enabled by default
+        - Set CHASM_ENVIRONMENT=development to disable for local testing
+        - Stream tokens authenticate WebSocket connections
+
     Example:
         from fastapi import FastAPI, WebSocket, Request, Response
         from chasm.telephony import TwilioCallHandler
@@ -122,7 +137,6 @@ class TwilioCallHandler:
         call_adapter: Any,  # CallAdapter - avoiding circular import
         config: TwilioConfig | None = None,
         webhook_base_url: str | None = None,
-        validate_requests: bool = True,
     ) -> None:
         """Initialize the Twilio handler.
 
@@ -130,10 +144,13 @@ class TwilioCallHandler:
             call_adapter: CallAdapter instance for handling voice conversations.
             config: TwilioConfig instance. If None, created from env vars.
             webhook_base_url: Base URL for webhooks. Required if config is None.
-            validate_requests: Whether to validate Twilio request signatures.
+
+        Note:
+            Request signature validation is controlled by CHASM_ENVIRONMENT:
+            - production (default): Always validate signatures
+            - development/dev/local/test: Skip validation for easier testing
         """
         self.call_adapter = call_adapter
-        self.validate_requests = validate_requests
 
         if config:
             self.config = config
@@ -141,6 +158,16 @@ class TwilioCallHandler:
             self.config = TwilioConfig.from_env(webhook_base_url)
         else:
             raise ValueError("Either config or webhook_base_url must be provided")
+
+        # Log validation mode
+        if _IS_DEVELOPMENT:
+            logger.warning(
+                "SECURITY WARNING: Running in development mode - "
+                "Twilio request signature validation is DISABLED. "
+                "Set CHASM_ENVIRONMENT=production for production deployments."
+            )
+        else:
+            logger.info("Twilio request signature validation enabled")
 
         # Default stream URL if not specified
         if not self.config.stream_url:
@@ -178,8 +205,6 @@ class TwilioCallHandler:
             hashlib.sha1,
         ).digest()
 
-        import base64
-
         expected_b64 = base64.b64encode(expected).decode("utf-8")
 
         return hmac.compare_digest(expected_b64, signature)
@@ -208,8 +233,8 @@ class TwilioCallHandler:
 
         logger.info(f"Incoming call: {call_sid} from {caller} to {callee}")
 
-        # Validate request signature if enabled
-        if self.validate_requests:
+        # Validate request signature (skip in development mode)
+        if not _IS_DEVELOPMENT:
             signature = request.headers.get("X-Twilio-Signature", "")
             url = str(request.url)
             params = dict(form)
@@ -218,14 +243,18 @@ class TwilioCallHandler:
                 logger.warning(f"Invalid Twilio signature for call {call_sid}")
                 return self._generate_reject_twiml()
 
-        # Generate TwiML response
-        return self._generate_connect_twiml(call_sid, caller, callee)
+        # Generate stream token for WebSocket authentication
+        stream_token = self.call_adapter.generate_stream_token(call_sid)
+
+        # Generate TwiML response with token
+        return self._generate_connect_twiml(call_sid, caller, callee, stream_token)
 
     def _generate_connect_twiml(
         self,
         call_sid: str,
         caller: str,
         callee: str,
+        stream_token: str,
     ) -> str:
         """Generate TwiML to connect call to Media Stream.
 
@@ -233,16 +262,20 @@ class TwilioCallHandler:
             call_sid: Twilio Call SID.
             caller: Caller phone number.
             callee: Called phone number.
+            stream_token: Authentication token for WebSocket.
 
         Returns:
             TwiML XML string.
         """
-        # Build WebSocket URL with query params for call context
+        # Build WebSocket URL with query params for call context and token
         stream_url = self.config.stream_url
+        params = (
+            f"callSid={call_sid}&caller={caller}&callee={callee}&token={stream_token}"
+        )
         if "?" in stream_url:
-            stream_url += f"&callSid={call_sid}&caller={caller}&callee={callee}"
+            stream_url += f"&{params}"
         else:
-            stream_url += f"?callSid={call_sid}&caller={caller}&callee={callee}"
+            stream_url += f"?{params}"
 
         return f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -274,25 +307,31 @@ class TwilioCallHandler:
         """Handle Media Stream WebSocket connection.
 
         This is called when Twilio establishes the WebSocket connection
-        for streaming audio. Delegates to CallAdapter for processing.
+        for streaming audio. Validates the stream token and delegates
+        to CallAdapter for processing.
 
         Args:
             websocket: WebSocket connection from your web framework.
+
+        Raises:
+            ValueError: If stream token validation fails.
         """
         # Extract call info from query params
         query_params = dict(websocket.query_params)
         call_sid = query_params.get("callSid", "unknown")
         caller = query_params.get("caller", "")
         callee = query_params.get("callee", "")
+        stream_token = query_params.get("token")
 
         logger.info(f"Media stream connected for call {call_sid}")
 
-        # Delegate to CallAdapter
+        # Delegate to CallAdapter with token validation
         await self.call_adapter.handle_media_stream(
             websocket=websocket,
             call_sid=call_sid,
             caller=caller,
             callee=callee,
+            stream_token=stream_token,
         )
 
     async def make_outbound_call(
@@ -354,7 +393,9 @@ class TwilioCallHandler:
         Returns:
             TwiML response as XML string.
         """
-        return self._generate_connect_twiml(call_sid, "", "")
+        # Generate stream token for the outbound call
+        stream_token = self.call_adapter.generate_stream_token(call_sid)
+        return self._generate_connect_twiml(call_sid, "", "", stream_token)
 
     async def end_call(self, call_sid: str) -> bool:
         """End an active call.

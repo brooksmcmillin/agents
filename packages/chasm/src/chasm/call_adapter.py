@@ -20,13 +20,23 @@ Architecture:
                                                 Cartesia TTS (streaming)
                                                         ↓
                                                 Twilio ← Audio response
+
+Security Features:
+- Stream token validation for WebSocket authentication
+- Max concurrent call limits to prevent resource exhaustion
+- Audio payload size limits to prevent memory attacks
+- Session timeouts to clean up stale connections
 """
 
 import asyncio
 import base64
+import hashlib
+import hmac
 import json
 import logging
 import os
+import secrets
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
@@ -44,6 +54,13 @@ logger = logging.getLogger(__name__)
 # Twilio Media Stream audio format
 TWILIO_SAMPLE_RATE = 8000  # Twilio uses 8kHz mulaw
 TWILIO_ENCODING = "audio/x-mulaw"
+
+# Security limits
+MAX_CONCURRENT_CALLS = int(os.getenv("CHASM_MAX_CONCURRENT_CALLS", "20"))
+MAX_AUDIO_CHUNK_SIZE = 2048  # Max bytes per audio chunk (mulaw at 8kHz)
+MAX_TRANSCRIPT_BUFFER_SIZE = 10000  # Max characters in transcript buffer
+SESSION_TIMEOUT_SECONDS = 3600  # 1 hour max call duration
+AUDIO_OUT_QUEUE_SIZE = 100  # Max queued audio chunks
 
 
 class CallState(Enum):
@@ -69,6 +86,15 @@ class CallSession:
     transcript_buffer: str = ""
     pending_response: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
+    _cancel_event: asyncio.Event = field(default_factory=asyncio.Event)
+
+    def set_transcript_buffer(self, value: str) -> None:
+        """Set transcript buffer with size limit."""
+        if len(value) > MAX_TRANSCRIPT_BUFFER_SIZE:
+            # Keep the most recent part
+            self.transcript_buffer = value[-MAX_TRANSCRIPT_BUFFER_SIZE:]
+        else:
+            self.transcript_buffer = value
 
 
 class CallAdapter:
@@ -77,6 +103,12 @@ class CallAdapter:
     This adapter manages real-time voice conversations over telephony
     connections (e.g., Twilio). It uses streaming STT/TTS for low-latency
     responses.
+
+    Security Features:
+    - Stream token validation to prevent unauthorized WebSocket connections
+    - Maximum concurrent call limits
+    - Audio payload size validation
+    - Session timeouts
 
     Example:
         agent = MyAgent(mcp_server_path="path/to/server.py")
@@ -97,6 +129,8 @@ class CallAdapter:
         voice_id: str = "79a125e8-cd45-4c13-8a67-188112f4dd22",  # British Lady
         silence_threshold_ms: int = 700,  # End of speech detection
         greeting: str | None = None,  # Optional greeting when call connects
+        max_concurrent_calls: int = MAX_CONCURRENT_CALLS,
+        stream_token_secret: str | None = None,
         on_call_started: Callable[[CallSession], None] | None = None,
         on_call_ended: Callable[[CallSession], None] | None = None,
         on_user_speech: Callable[[CallSession, str], None] | None = None,
@@ -110,6 +144,9 @@ class CallAdapter:
             voice_id: Cartesia voice ID for TTS.
             silence_threshold_ms: Milliseconds of silence to detect end of speech.
             greeting: Optional greeting message when call connects.
+            max_concurrent_calls: Maximum number of concurrent calls allowed.
+            stream_token_secret: Secret for generating/validating stream tokens.
+                If not provided, uses CHASM_STREAM_TOKEN_SECRET env var.
             on_call_started: Callback when a call is established.
             on_call_ended: Callback when a call ends.
             on_user_speech: Callback with transcribed user speech.
@@ -120,6 +157,14 @@ class CallAdapter:
         self.voice_id = voice_id
         self.silence_threshold_ms = silence_threshold_ms
         self.greeting = greeting
+        self.max_concurrent_calls = max_concurrent_calls
+
+        # Stream token secret for WebSocket authentication
+        self._stream_token_secret = (
+            stream_token_secret
+            or os.getenv("CHASM_STREAM_TOKEN_SECRET")
+            or secrets.token_urlsafe(32)
+        )
 
         # Callbacks
         self.on_call_started = on_call_started or (lambda _: None)
@@ -132,8 +177,74 @@ class CallAdapter:
         self.deepgram = DeepgramClient(api_key=os.getenv("DEEPGRAM_API_KEY"))
         self.cartesia = AsyncCartesia(api_key=os.getenv("CARTESIA_API_KEY"))
 
-        # Active sessions
+        # Active sessions with lock for thread safety
         self._sessions: dict[str, CallSession] = {}
+        self._sessions_lock = asyncio.Lock()
+
+    def generate_stream_token(self, call_sid: str) -> str:
+        """Generate a one-time token for WebSocket stream authentication.
+
+        This token should be included in the TwiML <Stream> URL parameters.
+        It prevents unauthorized connections to the WebSocket endpoint.
+
+        Args:
+            call_sid: The Twilio Call SID.
+
+        Returns:
+            A signed token string.
+        """
+        timestamp = str(int(time.time()))
+        data = f"{call_sid}:{timestamp}"
+        signature = hmac.new(
+            self._stream_token_secret.encode(),
+            data.encode(),
+            hashlib.sha256,
+        ).hexdigest()[:32]
+        return f"{timestamp}:{signature}"
+
+    def validate_stream_token(
+        self, call_sid: str, token: str, max_age_seconds: int = 300
+    ) -> bool:
+        """Validate a stream token.
+
+        Args:
+            call_sid: The Twilio Call SID.
+            token: The token to validate.
+            max_age_seconds: Maximum token age in seconds (default 5 minutes).
+
+        Returns:
+            True if token is valid, False otherwise.
+        """
+        try:
+            parts = token.split(":")
+            if len(parts) != 2:
+                return False
+
+            timestamp_str, provided_signature = parts
+            timestamp = int(timestamp_str)
+
+            # Check token age
+            if time.time() - timestamp > max_age_seconds:
+                logger.warning(f"Stream token expired for call {call_sid}")
+                return False
+
+            # Verify signature
+            data = f"{call_sid}:{timestamp_str}"
+            expected_signature = hmac.new(
+                self._stream_token_secret.encode(),
+                data.encode(),
+                hashlib.sha256,
+            ).hexdigest()[:32]
+
+            if not hmac.compare_digest(expected_signature, provided_signature):
+                logger.warning(f"Invalid stream token signature for call {call_sid}")
+                return False
+
+            return True
+
+        except (ValueError, AttributeError) as e:
+            logger.warning(f"Failed to validate stream token: {e}")
+            return False
 
     async def handle_media_stream(
         self,
@@ -141,6 +252,7 @@ class CallAdapter:
         call_sid: str,
         caller: str = "",
         callee: str = "",
+        stream_token: str | None = None,
     ) -> None:
         """Handle a Twilio Media Stream WebSocket connection.
 
@@ -152,14 +264,34 @@ class CallAdapter:
             call_sid: Twilio Call SID.
             caller: Caller phone number (optional).
             callee: Called phone number (optional).
+            stream_token: Authentication token for this stream.
+
+        Raises:
+            ValueError: If max concurrent calls exceeded or invalid token.
         """
-        session = CallSession(
-            call_sid=call_sid,
-            caller=caller,
-            callee=callee,
-            state=CallState.RINGING,
-        )
-        self._sessions[call_sid] = session
+        # Validate stream token if provided
+        if stream_token is not None and not self.validate_stream_token(
+            call_sid, stream_token
+        ):
+            logger.warning(f"Rejected stream with invalid token for call {call_sid}")
+            raise ValueError("Invalid stream token")
+
+        # Check concurrent call limit
+        async with self._sessions_lock:
+            if len(self._sessions) >= self.max_concurrent_calls:
+                logger.warning(
+                    f"Rejected call {call_sid}: max concurrent calls "
+                    f"({self.max_concurrent_calls}) reached"
+                )
+                raise ValueError("Maximum concurrent calls exceeded")
+
+            session = CallSession(
+                call_sid=call_sid,
+                caller=caller,
+                callee=callee,
+                state=CallState.RINGING,
+            )
+            self._sessions[call_sid] = session
 
         try:
             await self._run_call_loop(websocket, session)
@@ -169,7 +301,8 @@ class CallAdapter:
         finally:
             session.state = CallState.ENDED
             self.on_call_ended(session)
-            del self._sessions[call_sid]
+            async with self._sessions_lock:
+                self._sessions.pop(call_sid, None)
 
     async def _run_call_loop(
         self,
@@ -177,13 +310,14 @@ class CallAdapter:
         session: CallSession,
     ) -> None:
         """Main call loop handling bidirectional audio streaming."""
-        import time
-
         # Initialize Deepgram live transcription
         dg_connection = self.deepgram.listen.asyncwebsocket.v("1")
 
         transcript_queue: asyncio.Queue[str] = asyncio.Queue()
-        audio_out_queue: asyncio.Queue[bytes | None] = asyncio.Queue()
+        # Bounded queue to prevent memory exhaustion
+        audio_out_queue: asyncio.Queue[bytes | None] = asyncio.Queue(
+            maxsize=AUDIO_OUT_QUEUE_SIZE
+        )
 
         # Deepgram event handlers
         async def on_transcript(
@@ -197,7 +331,7 @@ class CallAdapter:
                     await transcript_queue.put(transcript)
                     session.transcript_buffer = ""
                 else:
-                    session.transcript_buffer = transcript
+                    session.set_transcript_buffer(transcript)
 
         async def on_error(_self: Any, error: Any, **_kwargs: Any) -> None:
             """Handle Deepgram errors."""
@@ -218,89 +352,147 @@ class CallAdapter:
             vad_events=True,
             endpointing=self.silence_threshold_ms,
         )
-        await dg_connection.start(options)
 
-        session.state = CallState.CONNECTED
-        session.start_time = time.time()
-        self.on_call_started(session)
+        try:
+            await dg_connection.start(options)
 
-        # Send greeting if configured
-        if self.greeting:
-            await self._generate_and_send_tts(
-                self.greeting, websocket, session, audio_out_queue
-            )
+            session.state = CallState.CONNECTED
+            session.start_time = time.time()
+            self.on_call_started(session)
 
-        # Create tasks for handling different streams
-        async def receive_audio() -> None:
-            """Receive audio from Twilio and forward to Deepgram."""
-            try:
-                async for message in websocket.iter_text():
-                    data = json.loads(message)
-                    event = data.get("event")
+            # Send greeting if configured
+            if self.greeting:
+                await self._generate_and_send_tts(
+                    self.greeting, websocket, session, audio_out_queue
+                )
 
-                    if event == "start":
-                        session.stream_sid = data.get("streamSid")
-                        logger.info(f"Stream started: {session.stream_sid}")
+            # Create tasks for handling different streams
+            async def receive_audio() -> None:
+                """Receive audio from Twilio and forward to Deepgram."""
+                try:
+                    async for message in websocket.iter_text():
+                        # Check session timeout
+                        if session.start_time and (
+                            time.time() - session.start_time > SESSION_TIMEOUT_SECONDS
+                        ):
+                            logger.info(f"Session timeout for call {session.call_sid}")
+                            break
 
-                    elif event == "media":
-                        payload = data.get("media", {}).get("payload")
-                        if payload:
-                            audio_bytes = base64.b64decode(payload)
-                            await dg_connection.send(audio_bytes)
+                        # Check if session was cancelled
+                        if session._cancel_event.is_set():
+                            break
 
-                    elif event == "stop":
-                        logger.info(f"Stream stopped: {session.stream_sid}")
+                        data = json.loads(message)
+                        event = data.get("event")
+
+                        if event == "start":
+                            session.stream_sid = data.get("streamSid")
+                            logger.info(f"Stream started: {session.stream_sid}")
+
+                        elif event == "media":
+                            payload = data.get("media", {}).get("payload")
+                            if payload:
+                                # Validate payload size before decoding
+                                if len(payload) > MAX_AUDIO_CHUNK_SIZE * 2:
+                                    logger.warning(
+                                        f"Oversized audio payload rejected: "
+                                        f"{len(payload)} bytes"
+                                    )
+                                    continue
+
+                                audio_bytes = base64.b64decode(payload)
+
+                                # Double-check decoded size
+                                if len(audio_bytes) > MAX_AUDIO_CHUNK_SIZE:
+                                    logger.warning(
+                                        f"Oversized decoded audio rejected: "
+                                        f"{len(audio_bytes)} bytes"
+                                    )
+                                    continue
+
+                                await dg_connection.send(audio_bytes)
+
+                        elif event == "stop":
+                            logger.info(f"Stream stopped: {session.stream_sid}")
+                            break
+
+                except Exception as e:
+                    logger.error(f"Error receiving audio: {e}")
+
+            async def process_transcripts() -> None:
+                """Process transcribed speech and generate responses."""
+                while not session._cancel_event.is_set():
+                    try:
+                        # Use wait with cancel event for clean shutdown
+                        transcript = await asyncio.wait_for(
+                            transcript_queue.get(),
+                            timeout=1.0,
+                        )
+                        if transcript:
+                            self.on_user_speech(session, transcript)
+                            await self._process_user_input(
+                                transcript, websocket, session, audio_out_queue
+                            )
+                    except TimeoutError:
+                        # Check if we should exit
+                        if session._cancel_event.is_set():
+                            break
+                        continue
+                    except Exception as e:
+                        logger.error(f"Error processing transcript: {e}")
                         break
 
-            except Exception as e:
-                logger.error(f"Error receiving audio: {e}")
-
-        async def process_transcripts() -> None:
-            """Process transcribed speech and generate responses."""
-            while True:
-                try:
-                    transcript = await asyncio.wait_for(
-                        transcript_queue.get(), timeout=0.5
-                    )
-                    if transcript:
-                        self.on_user_speech(session, transcript)
-                        await self._process_user_input(
-                            transcript, websocket, session, audio_out_queue
+            async def send_audio() -> None:
+                """Send TTS audio back to Twilio."""
+                while not session._cancel_event.is_set():
+                    try:
+                        audio_chunk = await asyncio.wait_for(
+                            audio_out_queue.get(),
+                            timeout=1.0,
                         )
-                except TimeoutError:
-                    continue
-                except Exception as e:
-                    logger.error(f"Error processing transcript: {e}")
-                    break
-
-        async def send_audio() -> None:
-            """Send TTS audio back to Twilio."""
-            while True:
-                try:
-                    audio_chunk = await asyncio.wait_for(
-                        audio_out_queue.get(), timeout=0.5
-                    )
-                    if audio_chunk is None:
+                        if audio_chunk is None:
+                            continue
+                        await self._send_audio_to_twilio(
+                            websocket, session, audio_chunk
+                        )
+                    except TimeoutError:
+                        # Check if we should exit
+                        if session._cancel_event.is_set():
+                            break
                         continue
-                    await self._send_audio_to_twilio(
-                        websocket, session, audio_chunk
-                    )
-                except TimeoutError:
-                    continue
-                except Exception as e:
-                    logger.error(f"Error sending audio: {e}")
-                    break
+                    except Exception as e:
+                        logger.error(f"Error sending audio: {e}")
+                        break
 
-        # Run all tasks concurrently
-        await asyncio.gather(
-            receive_audio(),
-            process_transcripts(),
-            send_audio(),
-            return_exceptions=True,
-        )
+            # Run all tasks concurrently
+            tasks = [
+                asyncio.create_task(receive_audio()),
+                asyncio.create_task(process_transcripts()),
+                asyncio.create_task(send_audio()),
+            ]
 
-        # Cleanup
-        await dg_connection.finish()
+            # Wait for receive_audio to complete (indicates call ended)
+            done, pending = await asyncio.wait(
+                tasks,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+
+            # Signal other tasks to stop
+            session._cancel_event.set()
+
+            # Cancel remaining tasks
+            for task in pending:
+                task.cancel()
+
+            # Wait for cleanup
+            await asyncio.gather(*pending, return_exceptions=True)
+
+        finally:
+            # Always cleanup Deepgram connection
+            try:
+                await dg_connection.finish()
+            except Exception as e:
+                logger.warning(f"Error closing Deepgram connection: {e}")
 
     async def _process_user_input(
         self,
@@ -345,7 +537,11 @@ class CallAdapter:
                 },
             ):
                 if hasattr(chunk, "audio") and chunk.audio:
-                    await audio_out_queue.put(chunk.audio)
+                    try:
+                        # Use put_nowait with bounded queue
+                        audio_out_queue.put_nowait(chunk.audio)
+                    except asyncio.QueueFull:
+                        logger.warning("Audio output queue full, dropping chunk")
 
         except Exception as e:
             logger.exception(f"TTS error: {e}")
@@ -377,9 +573,11 @@ class CallAdapter:
         Args:
             call_sid: The Twilio Call SID to end.
         """
-        session = self._sessions.get(call_sid)
-        if session:
-            session.state = CallState.ENDED
+        async with self._sessions_lock:
+            session = self._sessions.get(call_sid)
+            if session:
+                session.state = CallState.ENDED
+                session._cancel_event.set()
 
     def get_active_calls(self) -> list[CallSession]:
         """Get all active call sessions.

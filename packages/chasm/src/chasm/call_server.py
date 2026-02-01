@@ -26,6 +26,11 @@ Configure Twilio:
        - Voice & Fax > A CALL COMES IN:
          Webhook: https://your-domain.com/voice/incoming (POST)
     3. Make sure your server is publicly accessible (use ngrok for testing)
+
+Security:
+    - WebSocket connections are authenticated using stream tokens
+    - HTTP webhooks validate Twilio request signatures
+    - Set CHASM_ENVIRONMENT=development only for local testing
 """
 
 import logging
@@ -49,7 +54,7 @@ def create_app() -> Any:
         FastAPI application instance.
     """
     try:
-        from fastapi import FastAPI, Request, Response, WebSocket
+        from fastapi import FastAPI, Request, Response, WebSocket, WebSocketException
         from fastapi.responses import HTMLResponse
     except ImportError as err:
         raise ImportError(
@@ -226,15 +231,34 @@ Focus on quick, helpful responses that work well when spoken aloud."""
 
     @app.websocket("/voice/stream")
     async def media_stream(websocket: WebSocket):
-        """Handle Twilio Media Stream WebSocket."""
-        await websocket.accept()
+        """Handle Twilio Media Stream WebSocket.
 
+        Security: WebSocket connections are authenticated using stream tokens
+        generated during the incoming call webhook. This prevents unauthorized
+        connections from consuming API resources.
+        """
         handler = app_state.get("twilio_handler")
         if not handler:
+            # Reject connection if Twilio not configured
             await websocket.close(code=1008, reason="Twilio not configured")
             return
 
-        await handler.handle_media_stream(websocket)
+        # Accept the connection first (required for WebSocket protocol)
+        await websocket.accept()
+
+        try:
+            # Handle the stream - token validation happens in CallAdapter
+            await handler.handle_media_stream(websocket)
+        except ValueError as e:
+            # Token validation failed or max calls exceeded
+            logger.warning(f"WebSocket rejected: {e}")
+            await websocket.close(code=1008, reason=str(e))
+        except WebSocketException:
+            # Client disconnected
+            logger.info("WebSocket client disconnected")
+        except Exception as e:
+            logger.exception(f"WebSocket error: {e}")
+            await websocket.close(code=1011, reason="Internal error")
 
     @app.post("/call")
     async def initiate_call(request: Request):
