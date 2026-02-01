@@ -1,4 +1,4 @@
-"""Storage backends for memory, tokens, and conversations."""
+"""Storage backends for memory, tokens, conversations, and SMS phone pool."""
 
 from .conversation_store import (
     Conversation,
@@ -8,6 +8,7 @@ from .conversation_store import (
 )
 from .database_memory_store import DatabaseMemoryStore, MemoryCache
 from .memory_store import Memory, MemoryStore
+from .sms_phone_pool import PhonePoolEntry, SMSPhonePoolManager
 from .token_store import TokenData, TokenStore
 
 __all__ = [
@@ -19,6 +20,8 @@ __all__ = [
     "MemoryCache",
     "MemoryStore",
     "Message",
+    "PhonePoolEntry",
+    "SMSPhonePoolManager",
     "TokenData",
     "TokenStore",
 ]

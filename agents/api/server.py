@@ -1098,6 +1098,283 @@ async def claude_code_websocket(websocket: WebSocket, session_id: str):
 
 
 # ---------------------------------------------------------------------------
+# SMS Webhook for two-way agent-admin conversations
+# ---------------------------------------------------------------------------
+
+# SMS phone pool manager - initialized lazily
+_sms_phone_pool: "SMSPhonePoolManager | None" = None
+
+
+def _get_sms_phone_pool() -> "SMSPhonePoolManager | None":
+    """Get the SMS phone pool manager if configured."""
+    global _sms_phone_pool
+    if _sms_phone_pool is not None:
+        return _sms_phone_pool
+
+    database_url = os.getenv("DATABASE_URL")
+    phone_pool_config = os.getenv("TWILIO_PHONE_POOL")
+
+    if not database_url or not phone_pool_config:
+        return None
+
+    from agent_framework.storage import SMSPhonePoolManager
+
+    phone_numbers = [p.strip() for p in phone_pool_config.split(",") if p.strip()]
+    if not phone_numbers:
+        return None
+
+    _sms_phone_pool = SMSPhonePoolManager(
+        database_url=database_url,
+        phone_numbers=phone_numbers,
+    )
+    return _sms_phone_pool
+
+
+def _validate_twilio_signature(url: str, params: dict[str, str], signature: str) -> bool:
+    """Validate Twilio request signature.
+
+    Uses HMAC-SHA1 with the Twilio auth token to verify request authenticity.
+    """
+    import base64
+    import hashlib
+    import hmac
+
+    auth_token = os.getenv("TWILIO_AUTH_TOKEN")
+    if not auth_token:
+        logger.warning("TWILIO_AUTH_TOKEN not set, cannot validate signature")
+        return False
+
+    # Build the data string for validation
+    data = url
+    if params:
+        sorted_params = sorted(params.items())
+        data += "".join(f"{k}{v}" for k, v in sorted_params)
+
+    # Compute expected signature
+    expected = hmac.new(
+        auth_token.encode("utf-8"),
+        data.encode("utf-8"),
+        hashlib.sha1,
+    ).digest()
+
+    expected_b64 = base64.b64encode(expected).decode("utf-8")
+
+    return hmac.compare_digest(expected_b64, signature)
+
+
+@app.post("/webhooks/sms/incoming")
+async def handle_incoming_sms(request: Request):
+    """
+    Receive incoming SMS from Twilio and route to the correct conversation.
+
+    Twilio sends POST requests with form data including:
+    - From: sender phone number (the admin)
+    - To: Twilio phone number from our pool
+    - Body: message text
+    - MessageSid: unique message identifier
+
+    The webhook:
+    1. Validates the Twilio signature (in production)
+    2. Looks up which conversation the Twilio number is locked to
+    3. Adds the admin's reply as a user message
+    4. Processes through the agent
+    5. Sends the agent's response back via SMS
+    6. Releases the phone back to the pool
+
+    Returns TwiML response (empty for async processing).
+    """
+    from fastapi.responses import Response
+
+    # Parse form data
+    form = await request.form()
+    from_phone = form.get("From", "")
+    to_phone = form.get("To", "")
+    message_body = form.get("Body", "")
+    message_sid = form.get("MessageSid", "")
+
+    logger.info(f"Incoming SMS from {from_phone} to {to_phone}")
+
+    # Validate Twilio signature (skip in development)
+    is_dev = os.getenv("CHASM_ENVIRONMENT", "production").lower() in ("development", "dev", "local", "test")
+    if not is_dev:
+        signature = request.headers.get("X-Twilio-Signature", "")
+        url = str(request.url)
+        params = {k: str(v) for k, v in form.items()}
+
+        if not _validate_twilio_signature(url, params, signature):
+            logger.warning(f"Invalid Twilio signature for SMS from {from_phone}")
+            return Response(
+                content='<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
+                media_type="text/xml",
+            )
+
+    # Get phone pool
+    phone_pool = _get_sms_phone_pool()
+    if phone_pool is None:
+        logger.error("SMS phone pool not configured, cannot route incoming SMS")
+        return Response(
+            content='<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
+            media_type="text/xml",
+        )
+
+    try:
+        await phone_pool.initialize()
+
+        # Look up conversation by the Twilio number that received the message
+        phone_entry = await phone_pool.get_by_phone_number(to_phone)
+
+        if phone_entry is None or phone_entry.status != "locked":
+            logger.warning(f"SMS to unlocked/unknown number {to_phone}")
+            return Response(
+                content='<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
+                media_type="text/xml",
+            )
+
+        conversation_id = phone_entry.locked_to_conversation_id
+        agent_name = phone_entry.locked_to_agent
+
+        if not conversation_id:
+            logger.error(f"Phone {to_phone} locked but no conversation ID")
+            return Response(
+                content='<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
+                media_type="text/xml",
+            )
+
+        logger.info(
+            f"Routing SMS reply to conversation {_sanitize_log_input(conversation_id)} "
+            f"(agent: {_sanitize_log_input(agent_name or 'unknown')})"
+        )
+
+        # Get conversation store
+        store = _get_conversation_store()
+
+        # Load conversation
+        conv = await store.get_conversation_with_messages(conversation_id)
+        if conv is None:
+            logger.error(f"Conversation {conversation_id} not found")
+            await phone_pool.release(to_phone)
+            return Response(
+                content='<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
+                media_type="text/xml",
+            )
+
+        # Create agent instance
+        agent = _create_agent(conv.agent_name)
+
+        # Restore conversation history
+        for msg in conv.messages:
+            if msg.role in ("user", "assistant"):
+                agent.messages.append({"role": msg.role, "content": msg.content})
+
+        # Process the SMS reply through the agent
+        try:
+            response_text = await agent.process_message(
+                message_body,
+                session_id=conversation_id,
+            )
+        except Exception as e:
+            logger.exception(f"Error processing SMS reply for conversation {conversation_id}")
+            response_text = f"Error processing your reply: {str(e)[:100]}"
+
+        # Save both messages to database
+        await store.add_messages_batch(
+            conversation_id,
+            [
+                {"role": "user", "content": f"[SMS Reply] {message_body}"},
+                {"role": "assistant", "content": response_text},
+            ],
+        )
+
+        # Send response back via SMS
+        await _send_sms_response(
+            to_phone=from_phone,
+            from_phone=to_phone,
+            body=response_text,
+            agent_name=agent_name,
+        )
+
+        # Release the phone back to pool
+        await phone_pool.release(to_phone)
+
+        logger.info(f"SMS conversation completed for {conversation_id}")
+
+    except Exception as e:
+        logger.exception(f"Error handling incoming SMS: {e}")
+
+    # Return empty TwiML (we handle responses async)
+    return Response(
+        content='<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
+        media_type="text/xml",
+    )
+
+
+async def _send_sms_response(
+    to_phone: str,
+    from_phone: str,
+    body: str,
+    agent_name: str | None,
+) -> bool:
+    """Send SMS response back to admin.
+
+    Args:
+        to_phone: Admin phone number
+        from_phone: Twilio phone number
+        body: Message body
+        agent_name: Agent name for prefix
+
+    Returns:
+        True if sent successfully
+    """
+    import httpx
+    from urllib.parse import quote
+
+    account_sid = os.getenv("TWILIO_ACCOUNT_SID")
+    auth_token = os.getenv("TWILIO_AUTH_TOKEN")
+
+    if not account_sid or not auth_token:
+        logger.error("Twilio credentials not configured")
+        return False
+
+    # Add agent prefix and truncate if needed
+    if agent_name:
+        safe_agent_name = agent_name.replace("_", "-").title()
+        message_body = f"[{safe_agent_name}] {body}"
+    else:
+        message_body = body
+
+    # Truncate to SMS limit
+    if len(message_body) > 1600:
+        message_body = message_body[:1597] + "..."
+
+    payload = {
+        "To": to_phone,
+        "From": from_phone,
+        "Body": message_body,
+    }
+
+    url = f"https://api.twilio.com/2010-04-01/Accounts/{quote(account_sid, safe='')}/Messages.json"
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                url,
+                data=payload,
+                auth=(account_sid, auth_token),
+            )
+
+            if response.status_code == 201:
+                logger.info(f"SMS response sent to {to_phone}")
+                return True
+            else:
+                logger.error(f"Failed to send SMS response: {response.status_code}")
+                return False
+
+    except Exception as e:
+        logger.exception(f"Error sending SMS response: {e}")
+        return False
+
+
+# ---------------------------------------------------------------------------
 # Web UI static file serving (production mode)
 # ---------------------------------------------------------------------------
 
@@ -1114,7 +1391,7 @@ if WEBUI_DIST.exists():
         """Serve the React SPA for all non-API routes."""
         # Don't catch API routes
         if full_path.startswith(
-            ("agents/", "sessions/", "conversations/", "health", "assets/", "claude-code/", "ws/")
+            ("agents/", "sessions/", "conversations/", "health", "assets/", "claude-code/", "ws/", "webhooks/")
         ):
             raise HTTPException(status_code=404, detail="Not found")
 
