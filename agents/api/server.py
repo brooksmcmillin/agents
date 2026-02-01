@@ -29,6 +29,7 @@ import asyncio
 import logging
 import os
 import secrets
+import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -36,6 +37,7 @@ from typing import Any
 
 import anthropic
 from agent_framework import Agent
+from agent_framework.logging import correlation_id_var
 from agent_framework.storage import DatabaseConversationStore
 from anthropic.types import TextBlock
 from fastapi import (
@@ -307,6 +309,33 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ---------------------------------------------------------------------------
+# Correlation ID Middleware (for distributed tracing)
+# ---------------------------------------------------------------------------
+
+
+@app.middleware("http")
+async def add_correlation_id(request: Request, call_next):
+    """Add correlation ID to each request for distributed tracing.
+
+    If X-Correlation-ID header is present, use it. Otherwise, generate a new UUID.
+    The correlation ID is stored in a ContextVar for use by logging throughout
+    the request lifecycle.
+    """
+    correlation_id = request.headers.get("X-Correlation-ID") or str(uuid.uuid4())
+
+    # Set correlation ID in context var for logging
+    token = correlation_id_var.set(correlation_id)
+    try:
+        response = await call_next(request)
+        # Add correlation ID to response headers for tracing
+        response.headers["X-Correlation-ID"] = correlation_id
+        return response
+    finally:
+        # Reset to prevent context leaking between requests
+        correlation_id_var.reset(token)
 
 
 # ---------------------------------------------------------------------------
@@ -1195,7 +1224,12 @@ async def handle_incoming_sms(request: Request):
     logger.info(f"Incoming SMS from {from_phone} to {to_phone}")
 
     # Validate Twilio signature (skip in development)
-    is_dev = os.getenv("CHASM_ENVIRONMENT", "production").lower() in ("development", "dev", "local", "test")
+    is_dev = os.getenv("CHASM_ENVIRONMENT", "production").lower() in (
+        "development",
+        "dev",
+        "local",
+        "test",
+    )
     if not is_dev:
         signature = request.headers.get("X-Twilio-Signature", "")
         url = str(request.url)
@@ -1334,8 +1368,9 @@ async def _send_sms_response(
     Returns:
         True if sent successfully
     """
-    import httpx
     from urllib.parse import quote
+
+    import httpx
 
     account_sid = os.getenv("TWILIO_ACCOUNT_SID")
     auth_token = os.getenv("TWILIO_AUTH_TOKEN")
@@ -1400,7 +1435,16 @@ if WEBUI_DIST.exists():
         """Serve the React SPA for all non-API routes."""
         # Don't catch API routes
         if full_path.startswith(
-            ("agents/", "sessions/", "conversations/", "health", "assets/", "claude-code/", "ws/", "webhooks/")
+            (
+                "agents/",
+                "sessions/",
+                "conversations/",
+                "health",
+                "assets/",
+                "claude-code/",
+                "ws/",
+                "webhooks/",
+            )
         ):
             raise HTTPException(status_code=404, detail="Not found")
 

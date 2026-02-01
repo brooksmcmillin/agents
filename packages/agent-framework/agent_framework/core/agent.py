@@ -221,6 +221,7 @@ def setup_logging(
     console_level: int = logging.WARNING,
     file_level: int = logging.DEBUG,
     redirect_stderr: bool = True,
+    json_format: bool | None = None,
 ) -> logging.Logger:
     """
     Set up logging with both file and console handlers.
@@ -230,11 +231,18 @@ def setup_logging(
         console_level: Log level for console output (default: WARNING)
         file_level: Log level for file output (default: DEBUG)
         redirect_stderr: If True, redirect sys.stderr to also write to log file (default: True)
+        json_format: If True, use JSON format for file logging (Loki-compatible).
+            If None, auto-detect from LOKI_ENABLED or LOG_FORMAT environment variables.
+            Console output always uses text format for readability.
 
     Returns:
         Configured logger instance
     """
     global _stderr_wrapper
+
+    # Auto-detect JSON format from settings if not explicitly specified
+    if json_format is None:
+        json_format = settings.loki_enabled or settings.log_format.lower() == "json"
 
     # Get log file path using settings helper
     log_file = settings.get_log_file(agent_name)
@@ -250,12 +258,20 @@ def setup_logging(
     # File handler - captures all debug info
     file_handler = logging.FileHandler(log_file, encoding="utf-8")
     file_handler.setLevel(file_level)
-    file_handler.setFormatter(
-        logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-    )
+
+    if json_format:
+        # Use JSON formatter for Loki compatibility
+        from ..logging import AgentJsonFormatter
+
+        file_handler.setFormatter(AgentJsonFormatter(agent_name=agent_name))
+    else:
+        # Use standard text formatter for human readability
+        file_handler.setFormatter(
+            logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+        )
     agent_logger.addHandler(file_handler)
 
-    # Console handler - only important messages
+    # Console handler - always text format for human readability
     console_handler = logging.StreamHandler()
     console_handler.setLevel(console_level)
     console_handler.setFormatter(logging.Formatter("%(message)s"))
@@ -279,7 +295,8 @@ def setup_logging(
             sys.stderr = _stderr_wrapper  # type: ignore[assignment]
             agent_logger.debug("sys.stderr redirected to log file")
 
-    agent_logger.info(f"Logging initialized. Log file: {log_file}")
+    log_format_type = "JSON" if json_format else "text"
+    agent_logger.info(f"Logging initialized ({log_format_type} format). Log file: {log_file}")
 
     return agent_logger
 

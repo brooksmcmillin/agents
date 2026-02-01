@@ -141,6 +141,16 @@ class Settings(BaseSettings):
         default=Path.home() / ".agents" / "logs",
         description="Directory for log files",
     )
+    loki_enabled: bool = Field(
+        default=False,
+        description="Enable Loki-compatible JSON logging. When True, log files use "
+        "structured JSON format for aggregation with Grafana Loki.",
+    )
+    log_format: str = Field(
+        default="text",
+        description="Log format for file output: 'text' (human-readable) or 'json' "
+        "(Loki-compatible). JSON format is automatically enabled when loki_enabled=True.",
+    )
 
     # Security - Lakera Guard
     lakera_api_key: str | None = Field(
