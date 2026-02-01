@@ -16,7 +16,9 @@ class Settings(BaseSettings):
     )
 
     # LLM Configuration
-    anthropic_api_key: str | None = Field(default=None, description="Anthropic API key for Claude")
+    anthropic_api_key: str | None = Field(
+        default=None, repr=False, description="Anthropic API key for Claude"
+    )
 
     # MCP Server Configuration
     mcp_server_host: str = Field(default="localhost", description="MCP server host")
@@ -28,7 +30,7 @@ class Settings(BaseSettings):
         description="Path to store OAuth tokens",
     )
     token_encryption_key: str | None = Field(
-        default=None, description="Key for encrypting stored tokens"
+        default=None, repr=False, description="Key for encrypting stored tokens"
     )
 
     # Memory Storage
@@ -40,10 +42,11 @@ class Settings(BaseSettings):
     # RAG (Retrieval-Augmented Generation) Storage
     rag_database_url: str | None = Field(
         default=None,
+        repr=False,  # May contain password in URL
         description="PostgreSQL connection URL for RAG storage (e.g., postgresql://user:pass@localhost:5432/dbname)",  # pragma: allowlist secret
     )
     openai_api_key: str | None = Field(
-        default=None, description="OpenAI API key for generating embeddings"
+        default=None, repr=False, description="OpenAI API key for generating embeddings"
     )
     rag_embedding_model: str = Field(
         default="text-embedding-3-small",
@@ -56,6 +59,7 @@ class Settings(BaseSettings):
     # FastMail Integration (JMAP API)
     fastmail_api_token: str | None = Field(
         default=None,
+        repr=False,
         description="FastMail API token for JMAP access. Generate at: "
         "Settings -> Privacy & Security -> Integrations -> API tokens",
     )
@@ -78,22 +82,23 @@ class Settings(BaseSettings):
     )
     intake_shared_secret: str | None = Field(
         default=None,
+        repr=False,
         description="Shared secret that must be present in email body for intake processing. "
         "Required for security - prevents email spoofing attacks. Generate a random string.",
     )
 
     # Slack Integration
     slack_webhook_url: str | None = Field(
-        default=None, description="Default Slack incoming webhook URL"
+        default=None, repr=False, description="Default Slack incoming webhook URL"
     )
     slack_bot_token: str | None = Field(
-        default=None, description="Slack Bot User OAuth Token (xoxb-...)"
+        default=None, repr=False, description="Slack Bot User OAuth Token (xoxb-...)"
     )
     slack_app_token: str | None = Field(
-        default=None, description="Slack App-Level Token for Socket Mode (xapp-...)"
+        default=None, repr=False, description="Slack App-Level Token for Socket Mode (xapp-...)"
     )
     slack_signing_secret: str | None = Field(
-        default=None, description="Slack Signing Secret for request verification"
+        default=None, repr=False, description="Slack Signing Secret for request verification"
     )
 
     # Twilio Integration (SMS and Voice)
@@ -103,6 +108,7 @@ class Settings(BaseSettings):
     )
     twilio_auth_token: str | None = Field(
         default=None,
+        repr=False,
         description="Twilio Auth Token. Get from: https://console.twilio.com/",
     )
     twilio_phone_number: str | None = Field(
@@ -126,6 +132,7 @@ class Settings(BaseSettings):
     # Security - Lakera Guard
     lakera_api_key: str | None = Field(
         default=None,
+        repr=False,
         description="Lakera Guard API key for prompt injection detection. "
         "If not set, security checks are skipped.",
     )
@@ -151,6 +158,7 @@ class Settings(BaseSettings):
     )
     langfuse_secret_key: str | None = Field(
         default=None,
+        repr=False,
         description="Langfuse secret key for tracing.",
     )
     langfuse_host: str | None = Field(

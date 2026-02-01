@@ -11,6 +11,7 @@ only sends emails to the admin email address.
 import logging
 import re
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -20,6 +21,36 @@ logger = logging.getLogger(__name__)
 
 # E.164 phone number format: +[country code][number]
 E164_PATTERN = re.compile(r"^\+[1-9]\d{1,14}$")
+
+# Twilio Account SID format: AC followed by 32 hex characters
+ACCOUNT_SID_PATTERN = re.compile(r"^AC[a-f0-9]{32}$", re.IGNORECASE)
+
+# Twilio Message SID format: SM or MM followed by 32 hex characters
+MESSAGE_SID_PATTERN = re.compile(r"^[SM]M[a-f0-9]{32}$", re.IGNORECASE)
+
+
+def _validate_account_sid(account_sid: str) -> bool:
+    """Validate Twilio Account SID format.
+
+    Args:
+        account_sid: The account SID to validate
+
+    Returns:
+        True if valid, False otherwise
+    """
+    return bool(ACCOUNT_SID_PATTERN.match(account_sid))
+
+
+def _validate_message_sid(message_sid: str) -> bool:
+    """Validate Twilio Message SID format.
+
+    Args:
+        message_sid: The message SID to validate
+
+    Returns:
+        True if valid, False otherwise
+    """
+    return bool(MESSAGE_SID_PATTERN.match(message_sid))
 
 
 def _validate_phone_number(phone: str, field_name: str) -> str:
@@ -38,15 +69,23 @@ def _validate_phone_number(phone: str, field_name: str) -> str:
     # Strip whitespace and common separators
     normalized = re.sub(r"[\s\-\(\)\.]", "", phone)
 
-    # Add + if missing and starts with country code
+    # Add + if missing and handle common formats
     if not normalized.startswith("+"):
-        # Assume US/Canada if 10 digits
+        # US/Canada: 10 digits (area code + number)
         if len(normalized) == 10 and normalized.isdigit():
             normalized = f"+1{normalized}"
-        elif normalized.startswith("1") and len(normalized) == 11:
+        # US/Canada: 11 digits starting with 1 (country code + area code + number)
+        elif normalized.startswith("1") and len(normalized) == 11 and normalized.isdigit():
+            normalized = f"+{normalized}"
+        # Other formats: reject if not clearly valid after adding +
+        elif normalized.isdigit() and len(normalized) >= 7:
+            # Only add + if it looks like a valid international number
             normalized = f"+{normalized}"
         else:
-            normalized = f"+{normalized}"
+            raise ValueError(
+                f"Invalid {field_name}: '{phone}'. Must be in E.164 format "
+                "(e.g., +15551234567) or a 10-digit US number."
+            )
 
     if not E164_PATTERN.match(normalized):
         raise ValueError(
@@ -55,6 +94,25 @@ def _validate_phone_number(phone: str, field_name: str) -> str:
         )
 
     return normalized
+
+
+def _sanitize_error_message(error: Exception) -> str:
+    """Sanitize error message to avoid exposing sensitive data.
+
+    Args:
+        error: The exception to sanitize
+
+    Returns:
+        Sanitized error message safe for logging
+    """
+    error_str = str(error)
+    # Remove any potential auth tokens or credentials from error messages
+    # Twilio auth tokens are 32 hex characters
+    sanitized = re.sub(r"[a-f0-9]{32}", "[REDACTED]", error_str, flags=re.IGNORECASE)
+    # Also redact anything that looks like a bearer token or basic auth
+    sanitized = re.sub(r"Bearer\s+\S+", "Bearer [REDACTED]", sanitized, flags=re.IGNORECASE)
+    sanitized = re.sub(r"Basic\s+\S+", "Basic [REDACTED]", sanitized, flags=re.IGNORECASE)
+    return sanitized
 
 
 async def send_sms_to_admin(
@@ -93,9 +151,6 @@ async def send_sms_to_admin(
             - status: Message status (queued, sending, sent, delivered, failed)
             - segments: Number of SMS segments (messages > 160 chars are split)
             - error: Error message if failed
-
-    Raises:
-        ValueError: If required configuration is missing
     """
     # Validate admin phone number is configured
     if not settings.admin_phone_number:
@@ -114,6 +169,12 @@ async def send_sms_to_admin(
             "success": False,
             "error": "TWILIO_ACCOUNT_SID is required. Set it in your environment or .env file. "
             "Get it from: https://console.twilio.com/",
+        }
+
+    if not _validate_account_sid(account_sid):
+        return {
+            "success": False,
+            "error": "Invalid TWILIO_ACCOUNT_SID format. Must be 'AC' followed by 32 hex characters.",
         }
 
     if not auth_token:
@@ -164,7 +225,7 @@ async def send_sms_to_admin(
             "Maximum is 1600 characters for a single API call.",
         }
 
-    logger.info(f"Sending SMS to admin from agent: {agent_name or 'unknown'}")
+    logger.info("Sending SMS to admin from agent: %s", agent_name or "unknown")
 
     # Build request payload
     payload = {
@@ -173,8 +234,8 @@ async def send_sms_to_admin(
         "Body": message_body,
     }
 
-    # Twilio REST API endpoint
-    url = f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Messages.json"
+    # Twilio REST API endpoint - URL encode account_sid to prevent injection
+    url = f"https://api.twilio.com/2010-04-01/Accounts/{quote(account_sid, safe='')}/Messages.json"
 
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -184,8 +245,15 @@ async def send_sms_to_admin(
                 auth=(account_sid, auth_token),
             )
 
-            # Parse response
-            result = response.json()
+            # Parse response with error handling for invalid JSON
+            try:
+                result = response.json()
+            except ValueError:
+                logger.error("Invalid JSON response from Twilio API")
+                return {
+                    "success": False,
+                    "error": f"Invalid response from Twilio API (status {response.status_code})",
+                }
 
             if response.status_code == 201:
                 # Calculate approximate segments (160 chars for GSM-7, 70 for Unicode)
@@ -194,8 +262,10 @@ async def send_sms_to_admin(
                 segments = (len(message_body) + segment_size - 1) // segment_size
 
                 logger.info(
-                    f"SMS queued successfully: {result.get('sid')} "
-                    f"({segments} segment{'s' if segments > 1 else ''})"
+                    "SMS queued successfully: %s (%d segment%s)",
+                    result.get("sid"),
+                    segments,
+                    "s" if segments > 1 else "",
                 )
 
                 return {
@@ -211,7 +281,7 @@ async def send_sms_to_admin(
             else:
                 error_code = result.get("code")
                 error_message = result.get("message", "Unknown error")
-                logger.error(f"Twilio API error: {error_code} - {error_message}")
+                logger.error("Twilio API error: %s - %s", error_code, error_message)
 
                 return {
                     "success": False,
@@ -221,17 +291,19 @@ async def send_sms_to_admin(
                 }
 
     except httpx.HTTPError as e:
-        logger.error(f"HTTP error sending SMS: {e}")
+        sanitized_error = _sanitize_error_message(e)
+        logger.error("HTTP error sending SMS: %s", sanitized_error)
         return {
             "success": False,
-            "error": f"Failed to send SMS: {e}",
+            "error": f"Failed to send SMS: {sanitized_error}",
         }
 
     except Exception as e:
-        logger.error(f"Error sending SMS: {e}")
+        sanitized_error = _sanitize_error_message(e)
+        logger.error("Error sending SMS: %s", sanitized_error)
         return {
             "success": False,
-            "error": f"Unexpected error: {e}",
+            "error": f"Unexpected error: {sanitized_error}",
         }
 
 
@@ -243,7 +315,7 @@ async def get_sms_status(message_sid: str) -> dict[str, Any]:
     using its message SID. Useful for tracking delivery confirmation.
 
     Args:
-        message_sid: The Twilio message SID (starts with 'SM' or 'MM')
+        message_sid: The Twilio message SID (format: SM or MM followed by 32 hex chars)
 
     Returns:
         Dictionary containing:
@@ -255,11 +327,8 @@ async def get_sms_status(message_sid: str) -> dict[str, Any]:
             - date_sent: When the message was sent
             - error_code: Error code if failed
             - error_message: Error description if failed
-
-    Raises:
-        ValueError: If credentials are missing or message_sid is invalid
     """
-    logger.info(f"Getting status for message: {message_sid}")
+    logger.info("Getting status for message: %s", message_sid)
 
     # Validate credentials
     account_sid = settings.twilio_account_sid
@@ -271,22 +340,31 @@ async def get_sms_status(message_sid: str) -> dict[str, Any]:
             "error": "TWILIO_ACCOUNT_SID is required. Set it in your environment or .env file.",
         }
 
+    if not _validate_account_sid(account_sid):
+        return {
+            "success": False,
+            "error": "Invalid TWILIO_ACCOUNT_SID format. Must be 'AC' followed by 32 hex characters.",
+        }
+
     if not auth_token:
         return {
             "success": False,
             "error": "TWILIO_AUTH_TOKEN is required. Set it in your environment or .env file.",
         }
 
-    # Validate message SID format
-    if not message_sid or not message_sid.startswith(("SM", "MM")):
+    # Validate message SID format with strict pattern matching
+    if not message_sid or not _validate_message_sid(message_sid):
         return {
             "success": False,
             "error": f"Invalid message_sid: '{message_sid}'. "
-            "Must be a Twilio message SID starting with 'SM' or 'MM'.",
+            "Must be a Twilio message SID (SM or MM followed by 32 hex characters).",
         }
 
-    # Twilio REST API endpoint
-    url = f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Messages/{message_sid}.json"
+    # Twilio REST API endpoint - URL encode both IDs to prevent injection
+    url = (
+        f"https://api.twilio.com/2010-04-01/Accounts/{quote(account_sid, safe='')}/"
+        f"Messages/{quote(message_sid, safe='')}.json"
+    )
 
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -295,10 +373,19 @@ async def get_sms_status(message_sid: str) -> dict[str, Any]:
                 auth=(account_sid, auth_token),
             )
 
-            result = response.json()
+            # Parse response with error handling for invalid JSON
+            try:
+                result = response.json()
+            except ValueError:
+                logger.error("Invalid JSON response from Twilio API")
+                return {
+                    "success": False,
+                    "error": f"Invalid response from Twilio API (status {response.status_code})",
+                    "message_sid": message_sid,
+                }
 
             if response.status_code == 200:
-                logger.info(f"Message status: {result.get('status')}")
+                logger.info("Message status: %s", result.get("status"))
 
                 return {
                     "success": True,
@@ -315,7 +402,7 @@ async def get_sms_status(message_sid: str) -> dict[str, Any]:
             else:
                 error_code = result.get("code")
                 error_message = result.get("message", "Unknown error")
-                logger.error(f"Twilio API error: {error_code} - {error_message}")
+                logger.error("Twilio API error: %s - %s", error_code, error_message)
 
                 return {
                     "success": False,
@@ -324,17 +411,21 @@ async def get_sms_status(message_sid: str) -> dict[str, Any]:
                 }
 
     except httpx.HTTPError as e:
-        logger.error(f"HTTP error getting SMS status: {e}")
+        sanitized_error = _sanitize_error_message(e)
+        logger.error("HTTP error getting SMS status: %s", sanitized_error)
         return {
             "success": False,
-            "error": f"Failed to get SMS status: {e}",
+            "error": f"Failed to get SMS status: {sanitized_error}",
+            "message_sid": message_sid,
         }
 
     except Exception as e:
-        logger.error(f"Error getting SMS status: {e}")
+        sanitized_error = _sanitize_error_message(e)
+        logger.error("Error getting SMS status: %s", sanitized_error)
         return {
             "success": False,
-            "error": f"Unexpected error: {e}",
+            "error": f"Unexpected error: {sanitized_error}",
+            "message_sid": message_sid,
         }
 
 
