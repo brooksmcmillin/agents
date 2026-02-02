@@ -57,6 +57,12 @@ jobs:
         run: |
           uv run pytest packages/agent-framework/tests/test_conversation_store.py -v
 
+      - name: Run database memory store tests
+        env:
+          DATABASE_URL: postgresql://test_user:test_password@localhost:5432/test_agents
+        run: |
+          uv run pytest packages/agent-framework/tests/test_database_memory_store.py -v
+
       - name: Run API integration tests
         env:
           DATABASE_URL: postgresql://test_user:test_password@localhost:5432/test_agents

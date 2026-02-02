@@ -62,8 +62,8 @@ class TestDatabaseUrlResolution:
 
         from agent_framework.tools import memory
 
-        # Reset the singleton
-        memory._database_memory_store = None
+        # Reset the singletons (now dictionaries)
+        memory._database_memory_stores.clear()
 
         # Mock DatabaseMemoryStore to capture the URL it's initialized with
         with patch("agent_framework.tools.memory.DatabaseMemoryStore") as mock_store:
@@ -86,8 +86,8 @@ class TestDatabaseUrlResolution:
 
         from agent_framework.tools import memory
 
-        # Reset the singleton
-        memory._database_memory_store = None
+        # Reset the singletons (now dictionaries)
+        memory._database_memory_stores.clear()
 
         # Mock DatabaseMemoryStore to capture the URL it's initialized with
         with patch("agent_framework.tools.memory.DatabaseMemoryStore") as mock_store:
@@ -110,8 +110,8 @@ class TestDatabaseUrlResolution:
 
         from agent_framework.tools import memory
 
-        # Reset the singleton
-        memory._database_memory_store = None
+        # Reset the singletons (now dictionaries)
+        memory._database_memory_stores.clear()
 
         with pytest.raises(ValueError, match="DATABASE_URL.*required"):
             await memory.get_database_memory_store()
@@ -125,15 +125,17 @@ class TestMemoryToolsRouting:
         """Test that save_memory uses file backend when configured."""
         monkeypatch.setenv("MEMORY_BACKEND", "file")
 
-        from agent_framework.storage.memory_store import MemoryStore
+        from agent_framework.storage.memory_store import DEFAULT_AGENT_NAME, MemoryStore
         from agent_framework.tools import memory
 
-        # Reset singletons
-        memory._file_memory_store = None
-        memory._database_memory_store = None
+        # Reset singletons (now dictionaries)
+        memory._file_memory_stores.clear()
+        memory._database_memory_stores.clear()
 
         # Create file store with temp path
-        memory._file_memory_store = MemoryStore(storage_path=temp_dir / "memories")
+        memory._file_memory_stores[DEFAULT_AGENT_NAME] = MemoryStore(
+            storage_path=temp_dir / "memories"
+        )
 
         result = await memory.save_memory(
             key="test_file_routing",
@@ -142,7 +144,7 @@ class TestMemoryToolsRouting:
 
         assert result["status"] == "success"
         # Verify it was saved to the file store
-        assert "test_file_routing" in memory._file_memory_store.memories
+        assert "test_file_routing" in memory._file_memory_stores[DEFAULT_AGENT_NAME].memories
 
     @pytest.mark.asyncio
     async def test_save_memory_uses_database_backend(self, monkeypatch):
@@ -154,9 +156,9 @@ class TestMemoryToolsRouting:
         from agent_framework.storage.memory_store import Memory
         from agent_framework.tools import memory
 
-        # Reset singletons
-        memory._file_memory_store = None
-        memory._database_memory_store = None
+        # Reset singletons (now dictionaries)
+        memory._file_memory_stores.clear()
+        memory._database_memory_stores.clear()
 
         # Mock the database store with a proper Memory object
         mock_db_store = AsyncMock()
@@ -187,17 +189,17 @@ class TestMemoryToolsRouting:
         """Test that get_memories uses the configured backend."""
         monkeypatch.setenv("MEMORY_BACKEND", "file")
 
-        from agent_framework.storage.memory_store import MemoryStore
+        from agent_framework.storage.memory_store import DEFAULT_AGENT_NAME, MemoryStore
         from agent_framework.tools import memory
 
-        # Reset singletons
-        memory._file_memory_store = None
-        memory._database_memory_store = None
+        # Reset singletons (now dictionaries)
+        memory._file_memory_stores.clear()
+        memory._database_memory_stores.clear()
 
         # Create file store with temp path and add a memory
         file_store = MemoryStore(storage_path=temp_dir / "memories")
         file_store.save_memory(key="test_get", value="test value")
-        memory._file_memory_store = file_store
+        memory._file_memory_stores[DEFAULT_AGENT_NAME] = file_store
 
         result = await memory.get_memories()
 
@@ -209,17 +211,17 @@ class TestMemoryToolsRouting:
         """Test that search_memories uses the configured backend."""
         monkeypatch.setenv("MEMORY_BACKEND", "file")
 
-        from agent_framework.storage.memory_store import MemoryStore
+        from agent_framework.storage.memory_store import DEFAULT_AGENT_NAME, MemoryStore
         from agent_framework.tools import memory
 
-        # Reset singletons
-        memory._file_memory_store = None
-        memory._database_memory_store = None
+        # Reset singletons (now dictionaries)
+        memory._file_memory_stores.clear()
+        memory._database_memory_stores.clear()
 
         # Create file store with temp path and add a memory
         file_store = MemoryStore(storage_path=temp_dir / "memories")
         file_store.save_memory(key="searchable_key", value="searchable value")
-        memory._file_memory_store = file_store
+        memory._file_memory_stores[DEFAULT_AGENT_NAME] = file_store
 
         result = await memory.search_memories(query="searchable")
 
@@ -234,18 +236,19 @@ class TestConfigureMemoryStore:
     async def test_configure_file_backend(self, monkeypatch, temp_dir):
         """Test configuring file backend."""
 
+        from agent_framework.storage.memory_store import DEFAULT_AGENT_NAME
         from agent_framework.tools import memory
 
-        # Reset singletons
-        memory._file_memory_store = None
-        memory._database_memory_store = None
+        # Reset singletons (now dictionaries)
+        memory._file_memory_stores.clear()
+        memory._database_memory_stores.clear()
 
         await memory.configure_memory_store(
             backend="file",
             storage_path=str(temp_dir / "configured_memories"),
         )
 
-        assert memory._file_memory_store is not None
+        assert memory._file_memory_stores.get(DEFAULT_AGENT_NAME) is not None
         assert os.environ.get("MEMORY_BACKEND") == "file"
 
     @pytest.mark.asyncio
@@ -254,9 +257,9 @@ class TestConfigureMemoryStore:
 
         from agent_framework.tools import memory
 
-        # Reset singletons
-        memory._file_memory_store = None
-        memory._database_memory_store = None
+        # Reset singletons (now dictionaries)
+        memory._file_memory_stores.clear()
+        memory._database_memory_stores.clear()
 
         # Mock DatabaseMemoryStore since we don't have a real DB in unit tests
         with patch("agent_framework.tools.memory.DatabaseMemoryStore") as mock_store:
@@ -276,9 +279,9 @@ class TestConfigureMemoryStore:
         """Test that configuring database backend without URL raises error."""
         from agent_framework.tools import memory
 
-        # Reset singletons
-        memory._file_memory_store = None
-        memory._database_memory_store = None
+        # Reset singletons (now dictionaries)
+        memory._file_memory_stores.clear()
+        memory._database_memory_stores.clear()
 
         with pytest.raises(ValueError, match="database_url.*required"):
             await memory.configure_memory_store(backend="database")

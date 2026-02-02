@@ -27,7 +27,6 @@ Indexes:
 """
 
 import asyncio
-import json
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -403,9 +402,7 @@ class SMSPhonePoolManager:
             raise DatabaseNotInitializedError()
 
         async with self._pool.acquire() as conn:
-            rows = await conn.fetch(
-                "SELECT * FROM sms_phone_pool ORDER BY created_at"
-            )
+            rows = await conn.fetch("SELECT * FROM sms_phone_pool ORDER BY created_at")
 
         return [self._row_to_entry(row) for row in rows]
 
@@ -556,7 +553,9 @@ class SMSPhonePoolManager:
             locked_to_conversation_id=row["locked_to_conversation_id"],
             locked_to_agent=row["locked_to_agent"],
             locked_at=row["locked_at"].astimezone(UTC) if row["locked_at"] else None,
-            lock_expires_at=row["lock_expires_at"].astimezone(UTC) if row["lock_expires_at"] else None,
+            lock_expires_at=row["lock_expires_at"].astimezone(UTC)
+            if row["lock_expires_at"]
+            else None,
             question_text=row["question_text"],
             message_sid=row["message_sid"],
             created_at=row["created_at"].astimezone(UTC) if row["created_at"] else None,

@@ -79,9 +79,13 @@ def _validate_phone_number(phone: str, field_name: str) -> str:
     if not normalized.startswith("+"):
         if len(normalized) == 10 and normalized.isdigit():
             normalized = f"+1{normalized}"
-        elif normalized.startswith("1") and len(normalized) == 11 and normalized.isdigit():
-            normalized = f"+{normalized}"
-        elif normalized.isdigit() and len(normalized) >= 7:
+        elif (
+            normalized.startswith("1")
+            and len(normalized) == 11
+            and normalized.isdigit()
+            or normalized.isdigit()
+            and len(normalized) >= 7
+        ):
             normalized = f"+{normalized}"
         else:
             raise ValueError(
@@ -199,9 +203,7 @@ async def send_sms_clarification(
 
     # Validate phone number
     try:
-        to_normalized = _validate_phone_number(
-            settings.admin_phone_number, "ADMIN_PHONE_NUMBER"
-        )
+        to_normalized = _validate_phone_number(settings.admin_phone_number, "ADMIN_PHONE_NUMBER")
     except ValueError as e:
         return await _fallback_to_email(
             question=question,
@@ -235,9 +237,7 @@ async def send_sms_clarification(
 
     # Validate the acquired phone number
     try:
-        from_normalized = _validate_phone_number(
-            phone_entry.phone_number, "pool phone number"
-        )
+        from_normalized = _validate_phone_number(phone_entry.phone_number, "pool phone number")
     except ValueError as e:
         await phone_pool.release(phone_entry.phone_number)
         return await _fallback_to_email(
@@ -299,7 +299,9 @@ async def send_sms_clarification(
                     "message_sid": message_sid,
                     "to": to_normalized,
                     "status": result.get("status"),
-                    "expires_at": phone_entry.lock_expires_at.isoformat() if phone_entry.lock_expires_at else None,
+                    "expires_at": phone_entry.lock_expires_at.isoformat()
+                    if phone_entry.lock_expires_at
+                    else None,
                     "conversation_id": conversation_id,
                     "message": "Clarification request sent. The conversation will resume when "
                     "the admin replies via SMS.",
@@ -356,7 +358,7 @@ async def _fallback_to_email(
     try:
         from .fastmail import send_agent_report
 
-        subject = f"Clarification Needed (SMS unavailable)"
+        subject = "Clarification Needed (SMS unavailable)"
         body = f"""A clarification is needed but SMS was unavailable.
 
 Reason: {fallback_reason}
@@ -441,7 +443,8 @@ async def get_sms_clarification_status(
 
         # Check if expired
         # Note: entry.lock_expires_at is timezone-aware UTC from the database
-        from datetime import datetime, UTC
+        from datetime import UTC, datetime
+
         now = datetime.now(UTC)
         if entry.lock_expires_at and entry.lock_expires_at < now:
             return {
