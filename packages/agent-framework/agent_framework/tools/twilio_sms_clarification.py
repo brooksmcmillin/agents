@@ -80,12 +80,9 @@ def _validate_phone_number(phone: str, field_name: str) -> str:
         if len(normalized) == 10 and normalized.isdigit():
             normalized = f"+1{normalized}"
         elif (
-            normalized.startswith("1")
-            and len(normalized) == 11
-            and normalized.isdigit()
-            or normalized.isdigit()
-            and len(normalized) >= 7
-        ):
+            (normalized.startswith("1") and len(normalized) == 11 and normalized.isdigit())
+            or (normalized.isdigit() and len(normalized) >= 7)
+        ):  # fmt: skip
             normalized = f"+{normalized}"
         else:
             raise ValueError(

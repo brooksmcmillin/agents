@@ -106,7 +106,7 @@ Focus on quick, helpful responses that work well when spoken aloud."""
             webhook_base_url = "http://localhost:8000"
 
         # Create agent and adapters
-        mcp_server_path = os.getenv("MCP_SERVER_PATH")
+        mcp_server_path = os.getenv("MCP_SERVER_PATH", "")
         agent = PhoneAgent(mcp_server_path=mcp_server_path)
 
         call_adapter = CallAdapter(
