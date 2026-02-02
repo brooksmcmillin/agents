@@ -33,7 +33,10 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from agent_framework.storage import SMSPhonePoolManager
 
 import anthropic
 from agent_framework import Agent
@@ -1216,10 +1219,9 @@ async def handle_incoming_sms(request: Request):
 
     # Parse form data
     form = await request.form()
-    from_phone = form.get("From", "")
-    to_phone = form.get("To", "")
-    message_body = form.get("Body", "")
-    message_sid = form.get("MessageSid", "")
+    from_phone = str(form.get("From", ""))
+    to_phone = str(form.get("To", ""))
+    message_body = str(form.get("Body", ""))
 
     logger.info(f"Incoming SMS from {from_phone} to {to_phone}")
 

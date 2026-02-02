@@ -43,16 +43,19 @@ mcp_server/  # Moved to config/mcp_server/
 
 # Testing
 .pytest_cache/
+.testmondata
 .coverage
 .coverage.*
 htmlcov/
-.tox/
-.nox/
 coverage.xml
 coverage.json
 root_coverage.json
 coverage/
 *.cover
+.tox/
+.nox/
+
+# Claude Code
 .claude.json
 
 # Type checking

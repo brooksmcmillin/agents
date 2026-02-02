@@ -323,8 +323,12 @@ async def run_claude_code(
                 "patterns_detected": (
                     input_validation_result.patterns_detected if input_validation_result else []
                 ),
-                "risk_level": input_validation_result.risk_level if input_validation_result else "unknown",
-                "input_hash": input_validation_result.content_hash if input_validation_result else "",
+                "risk_level": input_validation_result.risk_level
+                if input_validation_result
+                else "unknown",
+                "input_hash": input_validation_result.content_hash
+                if input_validation_result
+                else "",
             },
             "output_sanitization": output_sanitization,
         }

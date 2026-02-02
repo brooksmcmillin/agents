@@ -13,6 +13,7 @@ from .llm_output_sanitizer import (
     SanitizationResult,
     sanitize_llm_to_llm_output,
 )
+from .pii import mask_phone_in_text, mask_phone_number
 from .ssrf import SSRFValidator
 
 __all__ = [
@@ -20,6 +21,8 @@ __all__ = [
     "LakeraGuard",
     "LakeraSecurityResult",
     "LLMOutputSanitizer",
+    "mask_phone_in_text",
+    "mask_phone_number",
     "SanitizationAction",
     "SanitizationResult",
     "SecurityCheckError",

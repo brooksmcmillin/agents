@@ -192,9 +192,7 @@ async def send_sms_to_admin(
 
     # Validate and normalize phone numbers
     try:
-        to_normalized = _validate_phone_number(
-            settings.admin_phone_number, "ADMIN_PHONE_NUMBER"
-        )
+        to_normalized = _validate_phone_number(settings.admin_phone_number, "ADMIN_PHONE_NUMBER")
         from_normalized = _validate_phone_number(
             settings.twilio_phone_number, "TWILIO_PHONE_NUMBER"
         )
