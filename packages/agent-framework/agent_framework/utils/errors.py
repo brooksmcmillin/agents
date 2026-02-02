@@ -25,6 +25,16 @@ class ToolExecutionError(AgentError):
     pass
 
 
+class ServerError(AgentError):
+    """Raised when a server or protocol error occurs.
+
+    Use this for errors from external services (API errors, protocol violations,
+    unexpected responses) as opposed to ValidationError which is for input validation.
+    """
+
+    pass
+
+
 class SecurityError(AgentError):
     """Base exception for security-related errors."""
 

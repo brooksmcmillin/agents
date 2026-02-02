@@ -193,7 +193,8 @@ class TestListMailboxes:
             result = await list_mailboxes()
 
             assert result["status"] == "error"
-            assert "Authentication failed" in result["message"]
+            assert result["error_type"] == "AuthenticationError"
+            assert result["status_code"] == 401
 
 
 class TestSendEmail:
@@ -374,4 +375,5 @@ class TestErrorHandling:
             result = await list_mailboxes()
 
             assert result["status"] == "error"
-            assert "403" in result["message"]
+            assert result["error_type"] == "ForbiddenError"
+            assert result["status_code"] == 403
