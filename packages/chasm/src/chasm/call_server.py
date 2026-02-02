@@ -58,8 +58,7 @@ def create_app() -> Any:
         from fastapi.responses import HTMLResponse
     except ImportError as err:
         raise ImportError(
-            "FastAPI is required for the call server. "
-            "Install with: pip install chasm[telephony]"
+            "FastAPI is required for the call server. Install with: pip install chasm[telephony]"
         ) from err
 
     from agent_framework import Agent
@@ -113,18 +112,10 @@ Focus on quick, helpful responses that work well when spoken aloud."""
         call_adapter = CallAdapter(
             agent=agent,
             greeting="Hello! Thanks for calling. How can I help you today?",
-            on_call_started=lambda s: logger.info(
-                f"Call started: {s.call_sid} from {s.caller}"
-            ),
-            on_call_ended=lambda s: logger.info(
-                f"Call ended: {s.call_sid}"
-            ),
-            on_user_speech=lambda s, t: logger.info(
-                f"User ({s.call_sid}): {t}"
-            ),
-            on_agent_response=lambda s, t: logger.info(
-                f"Agent ({s.call_sid}): {t}"
-            ),
+            on_call_started=lambda s: logger.info(f"Call started: {s.call_sid} from {s.caller}"),
+            on_call_ended=lambda s: logger.info(f"Call ended: {s.call_sid}"),
+            on_user_speech=lambda s, t: logger.info(f"User ({s.call_sid}): {t}"),
+            on_agent_response=lambda s, t: logger.info(f"Agent ({s.call_sid}): {t}"),
         )
 
         try:
@@ -323,9 +314,10 @@ if __name__ == "__main__":
     import uvicorn
 
     port = int(os.getenv("PORT", "8000"))
+    host = os.getenv("HOST", "127.0.0.1")
     uvicorn.run(
         "chasm.call_server:app",
-        host="0.0.0.0",
+        host=host,
         port=port,
         reload=True,
     )

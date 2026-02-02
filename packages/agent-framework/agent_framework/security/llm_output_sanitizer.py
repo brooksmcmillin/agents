@@ -159,7 +159,10 @@ INPUT_SUSPICIOUS_PATTERNS = [
     # All output patterns apply to input as well
     *SUSPICIOUS_PATTERNS,
     # Data exfiltration attempts
-    (r"(?i)send\s+(all|the)\s+(data|content|secrets?|credentials?|keys?|tokens?)", "data_exfiltration"),
+    (
+        r"(?i)send\s+(all|the)\s+(data|content|secrets?|credentials?|keys?|tokens?)",
+        "data_exfiltration",
+    ),
     (r"(?i)exfiltrate", "exfiltration_keyword"),
     (r"(?i)leak\s+(all|the)", "data_leak"),
     (r"(?i)(upload|post|send)\s+to\s+(external|remote|http)", "external_upload"),
@@ -185,25 +188,44 @@ INPUT_SUSPICIOUS_PATTERNS = [
 RISK_LEVELS = {
     # Critical - should always block
     "critical": [
-        "data_exfiltration", "exfiltration_keyword", "bypass_security",
-        "disable_security", "privilege_escalation", "rm_rf_command",
-        "drop_database", "agent_dos",
+        "data_exfiltration",
+        "exfiltration_keyword",
+        "bypass_security",
+        "disable_security",
+        "privilege_escalation",
+        "rm_rf_command",
+        "drop_database",
+        "agent_dos",
     ],
     # High - likely block, log extensively
     "high": [
-        "ignore_instructions", "disregard_previous", "role_change",
-        "system_prompt_injection", "dan_jailbreak", "mass_deletion",
-        "hidden_instruction", "but_first_injection",
+        "ignore_instructions",
+        "disregard_previous",
+        "role_change",
+        "system_prompt_injection",
+        "dan_jailbreak",
+        "mass_deletion",
+        "hidden_instruction",
+        "but_first_injection",
     ],
     # Medium - warn and log
     "medium": [
-        "forget_context", "new_instructions", "developer_mode",
-        "pretend_capability", "external_upload", "run_as_admin",
+        "forget_context",
+        "new_instructions",
+        "developer_mode",
+        "pretend_capability",
+        "external_upload",
+        "run_as_admin",
     ],
     # Low - just log
     "low": [
-        "act_as", "assistant_injection", "human_injection", "user_injection",
-        "code_block_system", "instruction_tag", "return_only",
+        "act_as",
+        "assistant_injection",
+        "human_injection",
+        "user_injection",
+        "code_block_system",
+        "instruction_tag",
+        "return_only",
     ],
 }
 
@@ -259,9 +281,7 @@ class LLMOutputSanitizer:
         ]
 
         if custom_patterns:
-            compiled_custom = [
-                (re.compile(pattern), name) for pattern, name in custom_patterns
-            ]
+            compiled_custom = [(re.compile(pattern), name) for pattern, name in custom_patterns]
             self._output_patterns.extend(compiled_custom)
             self._input_patterns.extend(compiled_custom)
 

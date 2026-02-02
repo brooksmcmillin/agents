@@ -202,9 +202,7 @@ class CallAdapter:
         ).hexdigest()[:32]
         return f"{timestamp}:{signature}"
 
-    def validate_stream_token(
-        self, call_sid: str, token: str, max_age_seconds: int = 300
-    ) -> bool:
+    def validate_stream_token(self, call_sid: str, token: str, max_age_seconds: int = 300) -> bool:
         """Validate a stream token.
 
         Args:
@@ -270,9 +268,7 @@ class CallAdapter:
             ValueError: If max concurrent calls exceeded or invalid token.
         """
         # Validate stream token if provided
-        if stream_token is not None and not self.validate_stream_token(
-            call_sid, stream_token
-        ):
+        if stream_token is not None and not self.validate_stream_token(call_sid, stream_token):
             logger.warning(f"Rejected stream with invalid token for call {call_sid}")
             raise ValueError("Invalid stream token")
 
@@ -315,14 +311,10 @@ class CallAdapter:
 
         transcript_queue: asyncio.Queue[str] = asyncio.Queue()
         # Bounded queue to prevent memory exhaustion
-        audio_out_queue: asyncio.Queue[bytes | None] = asyncio.Queue(
-            maxsize=AUDIO_OUT_QUEUE_SIZE
-        )
+        audio_out_queue: asyncio.Queue[bytes | None] = asyncio.Queue(maxsize=AUDIO_OUT_QUEUE_SIZE)
 
         # Deepgram event handlers
-        async def on_transcript(
-            _self: Any, result: Any, **_kwargs: Any
-        ) -> None:
+        async def on_transcript(_self: Any, result: Any, **_kwargs: Any) -> None:
             """Handle incoming transcription results."""
             transcript = result.channel.alternatives[0].transcript
             if transcript.strip():
@@ -395,8 +387,7 @@ class CallAdapter:
                                 # Validate payload size before decoding
                                 if len(payload) > MAX_AUDIO_CHUNK_SIZE * 2:
                                     logger.warning(
-                                        f"Oversized audio payload rejected: "
-                                        f"{len(payload)} bytes"
+                                        f"Oversized audio payload rejected: {len(payload)} bytes"
                                     )
                                     continue
 
@@ -452,9 +443,7 @@ class CallAdapter:
                         )
                         if audio_chunk is None:
                             continue
-                        await self._send_audio_to_twilio(
-                            websocket, session, audio_chunk
-                        )
+                        await self._send_audio_to_twilio(websocket, session, audio_chunk)
                     except TimeoutError:
                         # Check if we should exit
                         if session._cancel_event.is_set():
@@ -508,9 +497,7 @@ class CallAdapter:
             self.on_agent_response(session, response_text)
 
             # Generate and send TTS
-            await self._generate_and_send_tts(
-                response_text, websocket, session, audio_out_queue
-            )
+            await self._generate_and_send_tts(response_text, websocket, session, audio_out_queue)
 
         except Exception as e:
             logger.exception(f"Error processing input: {e}")
@@ -558,13 +545,15 @@ class CallAdapter:
 
         # Encode audio as base64 and send as Twilio media message
         payload = base64.b64encode(audio_bytes).decode("utf-8")
-        message = json.dumps({
-            "event": "media",
-            "streamSid": session.stream_sid,
-            "media": {
-                "payload": payload,
-            },
-        })
+        message = json.dumps(
+            {
+                "event": "media",
+                "streamSid": session.stream_sid,
+                "media": {
+                    "payload": payload,
+                },
+            }
+        )
         await websocket.send_text(message)
 
     async def end_call(self, call_sid: str) -> None:

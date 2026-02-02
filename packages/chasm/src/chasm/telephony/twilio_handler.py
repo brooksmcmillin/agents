@@ -269,9 +269,7 @@ class TwilioCallHandler:
         """
         # Build WebSocket URL with query params for call context and token
         stream_url = self.config.stream_url
-        params = (
-            f"callSid={call_sid}&caller={caller}&callee={callee}&token={stream_token}"
-        )
+        params = f"callSid={call_sid}&caller={caller}&callee={callee}&token={stream_token}"
         if "?" in stream_url:
             stream_url += f"&{params}"
         else:
@@ -359,9 +357,7 @@ class TwilioCallHandler:
 
             client = Client(self.config.account_sid, self.config.auth_token)
 
-            webhook_url = urljoin(
-                self.config.webhook_base_url, "/voice/outbound"
-            )
+            webhook_url = urljoin(self.config.webhook_base_url, "/voice/outbound")
 
             call = client.calls.create(
                 to=to_number,
