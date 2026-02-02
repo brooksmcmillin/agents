@@ -10,6 +10,10 @@ from agent_framework.tools.fastmail import (
     _format_email_full,
     _format_email_summary,
     _format_mailbox,
+    _is_recipient_allowed,
+    _sanitize_html,
+    _validate_email,
+    _validate_email_list,
     get_email,
     list_mailboxes,
     send_agent_report,
@@ -22,7 +26,7 @@ class TestJMAPClient:
 
     def test_client_requires_api_token(self):
         """Test that JMAPClient requires an API token."""
-        with patch("agent_framework.tools.fastmail.settings") as mock_settings:
+        with patch("agent_framework.tools.fastmail.client.settings") as mock_settings:
             mock_settings.fastmail_api_token = None
 
             with pytest.raises(ValueError) as exc_info:
@@ -32,7 +36,7 @@ class TestJMAPClient:
 
     def test_client_accepts_explicit_token(self):
         """Test that JMAPClient accepts explicit API token."""
-        with patch("agent_framework.tools.fastmail.settings") as mock_settings:
+        with patch("agent_framework.tools.fastmail.client.settings") as mock_settings:
             mock_settings.fastmail_api_token = None
 
             client = JMAPClient(api_token="test-token-123")
@@ -40,7 +44,7 @@ class TestJMAPClient:
 
     def test_client_uses_settings_token(self):
         """Test that JMAPClient uses token from settings."""
-        with patch("agent_framework.tools.fastmail.settings") as mock_settings:
+        with patch("agent_framework.tools.fastmail.client.settings") as mock_settings:
             mock_settings.fastmail_api_token = "settings-token"
 
             client = JMAPClient()
@@ -142,6 +146,87 @@ class TestEmailFormatting:
         assert result["unread_emails"] == 5
 
 
+class TestSecurityHelpers:
+    """Tests for security-related helper functions."""
+
+    def test_validate_email_valid(self):
+        """Test validation of valid email addresses."""
+        valid_emails = [
+            "user@example.com",
+            "user.name@example.com",
+            "user+tag@example.com",
+            "user@subdomain.example.com",
+        ]
+        for email in valid_emails:
+            assert _validate_email(email), f"{email} should be valid"
+
+    def test_validate_email_invalid(self):
+        """Test validation rejects invalid email addresses."""
+        invalid_emails = [
+            "",
+            "not-an-email",
+            "@example.com",
+            "user@",
+            "user@.com",
+            None,
+            "a" * 65 + "@example.com",  # Local part too long
+        ]
+        for email in invalid_emails:
+            assert not _validate_email(email), f"{email} should be invalid"
+
+    def test_validate_email_list(self):
+        """Test validation of email lists."""
+        valid, invalid = _validate_email_list(["user@example.com", "bad-email"])
+        assert valid is False
+        assert invalid == ["bad-email"]
+
+        valid, invalid = _validate_email_list(["user@example.com", "other@test.com"])
+        assert valid is True
+        assert invalid == []
+
+    def test_is_recipient_allowed_exact_match(self):
+        """Test exact email matching in allowlist."""
+        patterns = ["allowed@example.com", "admin@test.com"]
+        assert _is_recipient_allowed("allowed@example.com", patterns)
+        assert _is_recipient_allowed("ALLOWED@example.com", patterns)  # Case insensitive
+        assert not _is_recipient_allowed("other@example.com", patterns)
+
+    def test_is_recipient_allowed_wildcard_domain(self):
+        """Test wildcard domain matching in allowlist."""
+        patterns = ["*@example.com"]
+        assert _is_recipient_allowed("anyone@example.com", patterns)
+        assert _is_recipient_allowed("user@EXAMPLE.COM", patterns)  # Case insensitive
+        assert not _is_recipient_allowed("user@other.com", patterns)
+
+    def test_sanitize_html_safe_content(self):
+        """Test that safe HTML passes through."""
+        safe_html = "<p>Hello <strong>world</strong></p>"
+        assert _sanitize_html(safe_html) == safe_html
+
+    def test_sanitize_html_blocks_script(self):
+        """Test that script tags are escaped."""
+        dangerous = "<script>alert('xss')</script>"
+        result = _sanitize_html(dangerous)
+        assert "<script>" not in result
+        assert "&lt;script&gt;" in result
+
+    def test_sanitize_html_blocks_event_handlers(self):
+        """Test that event handlers are escaped (rendered as text, not executable)."""
+        dangerous = '<img src="x" onerror="alert(1)">'
+        result = _sanitize_html(dangerous)
+        # The entire content is HTML-escaped, making it non-executable
+        assert "&lt;img" in result  # < is escaped
+        assert "<img" not in result  # Raw tag is gone
+
+    def test_sanitize_html_blocks_javascript_urls(self):
+        """Test that javascript: URLs are escaped (rendered as text, not executable)."""
+        dangerous = '<a href="javascript:alert(1)">click</a>'
+        result = _sanitize_html(dangerous)
+        # The entire content is HTML-escaped, making it non-executable
+        assert "&lt;a" in result  # < is escaped
+        assert "<a href" not in result  # Raw tag is gone
+
+
 class TestListMailboxes:
     """Tests for list_mailboxes function."""
 
@@ -163,7 +248,7 @@ class TestListMailboxes:
             ]
         }
 
-        with patch("agent_framework.tools.fastmail._get_client") as mock_get_client:
+        with patch("agent_framework.tools.fastmail.mailbox._get_client") as mock_get_client:
             mock_client = AsyncMock()
             mock_client._ensure_session = AsyncMock()
             mock_client.account_id = "account-123"
@@ -179,7 +264,7 @@ class TestListMailboxes:
     @pytest.mark.asyncio
     async def test_list_mailboxes_auth_error(self):
         """Test authentication error handling."""
-        with patch("agent_framework.tools.fastmail._get_client") as mock_get_client:
+        with patch("agent_framework.tools.fastmail.mailbox._get_client") as mock_get_client:
             mock_client = AsyncMock()
             mock_client._ensure_session = AsyncMock(
                 side_effect=httpx.HTTPStatusError(
@@ -225,6 +310,22 @@ class TestSendEmail:
         assert "Subject is required" in result["message"]
 
     @pytest.mark.asyncio
+    async def test_send_email_blocked_by_allowlist(self):
+        """Test that send_email blocks recipients not in allowlist."""
+        with patch("agent_framework.tools.fastmail.send.settings") as mock_settings:
+            mock_settings.admin_email_address = "admin@example.com"
+            mock_settings.allowed_email_recipients = None  # Only admin allowed
+
+            result = await send_email(
+                to=["unauthorized@example.com"],
+                subject="Test",
+                body="Body",
+            )
+
+            assert result["status"] == "error"
+            assert "not in allowed list" in result["message"]
+
+    @pytest.mark.asyncio
     async def test_send_email_identity_not_found(self):
         """Test error when requested identity doesn't exist."""
         mock_identity_response = {
@@ -237,22 +338,26 @@ class TestSendEmail:
             ]
         }
 
-        with patch("agent_framework.tools.fastmail._get_client") as mock_get_client:
-            mock_client = AsyncMock()
-            mock_client._ensure_session = AsyncMock()
-            mock_client.account_id = "account-123"
-            mock_client._call = AsyncMock(return_value=mock_identity_response)
-            mock_get_client.return_value = mock_client
+        with patch("agent_framework.tools.fastmail.send.settings") as mock_settings:
+            mock_settings.admin_email_address = "admin@example.com"
+            mock_settings.allowed_email_recipients = "*@example.com"  # Allow all example.com
 
-            result = await send_email(
-                to=["recipient@example.com"],
-                subject="Test",
-                body="Body",
-                identity_email="notfound@example.com",
-            )
+            with patch("agent_framework.tools.fastmail.send._get_client") as mock_get_client:
+                mock_client = AsyncMock()
+                mock_client._ensure_session = AsyncMock()
+                mock_client.account_id = "account-123"
+                mock_client._call = AsyncMock(return_value=mock_identity_response)
+                mock_get_client.return_value = mock_client
 
-            assert result["status"] == "error"
-            assert "not found" in result["message"].lower()
+                result = await send_email(
+                    to=["recipient@example.com"],
+                    subject="Test",
+                    body="Body",
+                    identity_email="notfound@example.com",
+                )
+
+                assert result["status"] == "error"
+                assert "not found" in result["message"].lower()
 
 
 class TestSendAgentReport:
@@ -261,7 +366,7 @@ class TestSendAgentReport:
     @pytest.mark.asyncio
     async def test_send_agent_report_requires_admin_email(self):
         """Test that send_agent_report requires ADMIN_EMAIL_ADDRESS."""
-        with patch("agent_framework.core.config.settings") as mock_settings:
+        with patch("agent_framework.tools.fastmail.send.settings") as mock_settings:
             mock_settings.admin_email_address = None
 
             result = await send_agent_report(
@@ -276,7 +381,7 @@ class TestSendAgentReport:
     @pytest.mark.asyncio
     async def test_send_agent_report_requires_agent_name(self):
         """Test that send_agent_report requires agent_name."""
-        with patch("agent_framework.core.config.settings") as mock_settings:
+        with patch("agent_framework.tools.fastmail.send.settings") as mock_settings:
             mock_settings.admin_email_address = "admin@example.com"
 
             result = await send_agent_report(
@@ -291,13 +396,14 @@ class TestSendAgentReport:
     @pytest.mark.asyncio
     async def test_send_agent_report_derives_from_email(self):
         """Test that from_email is correctly derived from agent name."""
-        with patch("agent_framework.core.config.settings") as mock_settings:
+        with patch("agent_framework.tools.fastmail.send.settings") as mock_settings:
             mock_settings.admin_email_address = "admin@example.com"
             mock_settings.agent_email_domain = "agents.example.com"
             mock_settings.fastmail_api_token = "token"
+            mock_settings.allowed_email_recipients = None  # Admin always allowed
 
             with patch(
-                "agent_framework.tools.fastmail.send_email",
+                "agent_framework.tools.fastmail.send.send_email",
                 new_callable=AsyncMock,
             ) as mock_send:
                 mock_send.return_value = {"status": "success", "email_id": "123"}
@@ -331,7 +437,7 @@ class TestErrorHandling:
             ]
         }
 
-        with patch("agent_framework.tools.fastmail._get_client") as mock_get_client:
+        with patch("agent_framework.tools.fastmail.read._get_client") as mock_get_client:
             mock_client = AsyncMock()
             mock_client._ensure_session = AsyncMock()
             mock_client.account_id = "account-123"
@@ -346,7 +452,7 @@ class TestErrorHandling:
     @pytest.mark.asyncio
     async def test_network_error_handling(self):
         """Test handling of network errors."""
-        with patch("agent_framework.tools.fastmail._get_client") as mock_get_client:
+        with patch("agent_framework.tools.fastmail.mailbox._get_client") as mock_get_client:
             mock_client = AsyncMock()
             mock_client._ensure_session = AsyncMock(
                 side_effect=httpx.RequestError("Connection failed")
@@ -356,12 +462,14 @@ class TestErrorHandling:
             result = await list_mailboxes()
 
             assert result["status"] == "error"
-            assert "Connection failed" in result["message"]
+            # Error messages are now masked for security - check error type instead
+            assert result["error_type"] == "RequestError"
+            assert "request failed" in result["message"].lower()
 
     @pytest.mark.asyncio
     async def test_403_forbidden_handling(self):
         """Test handling of 403 Forbidden errors."""
-        with patch("agent_framework.tools.fastmail._get_client") as mock_get_client:
+        with patch("agent_framework.tools.fastmail.mailbox._get_client") as mock_get_client:
             mock_client = AsyncMock()
             mock_client._ensure_session = AsyncMock(
                 side_effect=httpx.HTTPStatusError(

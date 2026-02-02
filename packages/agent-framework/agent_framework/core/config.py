@@ -75,6 +75,13 @@ class Settings(BaseSettings):
         description="Domain for agent email addresses. Each agent sends from "
         "{agent_name}@{domain} (e.g., chatbot@brooksmcmillin.com).",
     )
+    allowed_email_recipients: str | None = Field(
+        default=None,
+        description="Comma-separated list of allowed email recipients for send_email. "
+        "If set, only these addresses can receive emails. Supports wildcards for domains "
+        "(e.g., '*@example.com,admin@company.com'). If not set, email sending is disabled "
+        "for security. The admin_email_address is always implicitly allowed.",
+    )
     intake_email_address: str | None = Field(
         default=None,
         description="Email address monitored by the email intake agent. "
