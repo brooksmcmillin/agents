@@ -54,6 +54,29 @@ def _check_recipients_allowed(
     return len(disallowed) == 0, disallowed
 
 
+def _collect_all_recipients(
+    to: list[str],
+    cc: list[str] | None,
+    bcc: list[str] | None,
+) -> list[str]:
+    """Collect all recipients from to, cc, and bcc into a single list.
+
+    Args:
+        to: List of recipient email addresses
+        cc: Optional CC recipients
+        bcc: Optional BCC recipients
+
+    Returns:
+        Combined list of all recipient addresses.
+    """
+    all_recipients = list(to)
+    if cc:
+        all_recipients.extend(cc)
+    if bcc:
+        all_recipients.extend(bcc)
+    return all_recipients
+
+
 def _validate_send_inputs(
     to: list[str],
     subject: str,
@@ -78,13 +101,7 @@ def _validate_send_inputs(
         return {"status": "error", "message": "Subject is required"}
 
     # Validate email address formats
-    all_recipients = list(to)
-    if cc:
-        all_recipients.extend(cc)
-    if bcc:
-        all_recipients.extend(bcc)
-
-    valid, invalid_emails = _validate_email_list(all_recipients)
+    valid, invalid_emails = _validate_email_list(_collect_all_recipients(to, cc, bcc))
     if not valid:
         return {
             "status": "error",
@@ -109,12 +126,7 @@ def _validate_security_allowlist(
     Returns:
         Error dict if validation fails, None if valid.
     """
-    all_recipients = list(to)
-    if cc:
-        all_recipients.extend(cc)
-    if bcc:
-        all_recipients.extend(bcc)
-
+    all_recipients = _collect_all_recipients(to, cc, bcc)
     allowed_patterns = _get_allowed_recipients()
     if not allowed_patterns:
         return {
@@ -194,7 +206,9 @@ async def _resolve_sender_identity(
     else:
         identity = identities[0]
 
-    identity_id: str = identity["id"]
+    identity_id = identity.get("id")
+    if not identity_id:
+        return {"status": "error", "message": "Identity has no ID configured."}
     from_name: str = identity.get("name", "")
     from_address: str
 
@@ -287,16 +301,37 @@ async def _add_reply_threading(
     )
 
     orig_result = orig_response.get("methodResponses", [[]])[0]
-    if orig_result[0] == "Email/get":
-        orig_emails = orig_result[1].get("list", [])
-        if orig_emails:
-            orig = orig_emails[0]
-            message_ids = orig.get("messageId", [])
-            if message_ids:
-                email_create["inReplyTo"] = message_ids[0]
-                refs = list(orig.get("references", []))
-                refs.extend(message_ids)
-                email_create["references"] = refs
+
+    if orig_result[0] == "error":
+        logger.warning(
+            f"Failed to get reply email {reply_to_email_id} for threading: "
+            f"{orig_result[1].get('description', 'Unknown error')}. Sending without threading."
+        )
+        return
+
+    if orig_result[0] != "Email/get":
+        logger.warning(
+            f"Unexpected response getting reply email {reply_to_email_id}. Sending without threading."
+        )
+        return
+
+    orig_emails = orig_result[1].get("list", [])
+    if not orig_emails:
+        logger.warning(f"Reply email {reply_to_email_id} not found. Sending without threading.")
+        return
+
+    orig = orig_emails[0]
+    message_ids = orig.get("messageId", [])
+    if not message_ids:
+        logger.warning(
+            f"Reply email {reply_to_email_id} has no messageId. Sending without threading."
+        )
+        return
+
+    email_create["inReplyTo"] = message_ids[0]
+    refs = list(orig.get("references", []))
+    refs.extend(message_ids)
+    email_create["references"] = refs
 
 
 async def _get_send_mailboxes(
@@ -425,16 +460,17 @@ def _process_send_response(response: dict[str, Any], to: list[str]) -> dict[str,
                 }
 
         if resp[0] == "EmailSubmission/set":
-            created = resp[1].get("created") or {}
-            not_created = resp[1].get("notCreated") or {}
+            submission_result = resp[1]
+            not_created = submission_result.get("notCreated") or {}
             if "send" in not_created:
                 error = not_created["send"]
                 return {
                     "status": "error",
                     "message": f"Failed to send email: {error.get('description', error.get('type'))}",
                 }
-            if "send" in created:
-                email_id = created["send"].get("emailId")
+            created_send = (submission_result.get("created") or {}).get("send")
+            if created_send:
+                email_id = created_send.get("emailId")
                 logger.info(f"Email sent successfully: {email_id}")
                 return {
                     "status": "success",
