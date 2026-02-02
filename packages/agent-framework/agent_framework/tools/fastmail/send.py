@@ -7,7 +7,7 @@ import logging
 from typing import Any
 
 from ...core.config import settings
-from .client import _get_client
+from .client import JMAPClient, _get_client
 from .helpers import (
     _handle_jmap_error,
     _is_recipient_allowed,
@@ -54,6 +54,397 @@ def _check_recipients_allowed(
     return len(disallowed) == 0, disallowed
 
 
+def _validate_send_inputs(
+    to: list[str],
+    subject: str,
+    cc: list[str] | None,
+    bcc: list[str] | None,
+) -> dict[str, Any] | None:
+    """Validate required fields and email formats.
+
+    Args:
+        to: List of recipient email addresses
+        subject: Email subject line
+        cc: Optional CC recipients
+        bcc: Optional BCC recipients
+
+    Returns:
+        Error dict if validation fails, None if valid.
+    """
+    if not to:
+        return {"status": "error", "message": "At least one recipient (to) is required"}
+
+    if not subject:
+        return {"status": "error", "message": "Subject is required"}
+
+    # Validate email address formats
+    all_recipients = list(to)
+    if cc:
+        all_recipients.extend(cc)
+    if bcc:
+        all_recipients.extend(bcc)
+
+    valid, invalid_emails = _validate_email_list(all_recipients)
+    if not valid:
+        return {
+            "status": "error",
+            "message": f"Invalid email address format: {', '.join(invalid_emails)}",
+        }
+
+    return None
+
+
+def _validate_security_allowlist(
+    to: list[str],
+    cc: list[str] | None,
+    bcc: list[str] | None,
+) -> dict[str, Any] | None:
+    """Validate recipients against security allowlist.
+
+    Args:
+        to: List of recipient email addresses
+        cc: Optional CC recipients
+        bcc: Optional BCC recipients
+
+    Returns:
+        Error dict if validation fails, None if valid.
+    """
+    all_recipients = list(to)
+    if cc:
+        all_recipients.extend(cc)
+    if bcc:
+        all_recipients.extend(bcc)
+
+    allowed_patterns = _get_allowed_recipients()
+    if not allowed_patterns:
+        return {
+            "status": "error",
+            "message": "Email sending is disabled. Configure ALLOWED_EMAIL_RECIPIENTS or "
+            "ADMIN_EMAIL_ADDRESS environment variable to enable.",
+        }
+
+    allowed, disallowed = _check_recipients_allowed(all_recipients, allowed_patterns)
+    if not allowed:
+        logger.warning(f"Blocked email to unauthorized recipients: {disallowed}")
+        return {
+            "status": "error",
+            "message": f"Recipients not in allowed list: {', '.join(disallowed)}. "
+            "Configure ALLOWED_EMAIL_RECIPIENTS to allow additional recipients.",
+        }
+
+    return None
+
+
+async def _resolve_sender_identity(
+    client: JMAPClient,
+    identity_email: str | None,
+) -> dict[str, Any] | tuple[str, str, str]:
+    """Resolve the sender identity from FastMail.
+
+    Args:
+        client: FastMail client with active session
+        identity_email: Optional specific identity email to use
+
+    Returns:
+        Error dict if resolution fails, or tuple of (identity_id, from_address, from_name).
+    """
+    identity_response = await client._call(
+        [["Identity/get", {"accountId": client.account_id}, "identity-get"]]
+    )
+
+    identity_result = identity_response.get("methodResponses", [[]])[0]
+    if identity_result[0] == "error":
+        return {
+            "status": "error",
+            "message": f"Failed to get identity: {identity_result[1].get('description')}",
+        }
+
+    identities = identity_result[1].get("list", [])
+    if not identities:
+        return {"status": "error", "message": "No email identity found. Cannot send email."}
+
+    identity = None
+    use_custom_from = False
+
+    if identity_email:
+        # First try exact match
+        for ident in identities:
+            if ident.get("email", "").lower() == identity_email.lower():
+                identity = ident
+                break
+
+        # If no exact match, try catch-all pattern (*@domain)
+        if not identity:
+            requested_domain = identity_email.lower().split("@")[-1]
+            for ident in identities:
+                ident_email = ident.get("email", "").lower()
+                if ident_email.startswith("*@"):
+                    catch_all_domain = ident_email[2:]
+                    if catch_all_domain == requested_domain:
+                        identity = ident
+                        use_custom_from = True
+                        break
+
+        if not identity:
+            available = [i.get("email") for i in identities]
+            return {
+                "status": "error",
+                "message": f"Identity '{identity_email}' not found. Available identities: {available}",
+            }
+    else:
+        identity = identities[0]
+
+    identity_id: str = identity["id"]
+    from_name: str = identity.get("name", "")
+    from_address: str
+
+    # Determine sender address: use requested email for catch-all, otherwise identity's email
+    if use_custom_from and identity_email:
+        from_address = identity_email
+    else:
+        ident_email = identity.get("email")
+        if not ident_email:
+            return {"status": "error", "message": "Identity has no email address configured."}
+        from_address = ident_email
+
+    return (identity_id, from_address, from_name)
+
+
+def _build_email_object(
+    to: list[str],
+    subject: str,
+    body: str,
+    is_html: bool,
+    from_address: str,
+    from_name: str,
+    cc: list[str] | None,
+    bcc: list[str] | None,
+) -> dict[str, Any]:
+    """Build the JMAP email object.
+
+    Args:
+        to: List of recipient email addresses
+        subject: Email subject line
+        body: Email body content
+        is_html: Whether body is HTML
+        from_address: Sender email address
+        from_name: Sender display name
+        cc: Optional CC recipients
+        bcc: Optional BCC recipients
+
+    Returns:
+        JMAP email create object.
+    """
+    email_create: dict[str, Any] = {
+        "from": [{"email": from_address, "name": from_name}]
+        if from_name
+        else [{"email": from_address}],
+        "to": [{"email": addr} for addr in to],
+        "subject": subject,
+    }
+
+    if cc:
+        email_create["cc"] = [{"email": addr} for addr in cc]
+    if bcc:
+        email_create["bcc"] = [{"email": addr} for addr in bcc]
+
+    # Set body based on content type
+    if is_html:
+        email_create["htmlBody"] = [{"partId": "body", "type": "text/html"}]
+    else:
+        email_create["textBody"] = [{"partId": "body", "type": "text/plain"}]
+    email_create["bodyValues"] = {"body": {"value": body, "isEncodingProblem": False}}
+
+    return email_create
+
+
+async def _add_reply_threading(
+    client: JMAPClient,
+    email_create: dict[str, Any],
+    reply_to_email_id: str,
+) -> None:
+    """Add reply threading headers to the email object.
+
+    Modifies email_create in place to add inReplyTo and references headers.
+
+    Args:
+        client: FastMail client with active session
+        email_create: Email object to modify
+        reply_to_email_id: ID of email being replied to
+    """
+    orig_response = await client._call(
+        [
+            [
+                "Email/get",
+                {
+                    "accountId": client.account_id,
+                    "ids": [reply_to_email_id],
+                    "properties": ["messageId", "references", "threadId"],
+                },
+                "orig-get",
+            ]
+        ]
+    )
+
+    orig_result = orig_response.get("methodResponses", [[]])[0]
+    if orig_result[0] == "Email/get":
+        orig_emails = orig_result[1].get("list", [])
+        if orig_emails:
+            orig = orig_emails[0]
+            message_ids = orig.get("messageId", [])
+            if message_ids:
+                email_create["inReplyTo"] = message_ids[0]
+                refs = list(orig.get("references", []))
+                refs.extend(message_ids)
+                email_create["references"] = refs
+
+
+async def _get_send_mailboxes(
+    client: JMAPClient,
+) -> dict[str, Any] | tuple[str, str]:
+    """Get the drafts and sent mailbox IDs.
+
+    Args:
+        client: FastMail client with active session
+
+    Returns:
+        Error dict if mailboxes not found, or tuple of (drafts_id, sent_id).
+    """
+    mailbox_response = await client._call(
+        [
+            [
+                "Mailbox/query",
+                {"accountId": client.account_id, "filter": {"role": "drafts"}},
+                "drafts-query",
+            ],
+            [
+                "Mailbox/query",
+                {"accountId": client.account_id, "filter": {"role": "sent"}},
+                "sent-query",
+            ],
+        ]
+    )
+
+    drafts_mailbox_id = None
+    sent_mailbox_id = None
+
+    for resp in mailbox_response.get("methodResponses", []):
+        if resp[0] == "Mailbox/query":
+            ids = resp[1].get("ids") or []
+            if resp[2] == "drafts-query" and ids:
+                drafts_mailbox_id = ids[0]
+            elif resp[2] == "sent-query" and ids:
+                sent_mailbox_id = ids[0]
+
+    if not drafts_mailbox_id:
+        return {"status": "error", "message": "Could not find drafts mailbox"}
+    if not sent_mailbox_id:
+        return {"status": "error", "message": "Could not find sent mailbox"}
+
+    return (drafts_mailbox_id, sent_mailbox_id)
+
+
+async def _submit_email(
+    client: JMAPClient,
+    email_create: dict[str, Any],
+    identity_id: str,
+    drafts_mailbox_id: str,
+    sent_mailbox_id: str,
+    to: list[str],
+) -> dict[str, Any]:
+    """Create and submit the email via JMAP.
+
+    Args:
+        client: FastMail client with active session
+        email_create: Email object to send
+        identity_id: Identity ID to send from
+        drafts_mailbox_id: Drafts mailbox ID
+        sent_mailbox_id: Sent mailbox ID
+        to: List of recipients (for success message)
+
+    Returns:
+        Result dict with status, email_id, and message.
+    """
+    # Set mailbox and draft keyword
+    email_create["mailboxIds"] = {drafts_mailbox_id: True}
+    email_create["keywords"] = {"$draft": True}
+
+    response = await client._call(
+        [
+            [
+                "Email/set",
+                {"accountId": client.account_id, "create": {"draft": email_create}},
+                "email-create",
+            ],
+            [
+                "EmailSubmission/set",
+                {
+                    "accountId": client.account_id,
+                    "create": {"send": {"identityId": identity_id, "emailId": "#draft"}},
+                    "onSuccessUpdateEmail": {
+                        "#send": {
+                            f"mailboxIds/{drafts_mailbox_id}": None,
+                            f"mailboxIds/{sent_mailbox_id}": True,
+                            "keywords/$draft": None,
+                            "keywords/$sent": True,
+                        }
+                    },
+                },
+                "email-submit",
+            ],
+        ]
+    )
+
+    return _process_send_response(response, to)
+
+
+def _process_send_response(response: dict[str, Any], to: list[str]) -> dict[str, Any]:
+    """Process the JMAP response from email submission.
+
+    Args:
+        response: JMAP response dict
+        to: List of recipients (for success message)
+
+    Returns:
+        Result dict with status, email_id, and message.
+    """
+    for resp in response.get("methodResponses", []):
+        if resp[0] == "error":
+            return {
+                "status": "error",
+                "message": f"JMAP error: {resp[1].get('description', 'Unknown error')}",
+            }
+
+        if resp[0] == "Email/set":
+            not_created = resp[1].get("notCreated") or {}
+            if "draft" in not_created:
+                error = not_created["draft"]
+                return {
+                    "status": "error",
+                    "message": f"Failed to create email: {error.get('description', error.get('type'))}",
+                }
+
+        if resp[0] == "EmailSubmission/set":
+            created = resp[1].get("created") or {}
+            not_created = resp[1].get("notCreated") or {}
+            if "send" in not_created:
+                error = not_created["send"]
+                return {
+                    "status": "error",
+                    "message": f"Failed to send email: {error.get('description', error.get('type'))}",
+                }
+            if "send" in created:
+                email_id = created["send"].get("emailId")
+                logger.info(f"Email sent successfully: {email_id}")
+                return {
+                    "status": "success",
+                    "email_id": email_id,
+                    "message": f"Email sent successfully to {', '.join(to)}",
+                }
+
+    return {"status": "error", "message": "Unexpected response from server"}
+
+
 async def send_email(
     to: list[str],
     subject: str,
@@ -95,51 +486,15 @@ async def send_email(
     """
     logger.info(f"Sending email to {to}, subject: {subject}")
 
-    if not to:
-        return {
-            "status": "error",
-            "message": "At least one recipient (to) is required",
-        }
+    # Validate inputs
+    if error := _validate_send_inputs(to, subject, cc, bcc):
+        return error
 
-    if not subject:
-        return {
-            "status": "error",
-            "message": "Subject is required",
-        }
+    # Check security allowlist
+    if error := _validate_security_allowlist(to, cc, bcc):
+        return error
 
-    # Validate email address formats
-    all_recipients = list(to)
-    if cc:
-        all_recipients.extend(cc)
-    if bcc:
-        all_recipients.extend(bcc)
-
-    valid, invalid_emails = _validate_email_list(all_recipients)
-    if not valid:
-        return {
-            "status": "error",
-            "message": f"Invalid email address format: {', '.join(invalid_emails)}",
-        }
-
-    # Check recipient allowlist
-    allowed_patterns = _get_allowed_recipients()
-    if not allowed_patterns:
-        return {
-            "status": "error",
-            "message": "Email sending is disabled. Configure ALLOWED_EMAIL_RECIPIENTS or "
-            "ADMIN_EMAIL_ADDRESS environment variable to enable.",
-        }
-
-    allowed, disallowed = _check_recipients_allowed(all_recipients, allowed_patterns)
-    if not allowed:
-        logger.warning(f"Blocked email to unauthorized recipients: {disallowed}")
-        return {
-            "status": "error",
-            "message": f"Recipients not in allowed list: {', '.join(disallowed)}. "
-            "Configure ALLOWED_EMAIL_RECIPIENTS to allow additional recipients.",
-        }
-
-    # Sanitize HTML content if sending HTML email
+    # Sanitize HTML content if needed
     if is_html:
         body = _sanitize_html(body)
 
@@ -147,250 +502,31 @@ async def send_email(
         client = _get_client(api_token)
         await client._ensure_session()
 
-        # Get identities to find the sender
-        identity_response = await client._call(
-            [
-                [
-                    "Identity/get",
-                    {
-                        "accountId": client.account_id,
-                    },
-                    "identity-get",
-                ]
-            ]
-        )
-
-        identity_result = identity_response.get("methodResponses", [[]])[0]
-        if identity_result[0] == "error":
-            return {
-                "status": "error",
-                "message": f"Failed to get identity: {identity_result[1].get('description')}",
-            }
-
-        identities = identity_result[1].get("list", [])
-        if not identities:
-            return {
-                "status": "error",
-                "message": "No email identity found. Cannot send email.",
-            }
-
-        # Select identity based on identity_email parameter or use primary
-        identity = None
-        use_custom_from = False  # Track if we're using catch-all with custom address
-        if identity_email:
-            # First try exact match
-            for ident in identities:
-                if ident.get("email", "").lower() == identity_email.lower():
-                    identity = ident
-                    break
-
-            # If no exact match, try catch-all pattern (*@domain)
-            if not identity:
-                requested_domain = identity_email.lower().split("@")[-1]
-                for ident in identities:
-                    ident_email = ident.get("email", "").lower()
-                    # Check for catch-all pattern like *@domain
-                    if ident_email.startswith("*@"):
-                        catch_all_domain = ident_email[2:]  # Remove "*@" prefix
-                        if catch_all_domain == requested_domain:
-                            identity = ident
-                            use_custom_from = True  # Use requested address, not *@domain
-                            break
-
-            if not identity:
-                available = [i.get("email") for i in identities]
-                return {
-                    "status": "error",
-                    "message": f"Identity '{identity_email}' not found. Available identities: {available}",
-                }
-        else:
-            # Use the first identity (primary)
-            identity = identities[0]
-
-        identity_id = identity["id"]
-        # Use requested email if we matched a catch-all, otherwise use identity's email
-        from_address = identity_email if use_custom_from else identity.get("email")
-        from_name = identity.get("name", "")
+        # Resolve sender identity
+        identity_result = await _resolve_sender_identity(client, identity_email)
+        if isinstance(identity_result, dict):
+            return identity_result
+        identity_id, from_address, from_name = identity_result
 
         # Build email object
-        email_create: dict[str, Any] = {
-            "from": [{"email": from_address, "name": from_name}]
-            if from_name
-            else [{"email": from_address}],
-            "to": [{"email": addr} for addr in to],
-            "subject": subject,
-        }
+        email_create = _build_email_object(
+            to, subject, body, is_html, from_address, from_name, cc, bcc
+        )
 
-        if cc:
-            email_create["cc"] = [{"email": addr} for addr in cc]
-
-        if bcc:
-            email_create["bcc"] = [{"email": addr} for addr in bcc]
-
-        # Set body
-        if is_html:
-            email_create["htmlBody"] = [{"partId": "body", "type": "text/html"}]
-            email_create["bodyValues"] = {"body": {"value": body, "isEncodingProblem": False}}
-        else:
-            email_create["textBody"] = [{"partId": "body", "type": "text/plain"}]
-            email_create["bodyValues"] = {"body": {"value": body, "isEncodingProblem": False}}
-
-        # Handle reply
+        # Add reply threading if replying
         if reply_to_email_id:
-            # Get the original email for threading
-            orig_response = await client._call(
-                [
-                    [
-                        "Email/get",
-                        {
-                            "accountId": client.account_id,
-                            "ids": [reply_to_email_id],
-                            "properties": ["messageId", "references", "threadId"],
-                        },
-                        "orig-get",
-                    ]
-                ]
-            )
+            await _add_reply_threading(client, email_create, reply_to_email_id)
 
-            orig_result = orig_response.get("methodResponses", [[]])[0]
-            if orig_result[0] == "Email/get":
-                orig_emails = orig_result[1].get("list", [])
-                if orig_emails:
-                    orig = orig_emails[0]
-                    message_ids = orig.get("messageId", [])
-                    if message_ids:
-                        email_create["inReplyTo"] = message_ids[0]
-                        # Build references chain
-                        refs = list(orig.get("references", []))
-                        refs.extend(message_ids)
-                        email_create["references"] = refs
+        # Get mailbox IDs
+        mailbox_result = await _get_send_mailboxes(client)
+        if isinstance(mailbox_result, dict):
+            return mailbox_result
+        drafts_mailbox_id, sent_mailbox_id = mailbox_result
 
-        # Get drafts and sent mailboxes
-        mailbox_response = await client._call(
-            [
-                [
-                    "Mailbox/query",
-                    {
-                        "accountId": client.account_id,
-                        "filter": {"role": "drafts"},
-                    },
-                    "drafts-query",
-                ],
-                [
-                    "Mailbox/query",
-                    {
-                        "accountId": client.account_id,
-                        "filter": {"role": "sent"},
-                    },
-                    "sent-query",
-                ],
-            ]
+        # Submit the email
+        return await _submit_email(
+            client, email_create, identity_id, drafts_mailbox_id, sent_mailbox_id, to
         )
-
-        drafts_mailbox_id = None
-        sent_mailbox_id = None
-        for resp in mailbox_response.get("methodResponses", []):
-            if resp[0] == "Mailbox/query":
-                ids = resp[1].get("ids") or []
-                if resp[2] == "drafts-query" and ids:
-                    drafts_mailbox_id = ids[0]
-                elif resp[2] == "sent-query" and ids:
-                    sent_mailbox_id = ids[0]
-
-        if not drafts_mailbox_id:
-            return {
-                "status": "error",
-                "message": "Could not find drafts mailbox",
-            }
-
-        if not sent_mailbox_id:
-            return {
-                "status": "error",
-                "message": "Could not find sent mailbox",
-            }
-
-        # Set mailbox and keywords
-        email_create["mailboxIds"] = {drafts_mailbox_id: True}
-        email_create["keywords"] = {"$draft": True}
-
-        # Create email and submit in one call
-        response = await client._call(
-            [
-                [
-                    "Email/set",
-                    {
-                        "accountId": client.account_id,
-                        "create": {"draft": email_create},
-                    },
-                    "email-create",
-                ],
-                [
-                    "EmailSubmission/set",
-                    {
-                        "accountId": client.account_id,
-                        "create": {
-                            "send": {
-                                "identityId": identity_id,
-                                "emailId": "#draft",
-                            }
-                        },
-                        "onSuccessUpdateEmail": {
-                            "#send": {
-                                # Move from drafts to sent using JMAP patch notation
-                                f"mailboxIds/{drafts_mailbox_id}": None,
-                                f"mailboxIds/{sent_mailbox_id}": True,
-                                "keywords/$draft": None,
-                                "keywords/$sent": True,
-                            }
-                        },
-                    },
-                    "email-submit",
-                ],
-            ]
-        )
-
-        method_responses = response.get("methodResponses", [])
-
-        for resp in method_responses:
-            if resp[0] == "error":
-                return {
-                    "status": "error",
-                    "message": f"JMAP error: {resp[1].get('description', 'Unknown error')}",
-                }
-
-            if resp[0] == "Email/set":
-                created = resp[1].get("created") or {}
-                not_created = resp[1].get("notCreated") or {}
-                if "draft" in not_created:
-                    error = not_created["draft"]
-                    return {
-                        "status": "error",
-                        "message": f"Failed to create email: {error.get('description', error.get('type'))}",
-                    }
-
-            if resp[0] == "EmailSubmission/set":
-                created = resp[1].get("created") or {}
-                not_created = resp[1].get("notCreated") or {}
-                if "send" in not_created:
-                    error = not_created["send"]
-                    return {
-                        "status": "error",
-                        "message": f"Failed to send email: {error.get('description', error.get('type'))}",
-                    }
-                if "send" in created:
-                    submission = created["send"]
-                    email_id = submission.get("emailId")
-                    logger.info(f"Email sent successfully: {email_id}")
-                    return {
-                        "status": "success",
-                        "email_id": email_id,
-                        "message": f"Email sent successfully to {', '.join(to)}",
-                    }
-
-        return {
-            "status": "error",
-            "message": "Unexpected response from server",
-        }
 
     except Exception as e:
         return _handle_jmap_error(e, "sending email")
