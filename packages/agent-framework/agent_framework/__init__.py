@@ -6,6 +6,15 @@ from .adapters.multi_agent_slack_adapter import MultiAgentSlackAdapter, RoutingS
 from .core.agent import Agent
 from .core.config import Settings
 from .core.mcp_client import MCPClient
+from .logging import (
+    AgentJsonFormatter,
+    ContextualLoggerAdapter,
+    correlation_id_var,
+    create_json_handler,
+    get_correlation_id,
+    reset_correlation_id,
+    set_correlation_id,
+)
 from .oauth import DeviceAuthorizationCallback, DeviceAuthorizationInfo
 from .observability import (
     get_langfuse,
@@ -48,6 +57,14 @@ __all__ = [
     "get_langfuse",
     "start_trace",
     "observe_tool_call",
+    # Logging (Loki integration)
+    "AgentJsonFormatter",
+    "ContextualLoggerAdapter",
+    "correlation_id_var",
+    "set_correlation_id",
+    "get_correlation_id",
+    "reset_correlation_id",
+    "create_json_handler",
     # Permissions
     "AgentIdentity",
     "ExecutionContext",

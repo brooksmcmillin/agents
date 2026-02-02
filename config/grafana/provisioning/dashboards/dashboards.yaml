@@ -1,0 +1,17 @@
+# Grafana Dashboard Provisioning
+# Documentation: https://grafana.com/docs/grafana/latest/administration/provisioning/#dashboards
+
+apiVersion: 1
+
+providers:
+  - name: 'Agent Dashboards'
+    orgId: 1
+    folder: 'Agents'
+    folderUid: 'agents'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/dashboards
+      foldersFromFilesStructure: false
