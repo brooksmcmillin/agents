@@ -46,6 +46,7 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urljoin
 
+from agent_framework.security import mask_phone_number
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -231,7 +232,12 @@ class TwilioCallHandler:
         caller = form.get("From", "")
         callee = form.get("To", "")
 
-        logger.info(f"Incoming call: {call_sid} from {caller} to {callee}")
+        logger.info(
+            "Incoming call: %s from %s to %s",
+            call_sid,
+            mask_phone_number(caller),
+            mask_phone_number(callee),
+        )
 
         # Validate request signature (skip in development mode)
         if not _IS_DEVELOPMENT:
@@ -365,7 +371,11 @@ class TwilioCallHandler:
                 url=webhook_url,
             )
 
-            logger.info(f"Outbound call initiated: {call.sid} to {to_number}")
+            logger.info(
+                "Outbound call initiated: %s to %s",
+                call.sid,
+                mask_phone_number(to_number),
+            )
 
             return {
                 "sid": call.sid,
@@ -375,7 +385,7 @@ class TwilioCallHandler:
             }
 
         except Exception:
-            logger.exception(f"Failed to initiate call to {to_number}")
+            logger.exception("Failed to initiate call to %s", mask_phone_number(to_number))
             raise
 
     def handle_outbound_call(self, call_sid: str) -> str:

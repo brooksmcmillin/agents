@@ -27,6 +27,7 @@ from urllib.parse import quote
 import httpx
 
 from ..core.config import settings
+from ..security import mask_phone_number
 from ..storage.sms_phone_pool import SMSPhonePoolManager
 
 logger = logging.getLogger(__name__)
@@ -285,8 +286,10 @@ async def send_sms_clarification(
                 await phone_pool.update_message_sid(phone_entry.phone_number, message_sid)
 
                 logger.info(
-                    f"SMS clarification sent from {from_normalized} for conversation "
-                    f"{conversation_id} (agent: {agent_name or 'unknown'})"
+                    "SMS clarification sent from %s for conversation %s (agent: %s)",
+                    mask_phone_number(from_normalized),
+                    conversation_id,
+                    agent_name or "unknown",
                 )
 
                 return {

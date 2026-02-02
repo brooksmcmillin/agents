@@ -38,6 +38,7 @@ import os
 from contextlib import asynccontextmanager
 from typing import Any
 
+from agent_framework.security import mask_phone_number
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -112,7 +113,9 @@ Focus on quick, helpful responses that work well when spoken aloud."""
         call_adapter = CallAdapter(
             agent=agent,
             greeting="Hello! Thanks for calling. How can I help you today?",
-            on_call_started=lambda s: logger.info(f"Call started: {s.call_sid} from {s.caller}"),
+            on_call_started=lambda s: logger.info(
+                "Call started: %s from %s", s.call_sid, mask_phone_number(s.caller)
+            ),
             on_call_ended=lambda s: logger.info(f"Call ended: {s.call_sid}"),
             on_user_speech=lambda s, t: logger.info(f"User ({s.call_sid}): {t}"),
             on_agent_response=lambda s, t: logger.info(f"Agent ({s.call_sid}): {t}"),

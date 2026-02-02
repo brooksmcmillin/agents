@@ -34,6 +34,7 @@ from typing import Any
 import asyncpg
 from pydantic import BaseModel
 
+from agent_framework.security import mask_phone_number
 from agent_framework.utils.errors import DatabaseNotInitializedError
 
 logger = logging.getLogger(__name__)
@@ -269,8 +270,10 @@ class SMSPhonePoolManager:
                 return None
 
             logger.info(
-                f"Acquired phone {row['phone_number']} for conversation "
-                f"{_sanitize_log_input(conversation_id)} (agent: {_sanitize_log_input(agent_name)})"
+                "Acquired phone %s for conversation %s (agent: %s)",
+                mask_phone_number(row["phone_number"]),
+                _sanitize_log_input(conversation_id),
+                _sanitize_log_input(agent_name),
             )
 
             return self._row_to_entry(row)
@@ -307,7 +310,7 @@ class SMSPhonePoolManager:
 
             released = result == "UPDATE 1"
             if released:
-                logger.info(f"Released phone {phone_number} back to pool")
+                logger.info("Released phone %s back to pool", mask_phone_number(phone_number))
             return released
 
     async def update_message_sid(self, phone_number: str, message_sid: str) -> bool:
@@ -466,10 +469,12 @@ class SMSPhonePoolManager:
                     """,
                     phone_number,
                 )
-                logger.info(f"Added phone {phone_number} to pool")
+                logger.info("Added phone %s to pool", mask_phone_number(phone_number))
                 return self._row_to_entry(row)
             except asyncpg.UniqueViolationError:
-                raise ValueError(f"Phone number {phone_number} already exists in pool")
+                raise ValueError(
+                    f"Phone number {mask_phone_number(phone_number)} already exists in pool"
+                )
 
     async def remove_phone_number(self, phone_number: str, force: bool = False) -> bool:
         """
@@ -497,7 +502,7 @@ class SMSPhonePoolManager:
 
             if entry.status == "locked" and not force:
                 raise ValueError(
-                    f"Phone {phone_number} is locked to conversation "
+                    f"Phone {mask_phone_number(phone_number)} is locked to conversation "
                     f"{entry.locked_to_conversation_id}. Use force=True to remove."
                 )
 
@@ -508,7 +513,7 @@ class SMSPhonePoolManager:
 
             removed = result == "DELETE 1"
             if removed:
-                logger.info(f"Removed phone {phone_number} from pool")
+                logger.info("Removed phone %s from pool", mask_phone_number(phone_number))
             return removed
 
     async def _release_expired_locks(self, conn: asyncpg.Connection) -> int:
