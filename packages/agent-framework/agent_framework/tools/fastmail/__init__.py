@@ -16,6 +16,10 @@ from .helpers import (
     _format_email_summary,
     _format_mailbox,
     _handle_jmap_error,
+    _is_recipient_allowed,
+    _sanitize_html,
+    _validate_email,
+    _validate_email_list,
 )
 
 # Mailbox operations
@@ -44,6 +48,10 @@ __all__ = [
     "_format_email_full",
     "_format_mailbox",
     "_handle_jmap_error",
+    "_validate_email",
+    "_validate_email_list",
+    "_is_recipient_allowed",
+    "_sanitize_html",
     # Public tool functions
     "list_mailboxes",
     "get_emails",

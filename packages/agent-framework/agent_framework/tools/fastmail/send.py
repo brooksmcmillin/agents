@@ -6,10 +6,52 @@ Contains send_email and send_agent_report functions.
 import logging
 from typing import Any
 
+from ...core.config import settings
 from .client import _get_client
-from .helpers import _handle_jmap_error
+from .helpers import (
+    _handle_jmap_error,
+    _is_recipient_allowed,
+    _sanitize_html,
+    _validate_email_list,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _get_allowed_recipients() -> list[str]:
+    """Get the list of allowed email recipients from settings.
+
+    Returns:
+        List of allowed recipient patterns. Always includes admin_email_address.
+    """
+    allowed = []
+
+    # Admin email is always allowed
+    if settings.admin_email_address:
+        allowed.append(settings.admin_email_address)
+
+    # Parse comma-separated allowlist
+    if settings.allowed_email_recipients:
+        patterns = [p.strip() for p in settings.allowed_email_recipients.split(",")]
+        allowed.extend(p for p in patterns if p)
+
+    return allowed
+
+
+def _check_recipients_allowed(
+    recipients: list[str], allowed_patterns: list[str]
+) -> tuple[bool, list[str]]:
+    """Check if all recipients are in the allowed list.
+
+    Args:
+        recipients: List of email addresses to check
+        allowed_patterns: List of allowed patterns
+
+    Returns:
+        Tuple of (all_allowed, list_of_disallowed_emails)
+    """
+    disallowed = [r for r in recipients if not _is_recipient_allowed(r, allowed_patterns)]
+    return len(disallowed) == 0, disallowed
 
 
 async def send_email(
@@ -29,6 +71,9 @@ async def send_email(
     Creates and sends an email using JMAP EmailSubmission. Supports plain text
     or HTML body, CC/BCC recipients, and replying to existing emails.
 
+    SECURITY: Recipients are validated against ALLOWED_EMAIL_RECIPIENTS environment
+    variable. If not configured, only ADMIN_EMAIL_ADDRESS can receive emails.
+
     Args:
         to: List of recipient email addresses
         subject: Email subject line
@@ -36,7 +81,8 @@ async def send_email(
         cc: Optional list of CC recipients
         bcc: Optional list of BCC recipients
         reply_to_email_id: Optional email ID to reply to (sets In-Reply-To header)
-        is_html: If True, body is treated as HTML (default: False for plain text)
+        is_html: If True, body is treated as HTML (default: False for plain text).
+            HTML content is sanitized to prevent XSS.
         identity_email: Optional email address to send from. Must match a configured
             identity in FastMail. If not specified, uses the primary identity.
         api_token: Optional FastMail API token.
@@ -60,6 +106,42 @@ async def send_email(
             "status": "error",
             "message": "Subject is required",
         }
+
+    # Validate email address formats
+    all_recipients = list(to)
+    if cc:
+        all_recipients.extend(cc)
+    if bcc:
+        all_recipients.extend(bcc)
+
+    valid, invalid_emails = _validate_email_list(all_recipients)
+    if not valid:
+        return {
+            "status": "error",
+            "message": f"Invalid email address format: {', '.join(invalid_emails)}",
+        }
+
+    # Check recipient allowlist
+    allowed_patterns = _get_allowed_recipients()
+    if not allowed_patterns:
+        return {
+            "status": "error",
+            "message": "Email sending is disabled. Configure ALLOWED_EMAIL_RECIPIENTS or "
+            "ADMIN_EMAIL_ADDRESS environment variable to enable.",
+        }
+
+    allowed, disallowed = _check_recipients_allowed(all_recipients, allowed_patterns)
+    if not allowed:
+        logger.warning(f"Blocked email to unauthorized recipients: {disallowed}")
+        return {
+            "status": "error",
+            "message": f"Recipients not in allowed list: {', '.join(disallowed)}. "
+            "Configure ALLOWED_EMAIL_RECIPIENTS to allow additional recipients.",
+        }
+
+    # Sanitize HTML content if sending HTML email
+    if is_html:
+        body = _sanitize_html(body)
 
     try:
         client = _get_client(api_token)
@@ -352,8 +434,6 @@ async def send_agent_report(
             - to_address: The admin email address
             - message: Status message
     """
-    from ...core.config import settings
-
     # Validate required configuration
     if not settings.admin_email_address:
         return {
