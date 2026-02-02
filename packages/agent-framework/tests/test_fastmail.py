@@ -22,7 +22,7 @@ class TestJMAPClient:
 
     def test_client_requires_api_token(self):
         """Test that JMAPClient requires an API token."""
-        with patch("agent_framework.tools.fastmail.settings") as mock_settings:
+        with patch("agent_framework.tools.fastmail.client.settings") as mock_settings:
             mock_settings.fastmail_api_token = None
 
             with pytest.raises(ValueError) as exc_info:
@@ -32,7 +32,7 @@ class TestJMAPClient:
 
     def test_client_accepts_explicit_token(self):
         """Test that JMAPClient accepts explicit API token."""
-        with patch("agent_framework.tools.fastmail.settings") as mock_settings:
+        with patch("agent_framework.tools.fastmail.client.settings") as mock_settings:
             mock_settings.fastmail_api_token = None
 
             client = JMAPClient(api_token="test-token-123")
@@ -40,7 +40,7 @@ class TestJMAPClient:
 
     def test_client_uses_settings_token(self):
         """Test that JMAPClient uses token from settings."""
-        with patch("agent_framework.tools.fastmail.settings") as mock_settings:
+        with patch("agent_framework.tools.fastmail.client.settings") as mock_settings:
             mock_settings.fastmail_api_token = "settings-token"
 
             client = JMAPClient()
@@ -163,7 +163,7 @@ class TestListMailboxes:
             ]
         }
 
-        with patch("agent_framework.tools.fastmail._get_client") as mock_get_client:
+        with patch("agent_framework.tools.fastmail.mailbox._get_client") as mock_get_client:
             mock_client = AsyncMock()
             mock_client._ensure_session = AsyncMock()
             mock_client.account_id = "account-123"
@@ -179,7 +179,7 @@ class TestListMailboxes:
     @pytest.mark.asyncio
     async def test_list_mailboxes_auth_error(self):
         """Test authentication error handling."""
-        with patch("agent_framework.tools.fastmail._get_client") as mock_get_client:
+        with patch("agent_framework.tools.fastmail.mailbox._get_client") as mock_get_client:
             mock_client = AsyncMock()
             mock_client._ensure_session = AsyncMock(
                 side_effect=httpx.HTTPStatusError(
@@ -237,7 +237,7 @@ class TestSendEmail:
             ]
         }
 
-        with patch("agent_framework.tools.fastmail._get_client") as mock_get_client:
+        with patch("agent_framework.tools.fastmail.send._get_client") as mock_get_client:
             mock_client = AsyncMock()
             mock_client._ensure_session = AsyncMock()
             mock_client.account_id = "account-123"
@@ -297,7 +297,7 @@ class TestSendAgentReport:
             mock_settings.fastmail_api_token = "token"
 
             with patch(
-                "agent_framework.tools.fastmail.send_email",
+                "agent_framework.tools.fastmail.send.send_email",
                 new_callable=AsyncMock,
             ) as mock_send:
                 mock_send.return_value = {"status": "success", "email_id": "123"}
@@ -331,7 +331,7 @@ class TestErrorHandling:
             ]
         }
 
-        with patch("agent_framework.tools.fastmail._get_client") as mock_get_client:
+        with patch("agent_framework.tools.fastmail.read._get_client") as mock_get_client:
             mock_client = AsyncMock()
             mock_client._ensure_session = AsyncMock()
             mock_client.account_id = "account-123"
@@ -346,7 +346,7 @@ class TestErrorHandling:
     @pytest.mark.asyncio
     async def test_network_error_handling(self):
         """Test handling of network errors."""
-        with patch("agent_framework.tools.fastmail._get_client") as mock_get_client:
+        with patch("agent_framework.tools.fastmail.mailbox._get_client") as mock_get_client:
             mock_client = AsyncMock()
             mock_client._ensure_session = AsyncMock(
                 side_effect=httpx.RequestError("Connection failed")
@@ -361,7 +361,7 @@ class TestErrorHandling:
     @pytest.mark.asyncio
     async def test_403_forbidden_handling(self):
         """Test handling of 403 Forbidden errors."""
-        with patch("agent_framework.tools.fastmail._get_client") as mock_get_client:
+        with patch("agent_framework.tools.fastmail.mailbox._get_client") as mock_get_client:
             mock_client = AsyncMock()
             mock_client._ensure_session = AsyncMock(
                 side_effect=httpx.HTTPStatusError(
