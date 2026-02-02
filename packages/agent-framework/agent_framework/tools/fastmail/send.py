@@ -390,8 +390,9 @@ async def send_agent_report(
         api_token=api_token,
     )
 
-    # Add additional context to the result
-    result["from_address"] = from_email
-    result["to_address"] = settings.admin_email_address
-
-    return result
+    # Return new dict with additional context (avoid mutating send_email's return value)
+    return {
+        **result,
+        "from_address": from_email,
+        "to_address": settings.admin_email_address,
+    }
