@@ -28,19 +28,25 @@ Example usage:
 Security model:
 - Permissions are the INTERSECTION when propagating (most restrictive wins)
 - Tools check permissions at execution time via TOOL_PERMISSIONS mapping
+- Remote MCP servers use REMOTE_MCP_PERMISSIONS for server-specific defaults
 - Unknown tools default to requiring Permission.ADMIN (fail-safe)
 """
 
 from .context import ExecutionContext
 from .identity import AgentIdentity
 from .permissions import Permission, PermissionSet
-from .tool_permissions import TOOL_PERMISSIONS, get_required_permissions
+from .tool_permissions import (
+    REMOTE_MCP_PERMISSIONS,
+    TOOL_PERMISSIONS,
+    get_required_permissions,
+)
 
 __all__ = [
     "AgentIdentity",
     "ExecutionContext",
     "Permission",
     "PermissionSet",
+    "REMOTE_MCP_PERMISSIONS",
     "TOOL_PERMISSIONS",
     "get_required_permissions",
 ]

@@ -545,6 +545,55 @@ class Agent(ABC):
             ),
         )
 
+    def _find_tool_server(self, tool_name: str) -> str | None:
+        """Find which server provides a tool.
+
+        Args:
+            tool_name: Name of the tool to find
+
+        Returns:
+            Server URL if found in a remote server, None if local or not found
+        """
+        # Check if it's a local tool
+        if tool_name in self.tools.get("local", []):
+            return None
+
+        # Check remote servers
+        for url in self.mcp_urls:
+            if tool_name in self.tools.get(url, []):
+                return url
+
+        return None
+
+    def _check_tool_permissions(self, tool_name: str, server_url: str | None = None) -> None:
+        """Check if current context has permission to execute a tool.
+
+        Args:
+            tool_name: Name of the tool
+            server_url: Optional server URL for remote tools
+
+        Raises:
+            PermissionError: If permissions are insufficient
+        """
+        context = self.get_execution_context()
+        required_perms = get_required_permissions(tool_name, server_url)
+        missing_perms = [p for p in required_perms if not context.can(p)]
+
+        if missing_perms:
+            missing_names = [p.name for p in missing_perms]
+            server_info = f" (server: {server_url})" if server_url else ""
+            logger.warning(
+                f"Permission denied for tool '{tool_name}'{server_info}: "
+                f"{context.caller.name} lacks {missing_names}"
+            )
+            raise PermissionError(
+                f"Permission denied: {context.caller.name} cannot execute '{tool_name}'. "
+                f"Required permissions: {[p.name for p in required_perms]}. "
+                f"Missing: {missing_names}."
+            )
+
+        logger.debug(f"Permission check passed for {tool_name}: {context.caller.name}")
+
     async def _call_mcp_tool_with_reconnect(
         self, tool_name: str, arguments: dict[str, Any]
     ) -> dict[str, Any]:
@@ -558,7 +607,8 @@ class Agent(ABC):
         to ensure memory isolation between different agents.
 
         Permission checking:
-        - Checks required permissions for the tool against current context
+        - Determines which server provides the tool
+        - Checks required permissions using server-specific config
         - Raises PermissionError if permissions are insufficient
 
         Args:
@@ -571,24 +621,11 @@ class Agent(ABC):
         Raises:
             PermissionError: If the current context lacks required permissions
         """
-        # Check permissions before executing the tool
-        context = self.get_execution_context()
-        required_perms = get_required_permissions(tool_name)
-        missing_perms = [p for p in required_perms if not context.can(p)]
+        # Find which server provides this tool (None = local)
+        server_url = self._find_tool_server(tool_name)
 
-        if missing_perms:
-            missing_names = [p.name for p in missing_perms]
-            logger.warning(
-                f"Permission denied for tool '{tool_name}': "
-                f"{context.caller.name} lacks {missing_names}"
-            )
-            raise PermissionError(
-                f"Permission denied: {context.caller.name} cannot execute '{tool_name}'. "
-                f"Required permissions: {[p.name for p in required_perms]}. "
-                f"Missing: {missing_names}."
-            )
-
-        logger.debug(f"Permission check passed for {tool_name}: {context.caller.name}")
+        # Check permissions with server context
+        self._check_tool_permissions(tool_name, server_url)
 
         # Auto-inject agent_name for memory tools and agent email tools
         # Only inject if not already specified (allow explicit override)
@@ -600,24 +637,25 @@ class Agent(ABC):
 
         # Local tools should take precedence over remote tools if there are any name collisions.
         # TODO: Throw an error if there are name collisions?
-        if tool_name in self.tools["local"]:
+        if tool_name in self.tools.get("local", []):
             async with self.mcp_client.connect():
                 return await self.mcp_client.call_tool(tool_name, arguments)
 
         for url in self.mcp_urls:
-            async with self._create_remote_mcp_client(url) as mcp:
-                result = await mcp.call_tool(tool_name, arguments)
+            if tool_name in self.tools.get(url, []):
+                async with self._create_remote_mcp_client(url) as mcp:
+                    result = await mcp.call_tool(tool_name, arguments)
 
-                # Handle result - could be string or dict
-                if isinstance(result, str):
-                    try:
-                        # Try to parse as JSON
-                        result_dict = json.loads(result)
-                        return result_dict
-                    except json.JSONDecodeError:
-                        return {"result": result}
-                else:
-                    return result
+                    # Handle result - could be string or dict
+                    if isinstance(result, str):
+                        try:
+                            # Try to parse as JSON
+                            result_dict = json.loads(result)
+                            return result_dict
+                        except json.JSONDecodeError:
+                            return {"result": result}
+                    else:
+                        return result
 
         # If the tool isn't found, raise an exception.
         raise InvalidToolName(tool_name)

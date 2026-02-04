@@ -20,8 +20,8 @@ from agents.business_advisor.main import BusinessAdvisorAgent
 from agents.chatbot.main import ChatbotAgent
 from agents.events.main import EventsAgent
 from agents.pr_agent.main import PRAgent
-from agents.task_manager.main import TaskManagerAgent
 from agents.security_researcher.main import SecurityResearcherAgent
+from agents.task_manager.main import TaskManagerAgent
 from shared import DEFAULT_MCP_SERVER_URL, ENV_MCP_SERVER_URL, run_agent
 
 # Registry of available agents
@@ -38,7 +38,15 @@ AGENTS: dict[str, tuple[type, dict | None]] = {
             },
         },
     ),
-    "security": (SecurityResearcherAgent, None),
+    "security": (
+        SecurityResearcherAgent,
+        {
+            "mcp_urls": ["https://api.githubcopilot.com/mcp/"],
+            "mcp_client_config": {
+                "auth_token": os.getenv("GITHUB_MCP_PAT"),
+            },
+        },
+    ),
     "business": (
         BusinessAdvisorAgent,
         {
@@ -83,10 +91,9 @@ async def run_once(
         print(response)
 
         if not quiet:
-            print(f"\n---")
+            print("\n---")
             print(
-                f"Tokens: {agent.total_input_tokens:,} input, "
-                f"{agent.total_output_tokens:,} output"
+                f"Tokens: {agent.total_input_tokens:,} input, {agent.total_output_tokens:,} output"
             )
 
     except ValueError as e:

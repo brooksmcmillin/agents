@@ -6,7 +6,7 @@ agents that only differ in their prompts and tool configurations.
 
 from typing import Any
 
-from agent_framework import Agent
+from agent_framework import Agent, PermissionSet
 
 
 def create_simple_agent(
@@ -14,6 +14,7 @@ def create_simple_agent(
     system_prompt: str,
     greeting: str,
     allowed_tools: list[str] | None = None,
+    permissions: PermissionSet | None = None,
 ) -> type[Agent]:
     """Factory function for creating simple agent classes.
 
@@ -26,6 +27,8 @@ def create_simple_agent(
         system_prompt: The system prompt that defines agent behavior
         greeting: The greeting message shown to users at startup
         allowed_tools: Optional list of MCP tool names to allow
+        permissions: Optional PermissionSet for the agent's default permissions.
+            Defaults to PermissionSet.full_access() if not specified.
 
     Returns:
         An Agent subclass configured with the provided settings
@@ -33,6 +36,7 @@ def create_simple_agent(
     Example:
         ```python
         from shared.agent_factory import create_simple_agent
+        from agent_framework import PermissionSet
         from .prompts import SYSTEM_PROMPT, USER_GREETING_PROMPT
 
         PRAgent = create_simple_agent(
@@ -44,13 +48,16 @@ def create_simple_agent(
                 "fetch_web_content",
                 "get_memories",
                 "save_memory",
-            ]
+            ],
+            permissions=PermissionSet.admin(),  # For remote MCP tools
         )
 
         async def main():
             await run_agent(PRAgent)
         ```
     """
+    # Capture permissions in closure for get_default_permissions
+    agent_permissions = permissions
 
     class SimpleAgent(Agent):
         """Dynamically created agent class."""
@@ -75,6 +82,12 @@ def create_simple_agent(
         def get_agent_name(self) -> str:
             """Return the agent name."""
             return name
+
+        def get_default_permissions(self) -> PermissionSet:
+            """Return the configured permissions."""
+            if agent_permissions is not None:
+                return agent_permissions
+            return PermissionSet.full_access()
 
     # Set the class name for better debugging and introspection
     SimpleAgent.__name__ = name

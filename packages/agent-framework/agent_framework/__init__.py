@@ -24,6 +24,7 @@ from .observability import (
     start_trace,
 )
 from .permissions import (
+    REMOTE_MCP_PERMISSIONS,
     TOOL_PERMISSIONS,
     AgentIdentity,
     ExecutionContext,
@@ -70,6 +71,7 @@ __all__ = [
     "ExecutionContext",
     "Permission",
     "PermissionSet",
+    "REMOTE_MCP_PERMISSIONS",
     "TOOL_PERMISSIONS",
     "get_required_permissions",
 ]
