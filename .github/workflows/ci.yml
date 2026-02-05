@@ -172,7 +172,7 @@ jobs:
           test -f agents/webui/dist/index.html || exit 1
           test -d agents/webui/dist/assets || exit 1
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: frontend-build
           path: agents/webui/dist/
