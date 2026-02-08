@@ -545,17 +545,18 @@ class Agent(ABC):
             ),
         )
 
-    def _find_tool_server(self, tool_name: str) -> str | None:
+    _TOOL_NOT_FOUND = object()  # Sentinel to distinguish "local" from "not found"
+
+    def _find_tool_server(self, tool_name: str) -> str | object | None:
         """Find which server provides a tool.
 
         Args:
             tool_name: Name of the tool to find
 
         Returns:
-            Server URL if found in a remote server, None if local
-
-        Raises:
-            ValueError: If tool is not found in any registry
+            Server URL string if found in a remote server,
+            None if local,
+            _TOOL_NOT_FOUND sentinel if not found in any registry
         """
         # Check if it's a local tool
         if tool_name in self.tools.get("local", []):
@@ -566,10 +567,7 @@ class Agent(ABC):
             if tool_name in self.tools.get(url, []):
                 return url
 
-        raise ValueError(
-            f"Tool '{tool_name}' not found in any registered server. "
-            f"Known servers: local, {', '.join(self.mcp_urls)}"
-        )
+        return self._TOOL_NOT_FOUND
 
     def _check_tool_permissions(self, tool_name: str, server_url: str | None = None) -> None:
         """Check if current context has permission to execute a tool.
@@ -625,13 +623,18 @@ class Agent(ABC):
             Tool result
 
         Raises:
+            InvalidToolName: If the tool is not registered in any server
             PermissionError: If the current context lacks required permissions
         """
-        # Find which server provides this tool (None = local)
+        # Find which server provides this tool
         server_url = self._find_tool_server(tool_name)
 
-        # Check permissions with server context
-        self._check_tool_permissions(tool_name, server_url)
+        # Fail fast if tool not found in any registry
+        if server_url is self._TOOL_NOT_FOUND:
+            raise InvalidToolName(tool_name)
+
+        # Check permissions with server context (server_url is None for local, str for remote)
+        self._check_tool_permissions(tool_name, server_url)  # type: ignore[arg-type]
 
         # Auto-inject agent_name for memory tools and agent email tools
         # Only inject if not already specified (allow explicit override)
@@ -641,30 +644,25 @@ class Agent(ABC):
             arguments = {**arguments, "agent_name": self.get_agent_name()}
             logger.debug(f"Auto-injected agent_name='{self.get_agent_name()}' for {tool_name}")
 
-        # Local tools should take precedence over remote tools if there are any name collisions.
-        # TODO: Throw an error if there are name collisions?
-        if tool_name in self.tools.get("local", []):
+        # Route to the correct server using the result from _find_tool_server
+        if server_url is None:
+            # Local tool
             async with self.mcp_client.connect():
                 return await self.mcp_client.call_tool(tool_name, arguments)
+        else:
+            # Remote tool - server_url is the URL string
+            async with self._create_remote_mcp_client(server_url) as mcp:  # type: ignore[arg-type]
+                result = await mcp.call_tool(tool_name, arguments)
 
-        for url in self.mcp_urls:
-            if tool_name in self.tools.get(url, []):
-                async with self._create_remote_mcp_client(url) as mcp:
-                    result = await mcp.call_tool(tool_name, arguments)
-
-                    # Handle result - could be string or dict
-                    if isinstance(result, str):
-                        try:
-                            # Try to parse as JSON
-                            result_dict = json.loads(result)
-                            return result_dict
-                        except json.JSONDecodeError:
-                            return {"result": result}
-                    else:
-                        return result
-
-        # If the tool isn't found, raise an exception.
-        raise InvalidToolName(tool_name)
+                # Handle result - could be string or dict
+                if isinstance(result, str):
+                    try:
+                        result_dict = json.loads(result)
+                        return result_dict
+                    except json.JSONDecodeError:
+                        return {"result": result}
+                else:
+                    return result
 
     async def _get_available_tools(self) -> list[str]:
         """Get list of available MCP tools (reconnects to server)."""
