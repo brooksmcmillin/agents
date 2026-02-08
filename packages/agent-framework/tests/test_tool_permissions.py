@@ -4,6 +4,7 @@ import pytest
 
 from agent_framework.permissions.permissions import Permission, PermissionSet
 from agent_framework.permissions.tool_permissions import (
+    REMOTE_MCP_PERMISSIONS,
     TOOL_PERMISSIONS,
     check_tool_permission,
     get_allowed_tools,
@@ -410,3 +411,218 @@ class TestPermissionSet:
         assert Permission.READ in perms
         assert Permission.WRITE in perms
         assert Permission.SEND not in perms
+
+
+GITHUB_MCP_URL = "https://api.githubcopilot.com/mcp/"
+
+
+class TestRemoteMCPPermissions:
+    """Tests for REMOTE_MCP_PERMISSIONS config and get_required_permissions with server_url."""
+
+    def test_github_server_configured(self):
+        """Test that the GitHub Copilot MCP server is in REMOTE_MCP_PERMISSIONS."""
+        assert GITHUB_MCP_URL in REMOTE_MCP_PERMISSIONS
+
+    def test_github_server_has_default(self):
+        """Test that GitHub server config includes a default permission set."""
+        config = REMOTE_MCP_PERMISSIONS[GITHUB_MCP_URL]
+        assert "default" in config
+        assert config["default"] == {Permission.READ, Permission.WRITE}
+
+    def test_github_server_has_tools(self):
+        """Test that GitHub server config includes tool-specific overrides."""
+        config = REMOTE_MCP_PERMISSIONS[GITHUB_MCP_URL]
+        assert "tools" in config
+        assert len(config["tools"]) > 0
+
+    def test_github_read_tool_override(self):
+        """Test tool-specific READ override for a known GitHub tool."""
+        perms = get_required_permissions("get_me", GITHUB_MCP_URL)
+        assert perms == {Permission.READ}
+
+    def test_github_write_tool_override(self):
+        """Test tool-specific WRITE override for a known GitHub tool."""
+        perms = get_required_permissions("create_issue", GITHUB_MCP_URL)
+        assert perms == {Permission.WRITE}
+
+    def test_github_admin_tool_override(self):
+        """Test tool-specific ADMIN override for dangerous GitHub operations."""
+        perms = get_required_permissions("delete_file", GITHUB_MCP_URL)
+        assert perms == {Permission.ADMIN}
+
+        perms = get_required_permissions("merge_pull_request", GITHUB_MCP_URL)
+        assert perms == {Permission.ADMIN}
+
+    def test_github_unknown_tool_uses_server_default(self):
+        """Test that an unknown tool on a known server uses the server default."""
+        perms = get_required_permissions("some_new_github_tool", GITHUB_MCP_URL)
+        assert perms == {Permission.READ, Permission.WRITE}
+
+    def test_unknown_server_unknown_tool_requires_admin(self):
+        """Test that an unknown tool on an unknown server falls back to ADMIN."""
+        perms = get_required_permissions("unknown_tool", "https://unknown-server.example.com/mcp/")
+        assert perms == {Permission.ADMIN}
+
+    def test_local_tool_ignores_server_url(self):
+        """Test that local tools are resolved from TOOL_PERMISSIONS even with server_url."""
+        perms = get_required_permissions("fetch_web_content", GITHUB_MCP_URL)
+        assert perms == {Permission.READ}
+
+    def test_server_url_none_falls_back_to_admin_for_unknown(self):
+        """Test that server_url=None for unknown tools falls back to ADMIN."""
+        perms = get_required_permissions("totally_unknown_tool", None)
+        assert perms == {Permission.ADMIN}
+
+    def test_all_github_read_tools_require_read(self):
+        """Verify all read-only GitHub tool overrides require only READ."""
+        read_tools = [
+            "get_me",
+            "get_file_contents",
+            "search_code",
+            "search_repositories",
+            "search_issues",
+            "search_pull_requests",
+            "search_users",
+            "list_issues",
+            "list_pull_requests",
+            "list_commits",
+            "list_branches",
+            "list_tags",
+            "list_releases",
+            "get_issue",
+            "get_commit",
+            "get_tag",
+            "get_release_by_tag",
+            "get_latest_release",
+            "get_label",
+            "get_teams",
+            "get_team_members",
+            "issue_read",
+            "pull_request_read",
+        ]
+        for tool in read_tools:
+            perms = get_required_permissions(tool, GITHUB_MCP_URL)
+            assert perms == {Permission.READ}, f"{tool} should require READ, got {perms}"
+
+    def test_all_github_write_tools_require_write(self):
+        """Verify all write GitHub tool overrides require only WRITE."""
+        write_tools = [
+            "create_issue",
+            "update_issue",
+            "issue_write",
+            "add_issue_comment",
+            "create_pull_request",
+            "update_pull_request",
+            "update_pull_request_branch",
+            "create_branch",
+            "create_or_update_file",
+            "push_files",
+            "pull_request_review_write",
+            "add_comment_to_pending_review",
+            "sub_issue_write",
+            "request_copilot_review",
+            "assign_copilot_to_issue",
+        ]
+        for tool in write_tools:
+            perms = get_required_permissions(tool, GITHUB_MCP_URL)
+            assert perms == {Permission.WRITE}, f"{tool} should require WRITE, got {perms}"
+
+    def test_all_github_admin_tools_require_admin(self):
+        """Verify all dangerous GitHub tool overrides require ADMIN."""
+        admin_tools = [
+            "delete_file",
+            "fork_repository",
+            "create_repository",
+            "merge_pull_request",
+        ]
+        for tool in admin_tools:
+            perms = get_required_permissions(tool, GITHUB_MCP_URL)
+            assert perms == {Permission.ADMIN}, f"{tool} should require ADMIN, got {perms}"
+
+    def test_config_values_are_sets_of_permission(self):
+        """Verify all config values are proper set[Permission] types."""
+        for server_url, config in REMOTE_MCP_PERMISSIONS.items():
+            if "default" in config:
+                default = config["default"]
+                assert isinstance(default, set), (
+                    f"{server_url} default should be set, got {type(default)}"
+                )
+                for perm in default:
+                    assert isinstance(perm, Permission), (
+                        f"{server_url} default contains non-Permission: {perm}"
+                    )
+            if "tools" in config:
+                for tool_name, perms in config["tools"].items():
+                    assert isinstance(perms, set), (
+                        f"{server_url}/{tool_name} should be set, got {type(perms)}"
+                    )
+                    for perm in perms:
+                        assert isinstance(perm, Permission), (
+                            f"{server_url}/{tool_name} contains non-Permission: {perm}"
+                        )
+
+
+class TestCheckToolPermissionWithServerUrl:
+    """Tests for check_tool_permission with server_url parameter."""
+
+    def test_remote_read_tool_allowed_with_read(self):
+        """Test remote read tool is allowed with READ permission."""
+        allowed, missing = check_tool_permission(
+            "get_me", {Permission.READ}, server_url=GITHUB_MCP_URL
+        )
+        assert allowed is True
+        assert missing == set()
+
+    def test_remote_read_tool_denied_without_read(self):
+        """Test remote read tool is denied without READ permission."""
+        allowed, missing = check_tool_permission(
+            "get_me", {Permission.WRITE}, server_url=GITHUB_MCP_URL
+        )
+        assert allowed is False
+        assert Permission.READ in missing
+
+    def test_remote_write_tool_allowed_with_write(self):
+        """Test remote write tool is allowed with WRITE permission."""
+        allowed, missing = check_tool_permission(
+            "create_issue", {Permission.WRITE}, server_url=GITHUB_MCP_URL
+        )
+        assert allowed is True
+        assert missing == set()
+
+    def test_remote_unknown_tool_uses_server_default(self):
+        """Test unknown remote tool uses server default permissions."""
+        allowed, missing = check_tool_permission(
+            "some_new_tool",
+            {Permission.READ, Permission.WRITE},
+            server_url=GITHUB_MCP_URL,
+        )
+        assert allowed is True
+        assert missing == set()
+
+    def test_remote_unknown_tool_denied_with_partial_perms(self):
+        """Test unknown remote tool denied when missing part of server default."""
+        allowed, missing = check_tool_permission(
+            "some_new_tool",
+            {Permission.READ},  # Missing WRITE from default {READ, WRITE}
+            server_url=GITHUB_MCP_URL,
+        )
+        assert allowed is False
+        assert Permission.WRITE in missing
+
+    def test_unknown_server_requires_admin(self):
+        """Test tool on unknown server requires ADMIN."""
+        allowed, missing = check_tool_permission(
+            "some_tool",
+            {Permission.READ, Permission.WRITE},
+            server_url="https://unknown.example.com/mcp/",
+        )
+        assert allowed is False
+        assert Permission.ADMIN in missing
+
+    def test_none_server_url_for_local_tool(self):
+        """Test local tool with server_url=None works as before."""
+        allowed, missing = check_tool_permission(
+            "fetch_web_content", {Permission.READ}, server_url=None
+        )
+        assert allowed is True
+        assert missing == set()

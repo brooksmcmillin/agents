@@ -10,7 +10,22 @@ For remote MCP servers, use REMOTE_MCP_PERMISSIONS to define:
 
 from __future__ import annotations
 
-from .permissions import Permission, PermissionSet
+from typing import TypedDict
+
+from .permissions import Permission
+
+
+class RemoteMCPServerConfig(TypedDict, total=False):
+    """Configuration for a remote MCP server's permission defaults.
+
+    Attributes:
+        default: Default permissions applied to all tools from this server.
+        tools: Tool-specific permission overrides.
+    """
+
+    default: set[Permission]
+    tools: dict[str, set[Permission]]
+
 
 # Mapping of tool names to required permissions
 # A tool can be executed if the caller has ALL required permissions
@@ -78,16 +93,16 @@ TOOL_PERMISSIONS: dict[str, set[Permission]] = {
 # Remote MCP Server Permissions
 # =============================================================================
 # Configuration for remote MCP servers with:
-# - "default": PermissionSet applied to all tools from this server
+# - "default": set[Permission] applied to all tools from this server
 # - "tools": Dict of tool-specific permission overrides
 #
 # Tools not in TOOL_PERMISSIONS or REMOTE_MCP_PERMISSIONS require ADMIN.
 # =============================================================================
 
-REMOTE_MCP_PERMISSIONS: dict[str, dict] = {
+REMOTE_MCP_PERMISSIONS: dict[str, RemoteMCPServerConfig] = {
     # GitHub Copilot MCP Server
     "https://api.githubcopilot.com/mcp/": {
-        "default": PermissionSet.read_write(),  # Most GitHub tools are safe
+        "default": {Permission.READ, Permission.WRITE},  # Most GitHub tools are safe
         "tools": {
             # Read-only operations
             "get_me": {Permission.READ},
@@ -138,7 +153,7 @@ REMOTE_MCP_PERMISSIONS: dict[str, dict] = {
     },
     # Add more remote MCP servers here as needed
     # "https://other-mcp-server.example.com/mcp/": {
-    #     "default": PermissionSet.read_only(),
+    #     "default": {Permission.READ},
     #     "tools": { ... },
     # },
 }
@@ -191,11 +206,7 @@ def get_required_permissions(
 
         # 2b. Use server default
         if "default" in server_config:
-            default_perms = server_config["default"]
-            # Convert PermissionSet to set[Permission] if needed
-            if isinstance(default_perms, PermissionSet):
-                return set(default_perms)
-            return default_perms
+            return server_config["default"]
 
     # 3. Fall back to ADMIN for unknown tools
     return {Permission.ADMIN}
@@ -204,12 +215,14 @@ def get_required_permissions(
 def check_tool_permission(
     tool_name: str,
     permissions: set[Permission] | list[Permission],
+    server_url: str | None = None,
 ) -> tuple[bool, set[Permission]]:
     """Check if a permission set allows execution of a tool.
 
     Args:
         tool_name: Name of the tool to check
         permissions: The caller's permissions
+        server_url: Optional URL of the remote MCP server (for remote tools)
 
     Returns:
         Tuple of (allowed, missing_permissions)
@@ -222,7 +235,7 @@ def check_tool_permission(
         # allowed = False
         # missing = {Permission.SEND}
     """
-    required = get_required_permissions(tool_name)
+    required = get_required_permissions(tool_name, server_url)
     caller_perms = set(permissions)
     missing = required - caller_perms
 

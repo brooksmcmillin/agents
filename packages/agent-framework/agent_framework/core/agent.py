@@ -552,7 +552,10 @@ class Agent(ABC):
             tool_name: Name of the tool to find
 
         Returns:
-            Server URL if found in a remote server, None if local or not found
+            Server URL if found in a remote server, None if local
+
+        Raises:
+            ValueError: If tool is not found in any registry
         """
         # Check if it's a local tool
         if tool_name in self.tools.get("local", []):
@@ -563,7 +566,10 @@ class Agent(ABC):
             if tool_name in self.tools.get(url, []):
                 return url
 
-        return None
+        raise ValueError(
+            f"Tool '{tool_name}' not found in any registered server. "
+            f"Known servers: local, {', '.join(self.mcp_urls)}"
+        )
 
     def _check_tool_permissions(self, tool_name: str, server_url: str | None = None) -> None:
         """Check if current context has permission to execute a tool.

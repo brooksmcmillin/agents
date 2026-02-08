@@ -38,6 +38,7 @@ from .permissions import Permission, PermissionSet
 from .tool_permissions import (
     REMOTE_MCP_PERMISSIONS,
     TOOL_PERMISSIONS,
+    RemoteMCPServerConfig,
     get_required_permissions,
 )
 
@@ -47,6 +48,7 @@ __all__ = [
     "Permission",
     "PermissionSet",
     "REMOTE_MCP_PERMISSIONS",
+    "RemoteMCPServerConfig",
     "TOOL_PERMISSIONS",
     "get_required_permissions",
 ]
