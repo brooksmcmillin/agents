@@ -10,6 +10,7 @@ Usage:
 
 import argparse
 import asyncio
+import logging
 import os
 import sys
 
@@ -20,11 +21,52 @@ from agents.business_advisor.main import BusinessAdvisorAgent
 from agents.chatbot.main import ChatbotAgent
 from agents.events.main import EventsAgent
 from agents.pr_agent.main import PRAgent
-from agents.task_manager.main import TaskManagerAgent
 from agents.security_researcher.main import SecurityResearcherAgent
+from agents.task_manager.main import TaskManagerAgent
 from shared import DEFAULT_MCP_SERVER_URL, ENV_MCP_SERVER_URL, run_agent
 
+logger = logging.getLogger(__name__)
+
+_GITHUB_PAT_PREFIXES = ("ghp_", "github_pat_", "gho_", "ghu_", "ghs_", "ghr_")
+
+
+def _get_github_pat() -> str:
+    """Get and validate GitHub PAT from environment.
+
+    Returns:
+        The GitHub PAT token
+
+    Raises:
+        ValueError: If the token is not set
+    """
+    token = os.getenv("GITHUB_MCP_PAT")
+    if not token:
+        raise ValueError(
+            "GITHUB_MCP_PAT environment variable is required for GitHub MCP. "
+            "Set it in your .env file or environment."
+        )
+    if not token.startswith(_GITHUB_PAT_PREFIXES):
+        logger.warning(
+            "GITHUB_MCP_PAT has unexpected format (expected prefix: %s). "
+            "Verify your token is valid.",
+            ", ".join(_GITHUB_PAT_PREFIXES),
+        )
+    return token
+
+
+def _github_mcp_config() -> dict:
+    """Build MCP config for GitHub Copilot MCP server."""
+    return {
+        "mcp_urls": ["https://api.githubcopilot.com/mcp/"],
+        "mcp_client_config": {
+            "auth_token": _get_github_pat(),
+        },
+    }
+
+
 # Registry of available agents
+# Agents requiring GitHub PAT use _github_mcp_config() which is called
+# at agent construction time (not import time) so --list still works.
 AGENTS: dict[str, tuple[type, dict | None]] = {
     "chatbot": (ChatbotAgent, None),
     "events": (EventsAgent, None),
@@ -38,17 +80,12 @@ AGENTS: dict[str, tuple[type, dict | None]] = {
             },
         },
     ),
-    "security": (SecurityResearcherAgent, None),
-    "business": (
-        BusinessAdvisorAgent,
-        {
-            "mcp_urls": ["https://api.githubcopilot.com/mcp/"],
-            "mcp_client_config": {
-                "auth_token": os.getenv("GITHUB_MCP_PAT"),
-            },
-        },
-    ),
+    "security": (SecurityResearcherAgent, None),  # Config built lazily
+    "business": (BusinessAdvisorAgent, None),  # Config built lazily
 }
+
+# Agents that need GitHub MCP config built at runtime (not import time)
+_GITHUB_MCP_AGENTS = {"security", "business"}
 
 
 def list_agents() -> None:
@@ -83,10 +120,9 @@ async def run_once(
         print(response)
 
         if not quiet:
-            print(f"\n---")
+            print("\n---")
             print(
-                f"Tokens: {agent.total_input_tokens:,} input, "
-                f"{agent.total_output_tokens:,} output"
+                f"Tokens: {agent.total_input_tokens:,} input, {agent.total_output_tokens:,} output"
             )
 
     except ValueError as e:
@@ -159,6 +195,10 @@ One-off mode:
         sys.exit(1)
 
     agent_class, agent_kwargs = AGENTS[args.agent]
+
+    # Build GitHub MCP config lazily so --list works without GITHUB_MCP_PAT
+    if args.agent in _GITHUB_MCP_AGENTS:
+        agent_kwargs = _github_mcp_config()
 
     if args.message:
         # One-off mode: process single message and exit

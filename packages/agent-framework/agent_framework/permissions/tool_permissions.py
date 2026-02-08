@@ -2,11 +2,30 @@
 
 Defines which permissions are required to execute each MCP tool.
 Tools check these mappings before execution.
+
+For remote MCP servers, use REMOTE_MCP_PERMISSIONS to define:
+- Server-level default permissions
+- Tool-specific overrides for dangerous operations
 """
 
 from __future__ import annotations
 
+from typing import TypedDict
+
 from .permissions import Permission
+
+
+class RemoteMCPServerConfig(TypedDict, total=False):
+    """Configuration for a remote MCP server's permission defaults.
+
+    Attributes:
+        default: Default permissions applied to all tools from this server.
+        tools: Tool-specific permission overrides.
+    """
+
+    default: set[Permission]
+    tools: dict[str, set[Permission]]
+
 
 # Mapping of tool names to required permissions
 # A tool can be executed if the caller has ALL required permissions
@@ -70,38 +89,140 @@ TOOL_PERMISSIONS: dict[str, set[Permission]] = {
     "get_claude_code_workspace_status": {Permission.READ},
 }
 
+# =============================================================================
+# Remote MCP Server Permissions
+# =============================================================================
+# Configuration for remote MCP servers with:
+# - "default": set[Permission] applied to all tools from this server
+# - "tools": Dict of tool-specific permission overrides
+#
+# Tools not in TOOL_PERMISSIONS or REMOTE_MCP_PERMISSIONS require ADMIN.
+# =============================================================================
 
-def get_required_permissions(tool_name: str) -> set[Permission]:
+REMOTE_MCP_PERMISSIONS: dict[str, RemoteMCPServerConfig] = {
+    # GitHub Copilot MCP Server
+    "https://api.githubcopilot.com/mcp/": {
+        "default": {Permission.READ, Permission.WRITE},  # Most GitHub tools are safe
+        "tools": {
+            # Read-only operations
+            "get_me": {Permission.READ},
+            "get_file_contents": {Permission.READ},
+            "search_code": {Permission.READ},
+            "search_repositories": {Permission.READ},
+            "search_issues": {Permission.READ},
+            "search_pull_requests": {Permission.READ},
+            "search_users": {Permission.READ},
+            "list_issues": {Permission.READ},
+            "list_pull_requests": {Permission.READ},
+            "list_commits": {Permission.READ},
+            "list_branches": {Permission.READ},
+            "list_tags": {Permission.READ},
+            "list_releases": {Permission.READ},
+            "get_issue": {Permission.READ},
+            "get_commit": {Permission.READ},
+            "get_tag": {Permission.READ},
+            "get_release_by_tag": {Permission.READ},
+            "get_latest_release": {Permission.READ},
+            "get_label": {Permission.READ},
+            "get_teams": {Permission.READ},
+            "get_team_members": {Permission.READ},
+            "issue_read": {Permission.READ},
+            "pull_request_read": {Permission.READ},
+            # Write operations
+            "create_issue": {Permission.WRITE},
+            "update_issue": {Permission.WRITE},
+            "issue_write": {Permission.WRITE},
+            "add_issue_comment": {Permission.WRITE},
+            "create_pull_request": {Permission.WRITE},
+            "update_pull_request": {Permission.WRITE},
+            "update_pull_request_branch": {Permission.WRITE},
+            "create_branch": {Permission.WRITE},
+            "create_or_update_file": {Permission.WRITE},
+            "push_files": {Permission.WRITE},
+            "pull_request_review_write": {Permission.WRITE},
+            "add_comment_to_pending_review": {Permission.WRITE},
+            "sub_issue_write": {Permission.WRITE},
+            "request_copilot_review": {Permission.WRITE},
+            "assign_copilot_to_issue": {Permission.WRITE},
+            # Dangerous operations - require ADMIN
+            "delete_file": {Permission.ADMIN},
+            "fork_repository": {Permission.ADMIN},
+            "create_repository": {Permission.ADMIN},
+            "merge_pull_request": {Permission.ADMIN},
+        },
+    },
+    # Add more remote MCP servers here as needed
+    # "https://other-mcp-server.example.com/mcp/": {
+    #     "default": {Permission.READ},
+    #     "tools": { ... },
+    # },
+}
+
+
+def get_required_permissions(
+    tool_name: str,
+    server_url: str | None = None,
+) -> set[Permission]:
     """Get the permissions required to execute a tool.
 
-    If a tool is not in the mapping, returns {Permission.ADMIN} as a
-    fail-safe default (unknown tools require admin access).
+    Permission lookup order:
+    1. Local tools: Check TOOL_PERMISSIONS
+    2. Remote tools: Check REMOTE_MCP_PERMISSIONS for server-specific config
+       a. Tool-specific override if defined
+       b. Server default if no tool override
+    3. Fall back to {Permission.ADMIN} for unknown tools (fail-safe)
 
     Args:
         tool_name: Name of the tool
+        server_url: Optional URL of the remote MCP server (for remote tools)
 
     Returns:
         Set of required permissions
 
     Example:
+        # Local tool
         perms = get_required_permissions("fetch_web_content")
         # Returns {Permission.READ}
 
+        # Remote tool with server config
+        perms = get_required_permissions("get_me", "https://api.githubcopilot.com/mcp/")
+        # Returns {Permission.READ}
+
+        # Unknown tool
         perms = get_required_permissions("unknown_tool")
         # Returns {Permission.ADMIN} (fail-safe)
     """
-    return TOOL_PERMISSIONS.get(tool_name, {Permission.ADMIN})
+    # 1. Check local tool permissions first
+    if tool_name in TOOL_PERMISSIONS:
+        return TOOL_PERMISSIONS[tool_name]
+
+    # 2. Check remote MCP server permissions
+    if server_url and server_url in REMOTE_MCP_PERMISSIONS:
+        server_config = REMOTE_MCP_PERMISSIONS[server_url]
+
+        # 2a. Check for tool-specific override
+        if "tools" in server_config and tool_name in server_config["tools"]:
+            return server_config["tools"][tool_name]
+
+        # 2b. Use server default
+        if "default" in server_config:
+            return server_config["default"]
+
+    # 3. Fall back to ADMIN for unknown tools
+    return {Permission.ADMIN}
 
 
 def check_tool_permission(
     tool_name: str,
     permissions: set[Permission] | list[Permission],
+    server_url: str | None = None,
 ) -> tuple[bool, set[Permission]]:
     """Check if a permission set allows execution of a tool.
 
     Args:
         tool_name: Name of the tool to check
         permissions: The caller's permissions
+        server_url: Optional URL of the remote MCP server (for remote tools)
 
     Returns:
         Tuple of (allowed, missing_permissions)
@@ -114,7 +235,7 @@ def check_tool_permission(
         # allowed = False
         # missing = {Permission.SEND}
     """
-    required = get_required_permissions(tool_name)
+    required = get_required_permissions(tool_name, server_url)
     caller_perms = set(permissions)
     missing = required - caller_perms
 
