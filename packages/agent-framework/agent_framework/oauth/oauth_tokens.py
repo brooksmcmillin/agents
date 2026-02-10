@@ -92,7 +92,7 @@ class TokenStorage:
     Each server gets its own file based on a hash of the server URL.
     """
 
-    def __init__(self, storage_dir: Path | None = None):
+    def __init__(self, storage_dir: Path | None = None) -> None:
         """Initialize token storage.
 
         Args:

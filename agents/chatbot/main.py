@@ -14,7 +14,7 @@ ChatbotAgent = create_simple_agent(
 )
 
 
-async def main():
+async def main() -> None:
     """Start the chatbot agent."""
     await run_agent(ChatbotAgent)
 

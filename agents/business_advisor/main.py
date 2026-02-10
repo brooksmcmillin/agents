@@ -27,7 +27,7 @@ BusinessAdvisorAgent = create_simple_agent(
 )
 
 
-async def main():
+async def main() -> None:
     """Start the Business Advisor agent.
 
     Optionally connects to GitHub MCP server if GITHUB_MCP_SERVER is set.

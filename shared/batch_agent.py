@@ -11,7 +11,7 @@ Usage::
             result = await self.call_tool("get_tasks", {"status": "overdue"})
             # ... process results ...
 
-    async def main():
+    async def main() -> None:
         agent = MyNotifier(mcp_url="https://mcp.example.com/mcp")
         await agent.run()
 """

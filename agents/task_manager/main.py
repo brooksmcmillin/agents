@@ -30,7 +30,7 @@ TaskManagerAgent = create_simple_agent(
 )
 
 
-async def main():
+async def main() -> None:
     """Start the Task Manager agent.
 
     Connects to remote MCP server at MCP_SERVER_URL for task management.

@@ -30,6 +30,7 @@ import logging
 import os
 import secrets
 import uuid
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -54,7 +55,7 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 
@@ -267,7 +268,7 @@ def _get_conversation_store() -> DatabaseConversationStore:
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Start background tasks on startup, clean up on shutdown."""
     global _conversation_store
 
@@ -326,7 +327,7 @@ app.add_middleware(
 
 
 @app.middleware("http")
-async def add_correlation_id(request: Request, call_next):
+async def add_correlation_id(request: Request, call_next) -> Response:
     """Add correlation ID to each request for distributed tracing.
 
     If X-Correlation-ID header is present, use it. Otherwise, generate a new UUID.
@@ -394,10 +395,10 @@ else:
     limiter = None
 
 
-def rate_limit(limit_string: str):
+def rate_limit(limit_string: str) -> Callable:
     """Apply rate limit decorator only if rate limiting is enabled."""
 
-    def decorator(func):
+    def decorator(func) -> Callable:
         if limiter is not None:
             return limiter.limit(limit_string)(func)
         return func
@@ -1046,7 +1047,7 @@ async def resize_claude_code_terminal(
 
 
 @app.websocket("/ws/claude-code/{session_id}")
-async def claude_code_websocket(websocket: WebSocket, session_id: str):
+async def claude_code_websocket(websocket: WebSocket, session_id: str) -> None:
     """WebSocket endpoint for real-time Claude Code interaction.
 
     Events sent from server:
@@ -1069,7 +1070,7 @@ async def claude_code_websocket(websocket: WebSocket, session_id: str):
         await websocket.close(code=4004, reason="Session not found")
         return
 
-    async def send_events():
+    async def send_events() -> None:
         """Send session events to WebSocket client."""
         try:
             async for event in session.events():
@@ -1079,7 +1080,7 @@ async def claude_code_websocket(websocket: WebSocket, session_id: str):
         except Exception as e:
             logger.error(f"Error sending events: {e}")
 
-    async def receive_commands():
+    async def receive_commands() -> None:
         """Receive and process commands from WebSocket client."""
         try:
             while True:
@@ -1201,7 +1202,7 @@ def _validate_twilio_signature(url: str, params: dict[str, str], signature: str)
 
 
 @app.post("/webhooks/sms/incoming")
-async def handle_incoming_sms(request: Request):
+async def handle_incoming_sms(request: Request) -> Response:
     """
     Receive incoming SMS from Twilio and route to the correct conversation.
 
@@ -1221,8 +1222,6 @@ async def handle_incoming_sms(request: Request):
 
     Returns TwiML response (empty for async processing).
     """
-    from fastapi.responses import Response
-
     # Parse form data
     form = await request.form()
     from_phone = str(form.get("From", ""))
@@ -1439,7 +1438,7 @@ if WEBUI_DIST.exists():
 
     # SPA catch-all route - must be LAST route
     @app.get("/{full_path:path}")
-    async def serve_spa(full_path: str):
+    async def serve_spa(full_path: str) -> FileResponse:
         """Serve the React SPA for all non-API routes."""
         # Don't catch API routes
         if full_path.startswith(

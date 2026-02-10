@@ -156,7 +156,7 @@ class _StderrToLogFile:
     are not echoed to it.
     """
 
-    def __init__(self, log_file_path: Path, original_stderr: TextIO | None):
+    def __init__(self, log_file_path: Path, original_stderr: TextIO | None) -> None:
         self.log_file_path = log_file_path
         self.original_stderr = original_stderr
         self._log_file = None
@@ -302,7 +302,7 @@ def setup_logging(
 
 
 class InvalidToolName(Exception):
-    def __init__(self, message: str):
+    def __init__(self, message: str) -> None:
         super().__init__(f"{message} tool not found!")
 
 

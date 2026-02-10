@@ -31,7 +31,7 @@ PRAgent = create_simple_agent(
 )
 
 
-async def main():
+async def main() -> None:
     """Start the PR Assistant agent."""
     await run_agent(PRAgent)
 

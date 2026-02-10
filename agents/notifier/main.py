@@ -125,7 +125,7 @@ def _format_task_message(overdue: list[dict], today: list[dict], upcoming: list[
     return "\n".join(parts)
 
 
-async def main():
+async def main() -> None:
     """Main entry point for task notifier."""
     try:
         notifier = TaskNotifier()

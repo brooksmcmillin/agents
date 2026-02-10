@@ -24,7 +24,7 @@ SecurityResearcherAgent = create_simple_agent(
 )
 
 
-async def main():
+async def main() -> None:
     """Start the Security Researcher agent."""
     await run_agent(SecurityResearcherAgent)
 

@@ -25,7 +25,7 @@ JMAP_CAPABILITIES = {
 class JMAPClient:
     """JMAP client for FastMail API interactions."""
 
-    def __init__(self, api_token: str | None = None):
+    def __init__(self, api_token: str | None = None) -> None:
         """Initialize JMAP client.
 
         Args:

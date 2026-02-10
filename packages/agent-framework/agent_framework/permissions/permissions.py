@@ -10,7 +10,7 @@ from enum import Enum, auto
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Iterator
 
 
 class Permission(Enum):
@@ -62,7 +62,7 @@ class PermissionSet:
         # restricted now only has READ permission
     """
 
-    def __init__(self, permissions: Iterable[Permission] | None = None):
+    def __init__(self, permissions: Iterable[Permission] | None = None) -> None:
         """Initialize with a collection of permissions.
 
         Args:
@@ -247,7 +247,7 @@ class PermissionSet:
         """Support 'in' operator: if Permission.READ in permission_set."""
         return permission in self._permissions
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[Permission]:
         """Iterate over permissions in this set."""
         return iter(self._permissions)
 

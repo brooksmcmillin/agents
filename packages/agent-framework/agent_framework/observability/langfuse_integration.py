@@ -125,7 +125,7 @@ def shutdown_observability() -> None:
     logger.debug("Langfuse observability shutdown complete")
 
 
-def get_langfuse():
+def get_langfuse() -> Any:
     """Get the Langfuse instance.
 
     Returns:
@@ -153,7 +153,7 @@ class TraceContext:
         self.observation = None
         self._context_manager = None
 
-    def __enter__(self):
+    def __enter__(self) -> "TraceContext":
         if _langfuse_client is None:
             return self
 
@@ -179,7 +179,7 @@ class TraceContext:
 
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
         if self._context_manager is not None:
             try:
                 # Update with error info if exception occurred
@@ -260,7 +260,7 @@ class SpanContext:
         self.observation = None
         self._context_manager = None
 
-    def __enter__(self):
+    def __enter__(self) -> "SpanContext":
         if _langfuse_client is None:
             return self
 
@@ -281,7 +281,7 @@ class SpanContext:
 
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
         if self._context_manager is not None:
             try:
                 if exc_type is not None and self.observation is not None:
