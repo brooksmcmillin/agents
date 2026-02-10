@@ -122,6 +122,7 @@ def _build_registry() -> dict[str, tuple[type[Agent], dict[str, Any] | None, str
     from agents.chatbot.main import ChatbotAgent
     from agents.events.main import EventsAgent
     from agents.pr_agent.main import PRAgent
+    from agents.red_team.main import RedTeamAgent
     from agents.security_researcher.main import SecurityResearcherAgent
     from agents.task_manager.main import TaskManagerAgent
     from shared import DEFAULT_MCP_SERVER_URL, ENV_MCP_SERVER_URL
@@ -164,6 +165,11 @@ def _build_registry() -> dict[str, tuple[type[Agent], dict[str, Any] | None, str
                 },
             },
             "Business strategy and monetization advisor",
+        ),
+        "redteam": (
+            RedTeamAgent,
+            None,
+            "Red team security testing agent",
         ),
     }
 
