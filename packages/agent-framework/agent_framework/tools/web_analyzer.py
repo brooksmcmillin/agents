@@ -6,6 +6,7 @@ Uses real web scraping with BeautifulSoup and text analysis.
 
 import logging
 import re
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal
 
@@ -16,120 +17,153 @@ from ..security import SSRFValidator
 
 logger = logging.getLogger(__name__)
 
+
 # ---------------------------------------------------------------------------
-# Constants
+# Configuration dataclasses
 # ---------------------------------------------------------------------------
 
-# HTTP settings
-HTTP_TIMEOUT_SECONDS = 10.0
-MAX_REDIRECTS = 5
 
-# Flesch Reading Ease formula coefficients
-FLESCH_INTERCEPT = 206.835
-FLESCH_SENTENCE_COEFF = 1.015
-FLESCH_SYLLABLE_COEFF = 84.6
+@dataclass(frozen=True)
+class HTTPConfig:
+    """HTTP request settings for web fetching."""
 
-# Readability level thresholds (Flesch Reading Ease score)
-READING_LEVEL_ELEMENTARY = 90
-READING_LEVEL_MIDDLE_SCHOOL = 70
-READING_LEVEL_HIGH_SCHOOL = 60
-READING_LEVEL_COLLEGE = 50
+    timeout_seconds: float = 10.0
+    max_redirects: int = 5
 
-# Formality thresholds (average word length in characters)
-FORMALITY_FORMAL_THRESHOLD = 5.5
-FORMALITY_MODERATE_THRESHOLD = 4.5
 
-# Emotional marker normalization (expected markers per N words)
-EMOTIONAL_MARKER_WORDS_PER_EXPECTED = 100
+@dataclass(frozen=True)
+class ReadabilityConfig:
+    """Flesch Reading Ease formula coefficients and level thresholds."""
 
-# Tone recommendation thresholds
-TONE_LONG_SENTENCE_THRESHOLD = 25
-TONE_LOW_ENTHUSIASM_THRESHOLD = 0.3
-TONE_HIGH_AUTHORITY_THRESHOLD = 0.8
+    # Formula coefficients
+    intercept: float = 206.835
+    sentence_coeff: float = 1.015
+    syllable_coeff: float = 84.6
 
-# SEO title length thresholds (characters)
-SEO_TITLE_MIN_GOOD = 30
-SEO_TITLE_MAX_GOOD = 60
-SEO_TITLE_MIN_OK = 20
-SEO_TITLE_MAX_OK = 70
+    # Reading level thresholds (Flesch score)
+    level_elementary: int = 90
+    level_middle_school: int = 70
+    level_high_school: int = 60
+    level_college: int = 50
 
-# SEO meta description length thresholds (characters)
-SEO_META_MIN_GOOD = 120
-SEO_META_MAX_GOOD = 160
-SEO_META_MIN_OK = 80
-SEO_META_MAX_OK = 200
+    # Words per minute for reading time estimates
+    reading_speed_wpm: int = 200
 
-# SEO scoring weights (points)
-SEO_TITLE_POINTS_GOOD = 25
-SEO_TITLE_POINTS_OK = 15
-SEO_TITLE_POINTS_POOR = 5
-SEO_META_POINTS_GOOD = 20
-SEO_META_POINTS_OK = 10
-SEO_META_POINTS_POOR = 5
-SEO_CONTENT_POINTS_EXCELLENT = 30
-SEO_CONTENT_POINTS_GOOD = 20
-SEO_CONTENT_POINTS_OK = 10
-SEO_CONTENT_POINTS_POOR = 5
-SEO_HEADING_WEIGHT = 0.25
 
-# SEO heading structure penalties (subtracted from 100)
-SEO_PENALTY_NO_H1 = 30
-SEO_PENALTY_MULTIPLE_H1 = 20
-SEO_PENALTY_NO_H2 = 20
+@dataclass(frozen=True)
+class ToneConfig:
+    """Tone analysis thresholds and settings."""
 
-# SEO content length thresholds (word count)
-SEO_WORDS_EXCELLENT = 2000
-SEO_WORDS_GOOD = 1000
-SEO_WORDS_OK = 500
-SEO_WORDS_MIN_RECOMMENDED = 1000
+    # Formality thresholds (average word length in characters)
+    formal_threshold: float = 5.5
+    moderate_threshold: float = 4.5
 
-# Engagement readability thresholds (Flesch Reading Ease score)
-ENGAGEMENT_READABILITY_GOOD = 60
-ENGAGEMENT_READABILITY_OK = 40
-ENGAGEMENT_DIFFICULTY_EASY = 70
-ENGAGEMENT_DIFFICULTY_MODERATE = 50
+    # Emotional marker normalization (expected markers per N words)
+    marker_words_per_expected: int = 100
 
-# Engagement scoring weights (points)
-ENGAGEMENT_READABILITY_POINTS_GOOD = 30
-ENGAGEMENT_READABILITY_POINTS_OK = 20
-ENGAGEMENT_READABILITY_POINTS_POOR = 10
-ENGAGEMENT_IMAGES_MANY_POINTS = 15
-ENGAGEMENT_IMAGES_SOME_POINTS = 10
-ENGAGEMENT_VIDEO_POINTS = 10
-ENGAGEMENT_LISTS_POINTS = 10
-ENGAGEMENT_CTA_POINTS = 10
-ENGAGEMENT_SOCIAL_POINTS = 15
-ENGAGEMENT_WORDCOUNT_POINTS_GOOD = 10
-ENGAGEMENT_WORDCOUNT_POINTS_OK = 5
+    # Recommendation thresholds
+    long_sentence_threshold: int = 25
+    low_enthusiasm_threshold: float = 0.3
+    high_authority_threshold: float = 0.8
 
-# Engagement image thresholds
-ENGAGEMENT_IMAGES_MANY = 3
+    # Sample excerpt settings
+    min_paragraph_length: int = 50
+    excerpt_max_length: int = 150
+    sample_paragraphs: int = 3
 
-# Engagement CTA threshold
-ENGAGEMENT_CTA_MIN = 2
 
-# Engagement ideal word count range
-ENGAGEMENT_WORDS_MIN_IDEAL = 800
-ENGAGEMENT_WORDS_MAX_IDEAL = 2500
-ENGAGEMENT_WORDS_MIN_OK = 500
-ENGAGEMENT_WORDS_MAX_OK = 3500
+@dataclass(frozen=True)
+class SEOConfig:
+    """SEO analysis scoring thresholds and weights."""
 
-# Engagement readability recommendation threshold
-ENGAGEMENT_SIMPLIFY_THRESHOLD = 50
+    # Title length thresholds (characters)
+    title_min_good: int = 30
+    title_max_good: int = 60
+    title_min_ok: int = 20
+    title_max_ok: int = 70
 
-# Tone sample excerpt settings
-TONE_MIN_PARAGRAPH_LENGTH = 50
-TONE_EXCERPT_MAX_LENGTH = 150
-TONE_SAMPLE_PARAGRAPHS = 3
+    # Meta description length thresholds (characters)
+    meta_min_good: int = 120
+    meta_max_good: int = 160
+    meta_min_ok: int = 80
+    meta_max_ok: int = 200
 
-# Reading time (words per minute)
-READING_SPEED_WPM = 200
+    # Scoring weights (points)
+    title_points_good: int = 25
+    title_points_ok: int = 15
+    title_points_poor: int = 5
+    meta_points_good: int = 20
+    meta_points_ok: int = 10
+    meta_points_poor: int = 5
+    content_points_excellent: int = 30
+    content_points_good: int = 20
+    content_points_ok: int = 10
+    content_points_poor: int = 5
+    heading_weight: float = 0.25
 
-# SEO score display thresholds
-SEO_TITLE_SCORE_GOOD = 100
-SEO_TITLE_SCORE_PRESENT = 70
-SEO_META_SCORE_GOOD = 100
-SEO_META_SCORE_PRESENT = 70
+    # Heading structure penalties (subtracted from 100)
+    penalty_no_h1: int = 30
+    penalty_multiple_h1: int = 20
+    penalty_no_h2: int = 20
+
+    # Content length thresholds (word count)
+    words_excellent: int = 2000
+    words_good: int = 1000
+    words_ok: int = 500
+    words_min_recommended: int = 1000
+
+    # Score display thresholds
+    title_score_good: int = 100
+    title_score_present: int = 70
+    meta_score_good: int = 100
+    meta_score_present: int = 70
+
+
+@dataclass(frozen=True)
+class EngagementConfig:
+    """Engagement analysis scoring thresholds and weights."""
+
+    # Readability thresholds (Flesch Reading Ease score)
+    readability_good: int = 60
+    readability_ok: int = 40
+    difficulty_easy: int = 70
+    difficulty_moderate: int = 50
+
+    # Scoring weights (points)
+    readability_points_good: int = 30
+    readability_points_ok: int = 20
+    readability_points_poor: int = 10
+    images_many_points: int = 15
+    images_some_points: int = 10
+    video_points: int = 10
+    lists_points: int = 10
+    cta_points: int = 10
+    social_points: int = 15
+    wordcount_points_good: int = 10
+    wordcount_points_ok: int = 5
+
+    # Image thresholds
+    images_many: int = 3
+
+    # CTA threshold
+    cta_min: int = 2
+
+    # Ideal word count range
+    words_min_ideal: int = 800
+    words_max_ideal: int = 2500
+    words_min_ok: int = 500
+    words_max_ok: int = 3500
+
+    # Readability recommendation threshold
+    simplify_threshold: int = 50
+
+
+# Singleton configuration instances
+HTTP = HTTPConfig()
+READABILITY = ReadabilityConfig()
+TONE = ToneConfig()
+SEO = SEOConfig()
+ENGAGEMENT = EngagementConfig()
 
 
 def _extract_text_content(soup: BeautifulSoup) -> str:
@@ -170,9 +204,9 @@ def _calculate_readability(text: str) -> dict[str, Any]:
     avg_sentence_length = word_count / sentence_count
     avg_syllables_per_word = syllable_count / word_count
     flesch_score = (
-        FLESCH_INTERCEPT
-        - FLESCH_SENTENCE_COEFF * avg_sentence_length
-        - FLESCH_SYLLABLE_COEFF * avg_syllables_per_word
+        READABILITY.intercept
+        - READABILITY.sentence_coeff * avg_sentence_length
+        - READABILITY.syllable_coeff * avg_syllables_per_word
     )
     flesch_score = max(0, min(100, flesch_score))  # Clamp to 0-100
 
@@ -213,22 +247,22 @@ def _analyze_tone(text: str, readability: dict[str, Any]) -> dict[str, Any]:
 
     # Detect formality based on word length and complexity
     avg_word_length = readability["avg_word_length"]
-    if avg_word_length > FORMALITY_FORMAL_THRESHOLD:
+    if avg_word_length > TONE.formal_threshold:
         formality = "formal"
-    elif avg_word_length > FORMALITY_MODERATE_THRESHOLD:
+    elif avg_word_length > TONE.moderate_threshold:
         formality = "moderate"
     else:
         formality = "casual"
 
     # Detect reading level based on Flesch score
     flesch = readability["flesch_reading_ease"]
-    if flesch >= READING_LEVEL_ELEMENTARY:
+    if flesch >= READABILITY.level_elementary:
         reading_level = "elementary"
-    elif flesch >= READING_LEVEL_MIDDLE_SCHOOL:
+    elif flesch >= READABILITY.level_middle_school:
         reading_level = "middle school"
-    elif flesch >= READING_LEVEL_HIGH_SCHOOL:
+    elif flesch >= READABILITY.level_high_school:
         reading_level = "high school"
-    elif flesch >= READING_LEVEL_COLLEGE:
+    elif flesch >= READABILITY.level_college:
         reading_level = "college"
     else:
         reading_level = "graduate"
@@ -268,16 +302,16 @@ def _analyze_tone(text: str, readability: dict[str, Any]) -> dict[str, Any]:
     empathy = sum(text_lower.count(word) for word in empathy_words)
 
     # Normalize to 0-1 scale
-    max_markers = max(1, word_count / EMOTIONAL_MARKER_WORDS_PER_EXPECTED)
+    max_markers = max(1, word_count / TONE.marker_words_per_expected)
 
     return {
         "formality_level": formality,
         "reading_level": reading_level,
         "avg_sentence_length": readability["avg_sentence_length"],
         "vocabulary_complexity": "advanced"
-        if avg_word_length > FORMALITY_FORMAL_THRESHOLD
+        if avg_word_length > TONE.formal_threshold
         else "intermediate"
-        if avg_word_length > FORMALITY_MODERATE_THRESHOLD
+        if avg_word_length > TONE.moderate_threshold
         else "simple",
         "emotional_markers": {
             "enthusiasm": min(1.0, round(enthusiasm / max_markers, 2)),
@@ -311,11 +345,11 @@ def _analyze_seo(soup: BeautifulSoup, text: str) -> dict[str, Any]:
     # Heading structure score
     structure_score = 100
     if h1_count == 0:
-        structure_score -= SEO_PENALTY_NO_H1
+        structure_score -= SEO.penalty_no_h1
     elif h1_count > 1:
-        structure_score -= SEO_PENALTY_MULTIPLE_H1
+        structure_score -= SEO.penalty_multiple_h1
     if h2_count == 0:
-        structure_score -= SEO_PENALTY_NO_H2
+        structure_score -= SEO.penalty_no_h2
 
     # Word count
     word_count = len(text.split())
@@ -325,48 +359,48 @@ def _analyze_seo(soup: BeautifulSoup, text: str) -> dict[str, Any]:
 
     # Title optimization (0-25 points)
     if title:
-        if SEO_TITLE_MIN_GOOD <= len(title) <= SEO_TITLE_MAX_GOOD:
-            seo_score += SEO_TITLE_POINTS_GOOD
-        elif SEO_TITLE_MIN_OK <= len(title) <= SEO_TITLE_MAX_OK:
-            seo_score += SEO_TITLE_POINTS_OK
+        if SEO.title_min_good <= len(title) <= SEO.title_max_good:
+            seo_score += SEO.title_points_good
+        elif SEO.title_min_ok <= len(title) <= SEO.title_max_ok:
+            seo_score += SEO.title_points_ok
         else:
-            seo_score += SEO_TITLE_POINTS_POOR
+            seo_score += SEO.title_points_poor
 
     # Meta description (0-20 points)
     if meta_desc:
-        if SEO_META_MIN_GOOD <= len(meta_desc) <= SEO_META_MAX_GOOD:
-            seo_score += SEO_META_POINTS_GOOD
-        elif SEO_META_MIN_OK <= len(meta_desc) <= SEO_META_MAX_OK:
-            seo_score += SEO_META_POINTS_OK
+        if SEO.meta_min_good <= len(meta_desc) <= SEO.meta_max_good:
+            seo_score += SEO.meta_points_good
+        elif SEO.meta_min_ok <= len(meta_desc) <= SEO.meta_max_ok:
+            seo_score += SEO.meta_points_ok
         else:
-            seo_score += SEO_META_POINTS_POOR
+            seo_score += SEO.meta_points_poor
 
     # Headings (0-25 points)
-    seo_score += int(structure_score * SEO_HEADING_WEIGHT)
+    seo_score += int(structure_score * SEO.heading_weight)
 
     # Content length (0-30 points)
-    if word_count >= SEO_WORDS_EXCELLENT:
-        seo_score += SEO_CONTENT_POINTS_EXCELLENT
-    elif word_count >= SEO_WORDS_GOOD:
-        seo_score += SEO_CONTENT_POINTS_GOOD
-    elif word_count >= SEO_WORDS_OK:
-        seo_score += SEO_CONTENT_POINTS_OK
+    if word_count >= SEO.words_excellent:
+        seo_score += SEO.content_points_excellent
+    elif word_count >= SEO.words_good:
+        seo_score += SEO.content_points_good
+    elif word_count >= SEO.words_ok:
+        seo_score += SEO.content_points_ok
     else:
-        seo_score += SEO_CONTENT_POINTS_POOR
+        seo_score += SEO.content_points_poor
 
     return {
         "seo_score": min(100, seo_score),
         "title_optimization": {
-            "score": SEO_TITLE_SCORE_GOOD
-            if (SEO_TITLE_MIN_GOOD <= len(title) <= SEO_TITLE_MAX_GOOD)
-            else (SEO_TITLE_SCORE_PRESENT if title else 0),
+            "score": SEO.title_score_good
+            if (SEO.title_min_good <= len(title) <= SEO.title_max_good)
+            else (SEO.title_score_present if title else 0),
             "length": len(title),
             "present": bool(title),
         },
         "meta_description": {
-            "score": SEO_META_SCORE_GOOD
-            if (SEO_META_MIN_GOOD <= len(meta_desc) <= SEO_META_MAX_GOOD)
-            else (SEO_META_SCORE_PRESENT if meta_desc else 0),
+            "score": SEO.meta_score_good
+            if (SEO.meta_min_good <= len(meta_desc) <= SEO.meta_max_good)
+            else (SEO.meta_score_present if meta_desc else 0),
             "length": len(meta_desc),
             "present": bool(meta_desc),
         },
@@ -425,47 +459,47 @@ def _analyze_engagement(
 
     # Readability (0-30 points)
     flesch = readability["flesch_reading_ease"]
-    if flesch >= ENGAGEMENT_READABILITY_GOOD:
-        engagement_score += ENGAGEMENT_READABILITY_POINTS_GOOD
-    elif flesch >= ENGAGEMENT_READABILITY_OK:
-        engagement_score += ENGAGEMENT_READABILITY_POINTS_OK
+    if flesch >= ENGAGEMENT.readability_good:
+        engagement_score += ENGAGEMENT.readability_points_good
+    elif flesch >= ENGAGEMENT.readability_ok:
+        engagement_score += ENGAGEMENT.readability_points_ok
     else:
-        engagement_score += ENGAGEMENT_READABILITY_POINTS_POOR
+        engagement_score += ENGAGEMENT.readability_points_poor
 
     # Visual elements (0-25 points)
-    if image_count >= ENGAGEMENT_IMAGES_MANY:
-        engagement_score += ENGAGEMENT_IMAGES_MANY_POINTS
+    if image_count >= ENGAGEMENT.images_many:
+        engagement_score += ENGAGEMENT.images_many_points
     elif image_count >= 1:
-        engagement_score += ENGAGEMENT_IMAGES_SOME_POINTS
+        engagement_score += ENGAGEMENT.images_some_points
     if video_count >= 1:
-        engagement_score += ENGAGEMENT_VIDEO_POINTS
+        engagement_score += ENGAGEMENT.video_points
 
     # Interactive elements (0-20 points)
     if has_bullet_points or has_numbered_lists:
-        engagement_score += ENGAGEMENT_LISTS_POINTS
-    if cta_count >= ENGAGEMENT_CTA_MIN:
-        engagement_score += ENGAGEMENT_CTA_POINTS
+        engagement_score += ENGAGEMENT.lists_points
+    if cta_count >= ENGAGEMENT.cta_min:
+        engagement_score += ENGAGEMENT.cta_points
 
     # Social proof (0-15 points)
     if has_share_buttons:
-        engagement_score += ENGAGEMENT_SOCIAL_POINTS
+        engagement_score += ENGAGEMENT.social_points
 
     # Word count appropriateness (0-10 points)
     word_count = len(text.split())
-    if ENGAGEMENT_WORDS_MIN_IDEAL <= word_count <= ENGAGEMENT_WORDS_MAX_IDEAL:
-        engagement_score += ENGAGEMENT_WORDCOUNT_POINTS_GOOD
-    elif ENGAGEMENT_WORDS_MIN_OK <= word_count <= ENGAGEMENT_WORDS_MAX_OK:
-        engagement_score += ENGAGEMENT_WORDCOUNT_POINTS_OK
+    if ENGAGEMENT.words_min_ideal <= word_count <= ENGAGEMENT.words_max_ideal:
+        engagement_score += ENGAGEMENT.wordcount_points_good
+    elif ENGAGEMENT.words_min_ok <= word_count <= ENGAGEMENT.words_max_ok:
+        engagement_score += ENGAGEMENT.wordcount_points_ok
 
     return {
         "engagement_score": min(100, engagement_score),
         "readability": {
             "flesch_reading_ease": readability["flesch_reading_ease"],
-            "avg_time_to_read": f"{max(1, len(text.split()) // READING_SPEED_WPM)} minutes",
+            "avg_time_to_read": f"{max(1, len(text.split()) // READABILITY.reading_speed_wpm)} minutes",
             "difficulty_level": "easy"
-            if flesch >= ENGAGEMENT_DIFFICULTY_EASY
+            if flesch >= ENGAGEMENT.difficulty_easy
             else "moderate"
-            if flesch >= ENGAGEMENT_DIFFICULTY_MODERATE
+            if flesch >= ENGAGEMENT.difficulty_moderate
             else "difficult",
         },
         "engagement_elements": {
@@ -523,7 +557,7 @@ async def analyze_website(
     try:
         # Fetch the webpage (without automatic redirect following for security)
         async with httpx.AsyncClient(
-            timeout=HTTP_TIMEOUT_SECONDS, follow_redirects=False
+            timeout=HTTP.timeout_seconds, follow_redirects=False
         ) as client:
             response = await client.get(url)
 
@@ -531,7 +565,7 @@ async def analyze_website(
             redirects_followed = 0
             while (
                 response.status_code in (301, 302, 303, 307, 308)
-                and redirects_followed < MAX_REDIRECTS
+                and redirects_followed < HTTP.max_redirects
             ):
                 redirect_url = response.headers.get("Location")
                 if not redirect_url:
@@ -545,8 +579,8 @@ async def analyze_website(
                 response = await client.get(redirect_url)
                 redirects_followed += 1
 
-            if redirects_followed >= MAX_REDIRECTS:
-                raise ValueError(f"Too many redirects (>{MAX_REDIRECTS})")
+            if redirects_followed >= HTTP.max_redirects:
+                raise ValueError(f"Too many redirects (>{HTTP.max_redirects})")
 
             response.raise_for_status()
             html_content = response.text
@@ -570,13 +604,13 @@ async def analyze_website(
             # Extract sample excerpts from first few paragraphs
             paragraphs = soup.find_all("p")
             sample_excerpts = []
-            for p in paragraphs[:TONE_SAMPLE_PARAGRAPHS]:
+            for p in paragraphs[: TONE.sample_paragraphs]:
                 p_text = p.get_text().strip()
-                if len(p_text) > TONE_MIN_PARAGRAPH_LENGTH:
+                if len(p_text) > TONE.min_paragraph_length:
                     sample_excerpts.append(
                         {
-                            "text": p_text[:TONE_EXCERPT_MAX_LENGTH] + "..."
-                            if len(p_text) > TONE_EXCERPT_MAX_LENGTH
+                            "text": p_text[: TONE.excerpt_max_length] + "..."
+                            if len(p_text) > TONE.excerpt_max_length
                             else p_text,
                             "tone_label": tone_analysis["formality_level"],
                         }
@@ -584,11 +618,11 @@ async def analyze_website(
 
             # Generate recommendations
             recommendations = []
-            if readability["avg_sentence_length"] > TONE_LONG_SENTENCE_THRESHOLD:
+            if readability["avg_sentence_length"] > TONE.long_sentence_threshold:
                 recommendations.append("Consider shortening sentences for better readability")
-            if tone_analysis["emotional_markers"]["enthusiasm"] < TONE_LOW_ENTHUSIASM_THRESHOLD:
+            if tone_analysis["emotional_markers"]["enthusiasm"] < TONE.low_enthusiasm_threshold:
                 recommendations.append("Add more engaging language to capture reader interest")
-            if tone_analysis["emotional_markers"]["authority"] > TONE_HIGH_AUTHORITY_THRESHOLD:
+            if tone_analysis["emotional_markers"]["authority"] > TONE.high_authority_threshold:
                 recommendations.append("Balance authoritative tone with more accessible language")
 
             result = {
@@ -607,22 +641,22 @@ async def analyze_website(
 
             # Generate recommendations
             recommendations = []
-            if seo_analysis["title_optimization"]["length"] < SEO_TITLE_MIN_GOOD:
+            if seo_analysis["title_optimization"]["length"] < SEO.title_min_good:
                 recommendations.append(
-                    f"Lengthen page title to {SEO_TITLE_MIN_GOOD}-{SEO_TITLE_MAX_GOOD} characters for better SEO"
+                    f"Lengthen page title to {SEO.title_min_good}-{SEO.title_max_good} characters for better SEO"
                 )
-            elif seo_analysis["title_optimization"]["length"] > SEO_TITLE_MAX_GOOD:
+            elif seo_analysis["title_optimization"]["length"] > SEO.title_max_good:
                 recommendations.append(
-                    f"Shorten page title to under {SEO_TITLE_MAX_GOOD} characters"
+                    f"Shorten page title to under {SEO.title_max_good} characters"
                 )
 
             if not seo_analysis["meta_description"]["present"]:
                 recommendations.append(
-                    f"Add a meta description ({SEO_META_MIN_GOOD}-{SEO_META_MAX_GOOD} characters)"
+                    f"Add a meta description ({SEO.meta_min_good}-{SEO.meta_max_good} characters)"
                 )
-            elif seo_analysis["meta_description"]["length"] < SEO_META_MIN_GOOD:
+            elif seo_analysis["meta_description"]["length"] < SEO.meta_min_good:
                 recommendations.append(
-                    f"Expand meta description to {SEO_META_MIN_GOOD}-{SEO_META_MAX_GOOD} characters"
+                    f"Expand meta description to {SEO.meta_min_good}-{SEO.meta_max_good} characters"
                 )
 
             if seo_analysis["headings"]["h1_count"] == 0:
@@ -630,9 +664,9 @@ async def analyze_website(
             elif seo_analysis["headings"]["h1_count"] > 1:
                 recommendations.append("Use only one H1 heading per page")
 
-            if seo_analysis["content_quality"]["word_count"] < SEO_WORDS_MIN_RECOMMENDED:
+            if seo_analysis["content_quality"]["word_count"] < SEO.words_min_recommended:
                 recommendations.append(
-                    f"Increase content length to {SEO_WORDS_MIN_RECOMMENDED}+ words for better ranking"
+                    f"Increase content length to {SEO.words_min_recommended}+ words for better ranking"
                 )
 
             # Check for images with alt text
@@ -665,9 +699,9 @@ async def analyze_website(
                 recommendations.append(
                     "Use bullet points to break up text and improve scannability"
                 )
-            if engagement_analysis["engagement_elements"]["cta_count"] < ENGAGEMENT_CTA_MIN:
+            if engagement_analysis["engagement_elements"]["cta_count"] < ENGAGEMENT.cta_min:
                 recommendations.append("Add clear calls-to-action throughout the content")
-            if readability["flesch_reading_ease"] < ENGAGEMENT_SIMPLIFY_THRESHOLD:
+            if readability["flesch_reading_ease"] < ENGAGEMENT.simplify_threshold:
                 recommendations.append("Simplify language to improve readability")
 
             result = {

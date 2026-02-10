@@ -235,6 +235,41 @@ async def run_agent_task(
         return f"Error running {agent_name} agent: {e!s}"
 
 
+def _validate_email_intake_config() -> tuple[str, str, str] | None:
+    """Validate required configuration for email intake.
+
+    Returns:
+        Tuple of (intake_email, admin_email, shared_secret) if valid,
+        None if any required config is missing.
+    """
+    from agent_framework.core.config import settings
+
+    if not settings.intake_email_address:
+        logger.error("INTAKE_EMAIL_ADDRESS not configured")
+        return None
+
+    if not settings.admin_email_address:
+        logger.error("ADMIN_EMAIL_ADDRESS not configured")
+        return None
+
+    if not settings.fastmail_api_token:
+        logger.error("FASTMAIL_API_TOKEN not configured")
+        return None
+
+    if not settings.intake_shared_secret:
+        logger.error(
+            "INTAKE_SHARED_SECRET not configured - required for security. "
+            "Generate a random string and add it to your .env file."
+        )
+        return None
+
+    return (
+        settings.intake_email_address.lower(),
+        settings.admin_email_address.lower(),
+        settings.intake_shared_secret,
+    )
+
+
 async def check_and_process_emails(
     dry_run: bool = False,
     permissions: PermissionSet | None = None,
@@ -249,7 +284,6 @@ async def check_and_process_emails(
     Returns:
         Number of emails processed
     """
-    from agent_framework.core.config import settings
     from agent_framework.tools.fastmail import (
         get_email,
         get_emails,
@@ -258,29 +292,11 @@ async def check_and_process_emails(
         update_email_flags,
     )
 
-    # Validate configuration
-    if not settings.intake_email_address:
-        logger.error("INTAKE_EMAIL_ADDRESS not configured")
+    config = _validate_email_intake_config()
+    if config is None:
         return 0
 
-    if not settings.admin_email_address:
-        logger.error("ADMIN_EMAIL_ADDRESS not configured")
-        return 0
-
-    if not settings.fastmail_api_token:
-        logger.error("FASTMAIL_API_TOKEN not configured")
-        return 0
-
-    if not settings.intake_shared_secret:
-        logger.error(
-            "INTAKE_SHARED_SECRET not configured - required for security. "
-            "Generate a random string and add it to your .env file."
-        )
-        return 0
-
-    intake_email = settings.intake_email_address.lower()
-    admin_email = settings.admin_email_address.lower()
-    shared_secret = settings.intake_shared_secret
+    intake_email, admin_email, shared_secret = config
 
     logger.info(f"Checking emails to: {intake_email}")
     logger.info(f"From admin: {admin_email}")
