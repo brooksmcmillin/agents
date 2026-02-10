@@ -16,6 +16,7 @@ import base64
 import binascii
 import logging
 import os
+import posixpath
 import time
 from typing import Any
 from urllib.parse import urlparse
@@ -37,7 +38,9 @@ _MAX_RESPONSE_BYTES = 5 * 1024 * 1024
 # Default session TTL in seconds (1 hour)
 _SESSION_TTL_SECONDS = 3600
 
-# Credential field names to redact in responses
+# Credential field names to redact in responses.
+# All matching is done after normalizing hyphens to underscores and lowercasing,
+# so "api-key", "API_KEY", and "Api-Key" all match "api_key".
 _SENSITIVE_FIELDS = frozenset(
     {
         "password",
@@ -46,17 +49,33 @@ _SENSITIVE_FIELDS = frozenset(
         "token",
         "api_key",
         "apikey",
-        "api-key",
         "access_token",
         "refresh_token",
         "authorization",
         "auth_token",
         "private_key",
+        "session_token",
+        "client_secret",
+        "cookie",
+        "set_cookie",
+        "x_api_key",
+        "x_auth_token",
+        "bearer",
     }
 )
 
 # ---------------------------------------------------------------------------
 # Session state (module-level, survives MCP reconnects)
+#
+# Sessions are keyed by "{agent_name}:{session_name}". In stdio MCP mode
+# (default), each agent instance runs its own MCP server process, so
+# module-level state is inherently isolated per user/conversation.
+#
+# Limitation: In shared remote MCP deployments, agents with the same
+# agent_name (e.g., multiple users using "RedTeamAgent") will share
+# session state. Full multi-tenant isolation requires the MCP framework
+# to inject a unique caller ID (e.g., conversation_id) in addition to
+# agent_name.
 # ---------------------------------------------------------------------------
 
 _sessions: dict[str, dict[str, Any]] = {}
@@ -68,12 +87,19 @@ def _session_key(agent_name: str, name: str) -> str:
 
 
 def _get_session(agent_name: str, name: str) -> dict[str, Any]:
-    """Get or create a named session's state, scoped to agent_name."""
+    """Get or create a named session's state, scoped to agent_name.
+
+    Note: If a session was just expired by _expire_sessions(), this will
+    create a fresh empty session. This is intentional -- expired sessions
+    should not retain stale cookies. The caller gets a clean session and
+    will need to re-authenticate.
+    """
     key = _session_key(agent_name, name)
     now = time.monotonic()
     if key not in _sessions:
         _sessions[key] = {"cookies": {}, "created_at": now, "last_used": now}
     sess = _sessions[key]
+    # Refresh last_used atomically with access (prevents expiry race)
     sess["last_used"] = now
     return sess
 
@@ -125,28 +151,77 @@ def _check_target_allowed(url: str) -> None:
         if parsed.port != prefix_parsed.port:
             continue
         # Path must start with allowed prefix path (default '/')
-        prefix_path = prefix_parsed.path or "/"
-        request_path = parsed.path or "/"
-        if request_path.startswith(prefix_path):
+        # Normalize to prevent traversal bypass (e.g. /api/../admin)
+        prefix_path = posixpath.normpath(prefix_parsed.path or "/")
+        request_path = posixpath.normpath(parsed.path or "/")
+        # Exact match or proper sub-path (boundary check prevents
+        # /api/v1 matching /api/v1admin)
+        if request_path == prefix_path or request_path.startswith(prefix_path + "/"):
             return
 
     raise ValueError(f"URL {url!r} not in REDTEAM_ALLOWED_TARGETS. Allowed prefixes: {prefixes}")
 
 
-def _check_redirect_targets(response: httpx.Response) -> None:
-    """Validate that all redirect hops stayed within allowed targets."""
-    for r in response.history:
-        location = r.headers.get("location", "")
-        if location:
-            try:
-                _check_target_allowed(str(r.url))
-            except ValueError:
-                raise ValueError(
-                    f"Redirect from {r.url} attempted to leave allowed targets. "
-                    f"Redirect chain terminated."
-                )
-    # Also validate the final URL
-    _check_target_allowed(str(response.url))
+_MAX_REDIRECTS = 10
+
+
+async def _safe_request(
+    client: httpx.AsyncClient,
+    method: str,
+    url: str,
+    follow_redirects: bool = True,
+    **kwargs: Any,
+) -> httpx.Response:
+    """Make a request with pre-validated redirect following.
+
+    Instead of letting httpx auto-follow redirects (which makes the request
+    before we can validate the Location), this follows redirects manually,
+    validating each hop's target against the allowlist BEFORE making the
+    request to it.
+
+    Returns the final response with a populated ``history`` list matching
+    the httpx convention.
+    """
+    if not follow_redirects:
+        return await client.request(method, url, **kwargs)
+
+    history: list[httpx.Response] = []
+    current_url = url
+    current_method = method
+
+    for _ in range(_MAX_REDIRECTS):
+        resp = await client.request(current_method, current_url, **kwargs)
+
+        if resp.status_code not in (301, 302, 303, 307, 308):
+            resp.history = history  # type: ignore[attr-defined]
+            return resp
+
+        location = resp.headers.get("location")
+        if not location:
+            resp.history = history  # type: ignore[attr-defined]
+            return resp
+
+        # Resolve relative redirects
+        next_url = str(resp.url.join(location))
+
+        # Validate BEFORE following
+        _check_target_allowed(next_url)
+
+        history.append(resp)
+
+        # 303 always becomes GET; 301/302 become GET for POST (browser behavior)
+        if resp.status_code == 303 or (resp.status_code in (301, 302) and current_method == "POST"):
+            current_method = "GET"
+            kwargs.pop("content", None)
+            kwargs.pop("json", None)
+            kwargs.pop("data", None)
+
+        current_url = next_url
+
+    raise httpx.TooManyRedirects(
+        f"Exceeded {_MAX_REDIRECTS} redirects",
+        request=httpx.Request(method, url),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -165,10 +240,15 @@ def _serialize_headers(headers: httpx.Headers) -> dict[str, str]:
 
 
 def _redact_sensitive(data: dict[str, Any]) -> dict[str, str]:
-    """Redact values of sensitive fields (passwords, tokens, etc.)."""
+    """Redact values of sensitive fields (passwords, tokens, etc.).
+
+    Normalizes hyphens to underscores before matching, so "api-key",
+    "Api-Key", and "API_KEY" all match the canonical "api_key".
+    """
     redacted: dict[str, str] = {}
     for k, v in data.items():
-        if k.lower() in _SENSITIVE_FIELDS:
+        normalized = k.lower().replace("-", "_")
+        if normalized in _SENSITIVE_FIELDS:
             redacted[k] = "[REDACTED]"
         else:
             redacted[k] = str(v)
@@ -180,10 +260,14 @@ def _build_client(
     session_name: str | None = None,
     extra_headers: dict[str, str] | None = None,
     extra_cookies: dict[str, str] | None = None,
-    follow_redirects: bool = True,
     timeout: float = 30.0,
 ) -> httpx.AsyncClient:
-    """Build an httpx client with session state applied."""
+    """Build an httpx client with session state applied.
+
+    Always disables httpx auto-redirects. Redirect following is handled
+    by ``_safe_request()`` which validates each hop against the allowlist
+    before making the request.
+    """
     _expire_sessions()
 
     headers: dict[str, str] = {}
@@ -201,9 +285,8 @@ def _build_client(
     return httpx.AsyncClient(
         headers=headers,
         cookies=cookies,
-        follow_redirects=follow_redirects,
+        follow_redirects=False,
         timeout=timeout,
-        max_redirects=10,
         verify=True,
     )
 
@@ -320,7 +403,6 @@ async def http_request(
         session_name=session,
         extra_headers=headers,
         extra_cookies=cookies,
-        follow_redirects=follow_redirects,
         timeout=timeout,
     ) as client:
         kwargs: dict[str, Any] = {}
@@ -332,12 +414,10 @@ async def http_request(
             kwargs["content"] = raw_body
 
         start = time.monotonic()
-        response = await client.request(method.upper(), url, **kwargs)
+        response = await _safe_request(
+            client, method.upper(), url, follow_redirects=follow_redirects, **kwargs
+        )
         elapsed = round(time.monotonic() - start, 3)
-
-    # Validate redirect targets
-    if response.history:
-        _check_redirect_targets(response)
 
     # Update session cookies
     if session:
@@ -394,7 +474,6 @@ async def http_session_login(
     async with _build_client(
         agent_name=agent_name,
         session_name=session,
-        follow_redirects=True,
         timeout=30.0,
     ) as client:
         kwargs: dict[str, Any] = {}
@@ -404,12 +483,8 @@ async def http_session_login(
             kwargs["json"] = credentials
 
         start = time.monotonic()
-        response = await client.request(method.upper(), url, **kwargs)
+        response = await _safe_request(client, method.upper(), url, **kwargs)
         elapsed = round(time.monotonic() - start, 3)
-
-    # Validate redirect targets
-    if response.history:
-        _check_redirect_targets(response)
 
     # Store all cookies in the session
     sess = _get_session(agent_name, session)
@@ -421,7 +496,7 @@ async def http_session_login(
         "session_name": session,
         "credentials_sent": _redact_sensitive(credentials),
         "cookies_stored": new_cookies,
-        "total_session_cookies": dict(sess["cookies"]),
+        "total_session_cookies": len(sess["cookies"]),
         "body_snippet": await _safe_read_response(response, 2000),
         "elapsed_seconds": elapsed,
     }
@@ -466,6 +541,13 @@ async def http_upload_file(
             f"File too large: {len(file_bytes)} bytes (max {_MAX_UPLOAD_BYTES // (1024 * 1024)} MB)"
         )
 
+    # Sanitize filename: strip null bytes and limit length
+    filename = filename.replace("\x00", "")
+    if len(filename) > 255:
+        raise ValueError(f"Filename too long: {len(filename)} chars (max 255)")
+    if not filename:
+        raise ValueError("Filename cannot be empty")
+
     files = {field_name: (filename, file_bytes, content_type)}
     data = extra_fields or {}
 
@@ -473,16 +555,11 @@ async def http_upload_file(
         agent_name=agent_name,
         session_name=session,
         extra_headers=headers,
-        follow_redirects=True,
         timeout=60.0,
     ) as client:
         start = time.monotonic()
-        response = await client.post(url, files=files, data=data)
+        response = await _safe_request(client, "POST", url, files=files, data=data)
         elapsed = round(time.monotonic() - start, 3)
-
-    # Validate redirect targets
-    if response.history:
-        _check_redirect_targets(response)
 
     if session:
         sess = _get_session(agent_name, session)
@@ -531,10 +608,9 @@ async def http_inspect_headers(
         agent_name=agent_name,
         session_name=session,
         extra_headers=extra_headers,
-        follow_redirects=True,
         timeout=15.0,
     ) as client:
-        response = await client.request(method.upper(), url)
+        response = await _safe_request(client, method.upper(), url)
 
     h = response.headers
 
@@ -627,7 +703,6 @@ async def http_fuzz_parameter(
             agent_name=agent_name,
             session_name=session,
             extra_headers=headers,
-            follow_redirects=True,
             timeout=15.0,
         ) as client:
             kwargs: dict[str, Any] = {}
@@ -640,7 +715,7 @@ async def http_fuzz_parameter(
 
             start = time.monotonic()
             try:
-                response = await client.request(method.upper(), url, **kwargs)
+                response = await _safe_request(client, method.upper(), url, **kwargs)
                 elapsed = round(time.monotonic() - start, 3)
                 results.append(
                     {
@@ -713,7 +788,6 @@ async def http_check_rate_limit(
             agent_name=agent_name,
             session_name=session,
             extra_headers=headers,
-            follow_redirects=True,
             timeout=10.0,
         ) as client:
             kwargs: dict[str, Any] = {}
@@ -722,7 +796,7 @@ async def http_check_rate_limit(
 
             start = time.monotonic()
             try:
-                response = await client.request(method.upper(), url, **kwargs)
+                response = await _safe_request(client, method.upper(), url, **kwargs)
                 elapsed = round(time.monotonic() - start, 3)
 
                 result: dict[str, Any] = {
