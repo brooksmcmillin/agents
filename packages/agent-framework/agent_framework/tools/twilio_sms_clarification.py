@@ -20,7 +20,6 @@ Requires:
 
 import logging
 import os
-import re
 from typing import Any
 from urllib.parse import quote
 
@@ -29,14 +28,14 @@ import httpx
 from ..core.config import settings
 from ..security import mask_phone_number
 from ..storage.sms_phone_pool import SMSPhonePoolManager
+from .twilio_utils import (
+    sanitize_error_message as _sanitize_error_message,
+)
+from .twilio_utils import (
+    validate_phone_number as _validate_phone_number,
+)
 
 logger = logging.getLogger(__name__)
-
-# E.164 phone number format: +[country code][number]
-E164_PATTERN = re.compile(r"^\+[1-9]\d{1,14}$")
-
-# Twilio Account SID format: AC followed by 32 hex characters
-ACCOUNT_SID_PATTERN = re.compile(r"^AC[a-f0-9]{32}$", re.IGNORECASE)
 
 # Global phone pool manager - initialized lazily
 _phone_pool: SMSPhonePoolManager | None = None
@@ -70,43 +69,6 @@ def _get_phone_pool() -> SMSPhonePoolManager | None:
         default_lock_timeout_minutes=settings.sms_lock_timeout_minutes,
     )
     return _phone_pool
-
-
-def _validate_phone_number(phone: str, field_name: str) -> str:
-    """Validate and normalize phone number to E.164 format."""
-    # Strip whitespace and common separators
-    normalized = re.sub(r"[\s\-\(\)\.]", "", phone)
-
-    if not normalized.startswith("+"):
-        if len(normalized) == 10 and normalized.isdigit():
-            normalized = f"+1{normalized}"
-        elif (
-            (normalized.startswith("1") and len(normalized) == 11 and normalized.isdigit())
-            or (normalized.isdigit() and len(normalized) >= 7)
-        ):  # fmt: skip
-            normalized = f"+{normalized}"
-        else:
-            raise ValueError(
-                f"Invalid {field_name}: '{phone}'. Must be in E.164 format "
-                "(e.g., +15551234567) or a 10-digit US number."
-            )
-
-    if not E164_PATTERN.match(normalized):
-        raise ValueError(
-            f"Invalid {field_name}: '{phone}'. Must be in E.164 format "
-            "(e.g., +15551234567) or a 10-digit US number."
-        )
-
-    return normalized
-
-
-def _sanitize_error_message(error: Exception) -> str:
-    """Sanitize error message to avoid exposing sensitive data."""
-    error_str = str(error)
-    sanitized = re.sub(r"[a-f0-9]{32}", "[REDACTED]", error_str, flags=re.IGNORECASE)
-    sanitized = re.sub(r"Bearer\s+\S+", "Bearer [REDACTED]", sanitized, flags=re.IGNORECASE)
-    sanitized = re.sub(r"Basic\s+\S+", "Basic [REDACTED]", sanitized, flags=re.IGNORECASE)
-    return sanitized
 
 
 async def send_sms_clarification(
