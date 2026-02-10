@@ -195,7 +195,7 @@ export const useClaudeCodeStore = create<ClaudeCodeState>((set, get) => ({
     const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
-      console.log('WebSocket connected');
+      // State tracked via sessionState; no logging needed
     };
 
     ws.onmessage = (event) => {
@@ -282,8 +282,7 @@ export const useClaudeCodeStore = create<ClaudeCodeState>((set, get) => ({
       set({ error: 'WebSocket connection error' });
     };
 
-    ws.onclose = (event) => {
-      console.log('WebSocket closed:', event.code, event.reason);
+    ws.onclose = () => {
       set({ ws: null });
 
       // If session is still active and not terminated, show message

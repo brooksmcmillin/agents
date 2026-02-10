@@ -343,7 +343,7 @@ class RemoteMCPClient:
         """
 
         class BearerAuth(httpx.Auth):
-            def __init__(self, token: str):
+            def __init__(self, token: str) -> None:
                 self.token = token
 
             def auth_flow(

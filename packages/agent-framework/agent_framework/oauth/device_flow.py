@@ -51,7 +51,7 @@ DEVICE_CODE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code"
 class DeviceFlowError(Exception):
     """Base exception for device flow errors."""
 
-    def __init__(self, error: str, error_description: str | None = None):
+    def __init__(self, error: str, error_description: str | None = None) -> None:
         self.error = error
         self.error_description = error_description
         message = f"{error}: {error_description}" if error_description else error
@@ -84,7 +84,7 @@ class DeviceFlowHandler(OAuthHandlerBase):
     3. Polling the token endpoint until the user completes authorization
 
     Example with callback for Slack notification:
-        async def notify_slack(info: DeviceAuthorizationInfo):
+        async def notify_slack(info: DeviceAuthorizationInfo) -> None:
             await slack_client.chat_postMessage(
                 channel="#auth",
                 text=f"🔐 Authorization required!\\n"
@@ -104,7 +104,7 @@ class DeviceFlowHandler(OAuthHandlerBase):
         oauth_config: OAuthConfig,
         scopes: str | None = None,
         authorization_callback: DeviceAuthorizationCallback | None = None,
-    ):
+    ) -> None:
         """Initialize device flow handler.
 
         Args:

@@ -113,7 +113,7 @@ class DatabaseMemoryStore:
         cache_ttl: float = DEFAULT_CACHE_TTL,
         min_pool_size: int = 2,
         max_pool_size: int = 10,
-    ):
+    ) -> None:
         """
         Initialize database memory store.
 

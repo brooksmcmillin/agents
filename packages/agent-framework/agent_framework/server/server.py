@@ -25,7 +25,7 @@ class MCPServerBase:
     tool registration and error handling.
     """
 
-    def __init__(self, name: str, setup_defaults: bool = True):
+    def __init__(self, name: str, setup_defaults: bool = True) -> None:
         """
         Initialize MCP server.
 

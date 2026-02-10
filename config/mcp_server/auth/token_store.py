@@ -52,7 +52,7 @@ class TokenStore:
     - In production, consider using a proper secret management service
     """
 
-    def __init__(self, storage_path: Path, encryption_key: str | None = None):
+    def __init__(self, storage_path: Path, encryption_key: str | None = None) -> None:
         """
         Initialize token store.
 

@@ -52,7 +52,7 @@ def create_simple_agent(
             permissions=PermissionSet.admin(),  # For remote MCP tools
         )
 
-        async def main():
+        async def main() -> None:
             await run_agent(PRAgent)
         ```
     """

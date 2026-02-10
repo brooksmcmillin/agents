@@ -18,7 +18,7 @@ class MetadataFilterBuilder:
         results = await conn.fetch(query, *builder.get_params())
     """
 
-    def __init__(self, base_params: list[Any] | None = None):
+    def __init__(self, base_params: list[Any] | None = None) -> None:
         """Initialize the builder.
 
         Args:

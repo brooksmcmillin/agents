@@ -208,7 +208,7 @@ class Settings(BaseSettings):
             raise ValueError("Langfuse host URL must start with https://")
         return v
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs) -> None:
         """Initialize settings and create necessary directories."""
         super().__init__(**kwargs)
         # Ensure storage directories exist

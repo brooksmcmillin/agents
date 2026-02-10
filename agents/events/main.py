@@ -19,7 +19,7 @@ EventsAgent = create_simple_agent(
 )
 
 
-async def main():
+async def main() -> None:
     """Start the events discovery agent."""
     await run_agent(EventsAgent)
 

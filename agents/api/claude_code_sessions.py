@@ -148,7 +148,7 @@ class ClaudeCodeSession:
     # ANSI escape code pattern for stripping
     ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?\x07")
 
-    def __init__(self, session_id: str, workspace_path: Path):
+    def __init__(self, session_id: str, workspace_path: Path) -> None:
         """Initialize a Claude Code session.
 
         Args:

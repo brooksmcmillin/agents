@@ -57,7 +57,7 @@ class ContentPolicyError(SecurityError):
 class InitializationError(AgentError):
     """Raised when a component is not properly initialized."""
 
-    def __init__(self, component: str, action: str = "Call initialize() first"):
+    def __init__(self, component: str, action: str = "Call initialize() first") -> None:
         super().__init__(f"{component} not initialized. {action}")
         self.component = component
 
@@ -65,28 +65,28 @@ class InitializationError(AgentError):
 class DatabaseNotInitializedError(InitializationError):
     """Raised when database operation attempted without initialization."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__("Database pool", "Call initialize() first")
 
 
 class MCPSessionNotInitializedError(InitializationError):
     """Raised when MCP operation attempted without active session."""
 
-    def __init__(self, hint: str = "Use 'async with client.connect():'"):
+    def __init__(self, hint: str = "Use 'async with client.connect():'") -> None:
         super().__init__("MCP session", hint)
 
 
 class OAuthNotInitializedError(InitializationError):
     """Raised when OAuth operation attempted without initialization."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__("OAuth flow")
 
 
 class NotConnectedError(AgentError):
     """Raised when operation requires an active connection."""
 
-    def __init__(self, hint: str = "Use 'async with client' first"):
+    def __init__(self, hint: str = "Use 'async with client' first") -> None:
         super().__init__(f"Not connected. {hint}")
 
 
@@ -100,7 +100,7 @@ class ConfigurationError(AgentError):
 class MissingAPIKeyError(ConfigurationError):
     """Raised when required API key is not found."""
 
-    def __init__(self, key_name: str):
+    def __init__(self, key_name: str) -> None:
         super().__init__(f"{key_name} not found in environment")
         self.key_name = key_name
 
@@ -114,7 +114,7 @@ class OAuthConfigurationError(ConfigurationError):
 class UnsupportedFeatureError(ConfigurationError):
     """Raised when server doesn't support required feature."""
 
-    def __init__(self, feature: str):
+    def __init__(self, feature: str) -> None:
         super().__init__(f"Server does not support {feature}")
         self.feature = feature
 
@@ -122,7 +122,7 @@ class UnsupportedFeatureError(ConfigurationError):
 class MissingMetadataFieldError(ConfigurationError):
     """Raised when required metadata field is missing."""
 
-    def __init__(self, field: str, metadata_type: str = "metadata"):
+    def __init__(self, field: str, metadata_type: str = "metadata") -> None:
         super().__init__(f"{metadata_type} missing '{field}' field")
         self.field = field
         self.metadata_type = metadata_type
