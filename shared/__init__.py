@@ -37,6 +37,7 @@ from .constants import (
     ENV_SLACK_BOT_TOKEN,
     ENV_SLACK_WEBHOOK_URL,
     FASTMAIL_TOOLS,
+    HTTP_CLIENT_TOOLS,
     MEMORY_TOOLS,
     RAG_TOOLS,
 )
@@ -58,6 +59,7 @@ __all__ = [
     "ENV_SLACK_BOT_TOKEN",
     "ENV_SLACK_WEBHOOK_URL",
     "FASTMAIL_TOOLS",
+    "HTTP_CLIENT_TOOLS",
     "MEMORY_TOOLS",
     "RAG_TOOLS",
     "SSRFValidator",

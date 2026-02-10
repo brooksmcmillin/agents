@@ -75,3 +75,13 @@ CLAUDE_CODE_TOOLS = [
     "delete_claude_code_workspace",
     "get_claude_code_workspace_status",
 ]
+
+HTTP_CLIENT_TOOLS = [
+    "http_request",
+    "http_session_login",
+    "http_upload_file",
+    "http_inspect_headers",
+    "http_fuzz_parameter",
+    "http_check_rate_limit",
+    "http_clear_session",
+]

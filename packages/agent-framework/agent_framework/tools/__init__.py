@@ -27,6 +27,16 @@ from .fastmail import (
     send_email,
     update_email_flags,
 )
+from .http_client import TOOL_SCHEMAS as _http_client_schemas
+from .http_client import (
+    http_check_rate_limit,
+    http_clear_session,
+    http_fuzz_parameter,
+    http_inspect_headers,
+    http_request,
+    http_session_login,
+    http_upload_file,
+)
 from .markdown_files import TOOL_SCHEMAS as _markdown_files_schemas
 from .markdown_files import (
     delete_markdown_file,
@@ -82,6 +92,7 @@ ALL_TOOL_SCHEMAS: list[dict] = [
     *_fastmail_schemas,
     *_claude_code_schemas,
     *_markdown_files_schemas,
+    *_http_client_schemas,
 ]
 
 __all__ = [
@@ -131,4 +142,12 @@ __all__ = [
     "read_markdown_file",
     "write_markdown_file",
     "delete_markdown_file",
+    # HTTP client tools
+    "http_request",
+    "http_session_login",
+    "http_upload_file",
+    "http_inspect_headers",
+    "http_fuzz_parameter",
+    "http_check_rate_limit",
+    "http_clear_session",
 ]
