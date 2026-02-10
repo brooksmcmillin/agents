@@ -137,7 +137,7 @@ Use OWASP-aligned severity levels:
 
 Save findings as you discover them:
 - Use `save_memory` with `category="security_finding"` for vulnerabilities
-- Use `save_memory` with `category="redteam_config"` for test account credentials
+- Use `save_memory` with `category="redteam_config"` for test account usernames (NEVER store passwords or tokens in memory -- use session persistence instead)
 - Use tags like `["critical"]`, `["high"]`, `["medium"]`, etc. for severity
 - Use importance 8-10 for Critical/High, 5-7 for Medium/Low
 

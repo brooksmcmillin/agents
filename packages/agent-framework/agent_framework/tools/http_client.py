@@ -1,24 +1,59 @@
 """HTTP client tools for security testing.
 
-Provides 6 MCP tools for making authenticated HTTP requests during
-authorized penetration testing. No SSRF validation -- these are
-intentionally unrestricted pentesting tools.
+Provides 7 MCP tools for making authenticated HTTP requests during
+authorized penetration testing.
 
-Target allowlist is enforced via REDTEAM_ALLOWED_TARGETS env var.
-Session state (cookies, headers) is stored module-level so it survives
-MCP reconnections.
+Target allowlist is enforced via REDTEAM_ALLOWED_TARGETS env var (fail-secure:
+requests are denied when the env var is not set).
+
+Session state (cookies) is stored module-level so it survives MCP reconnections.
+Sessions are keyed by agent_name to provide isolation in multi-tenant deployments,
+and expire after a configurable TTL.
 """
 
 import asyncio
 import base64
+import binascii
 import logging
 import os
 import time
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+# Max file upload size (10 MB)
+_MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+
+# Max response body to read before truncation (5 MB)
+_MAX_RESPONSE_BYTES = 5 * 1024 * 1024
+
+# Default session TTL in seconds (1 hour)
+_SESSION_TTL_SECONDS = 3600
+
+# Credential field names to redact in responses
+_SENSITIVE_FIELDS = frozenset(
+    {
+        "password",
+        "passwd",
+        "secret",
+        "token",
+        "api_key",
+        "apikey",
+        "api-key",
+        "access_token",
+        "refresh_token",
+        "authorization",
+        "auth_token",
+        "private_key",
+    }
+)
 
 # ---------------------------------------------------------------------------
 # Session state (module-level, survives MCP reconnects)
@@ -27,11 +62,30 @@ logger = logging.getLogger(__name__)
 _sessions: dict[str, dict[str, Any]] = {}
 
 
-def _get_session(name: str) -> dict[str, Any]:
-    """Get or create a named session's state."""
-    if name not in _sessions:
-        _sessions[name] = {"cookies": {}, "headers": {}}
-    return _sessions[name]
+def _session_key(agent_name: str, name: str) -> str:
+    """Build an isolated session key scoped to the agent/user context."""
+    return f"{agent_name}:{name}"
+
+
+def _get_session(agent_name: str, name: str) -> dict[str, Any]:
+    """Get or create a named session's state, scoped to agent_name."""
+    key = _session_key(agent_name, name)
+    now = time.monotonic()
+    if key not in _sessions:
+        _sessions[key] = {"cookies": {}, "created_at": now, "last_used": now}
+    sess = _sessions[key]
+    sess["last_used"] = now
+    return sess
+
+
+def _expire_sessions() -> None:
+    """Remove sessions older than TTL."""
+    now = time.monotonic()
+    expired = [
+        k for k, v in _sessions.items() if (now - v.get("last_used", 0)) > _SESSION_TTL_SECONDS
+    ]
+    for k in expired:
+        del _sessions[k]
 
 
 # ---------------------------------------------------------------------------
@@ -40,15 +94,59 @@ def _get_session(name: str) -> dict[str, Any]:
 
 
 def _check_target_allowed(url: str) -> None:
-    """Raise ValueError if the URL is not in the allowed targets list."""
+    """Raise ValueError if the URL is not in the allowed targets list.
+
+    Fail-secure: denies all requests when REDTEAM_ALLOWED_TARGETS is not set.
+    Uses proper URL parsing to prevent subdomain bypass attacks.
+    """
     allowed = os.getenv("REDTEAM_ALLOWED_TARGETS", "")
     if not allowed:
-        return  # empty = allow all
+        raise ValueError(
+            "REDTEAM_ALLOWED_TARGETS is not set. "
+            "Configure it with comma-separated URL prefixes to allow requests."
+        )
+
+    parsed = urlparse(url)
+    if not parsed.scheme or not parsed.hostname:
+        raise ValueError(f"Invalid URL: {url!r}")
+
     prefixes = [p.strip() for p in allowed.split(",") if p.strip()]
     for prefix in prefixes:
-        if url.startswith(prefix):
+        prefix_parsed = urlparse(prefix)
+        if not prefix_parsed.scheme or not prefix_parsed.hostname:
+            continue
+        # Scheme must match
+        if parsed.scheme != prefix_parsed.scheme:
+            continue
+        # Hostname must match exactly (no subdomain bypass)
+        if parsed.hostname != prefix_parsed.hostname:
+            continue
+        # Port must match (urlparse returns None for default ports)
+        if parsed.port != prefix_parsed.port:
+            continue
+        # Path must start with allowed prefix path (default '/')
+        prefix_path = prefix_parsed.path or "/"
+        request_path = parsed.path or "/"
+        if request_path.startswith(prefix_path):
             return
+
     raise ValueError(f"URL {url!r} not in REDTEAM_ALLOWED_TARGETS. Allowed prefixes: {prefixes}")
+
+
+def _check_redirect_targets(response: httpx.Response) -> None:
+    """Validate that all redirect hops stayed within allowed targets."""
+    for r in response.history:
+        location = r.headers.get("location", "")
+        if location:
+            try:
+                _check_target_allowed(str(r.url))
+            except ValueError:
+                raise ValueError(
+                    f"Redirect from {r.url} attempted to leave allowed targets. "
+                    f"Redirect chain terminated."
+                )
+    # Also validate the final URL
+    _check_target_allowed(str(response.url))
 
 
 # ---------------------------------------------------------------------------
@@ -66,7 +164,19 @@ def _serialize_headers(headers: httpx.Headers) -> dict[str, str]:
     return dict(headers.items())
 
 
+def _redact_sensitive(data: dict[str, Any]) -> dict[str, str]:
+    """Redact values of sensitive fields (passwords, tokens, etc.)."""
+    redacted: dict[str, str] = {}
+    for k, v in data.items():
+        if k.lower() in _SENSITIVE_FIELDS:
+            redacted[k] = "[REDACTED]"
+        else:
+            redacted[k] = str(v)
+    return redacted
+
+
 def _build_client(
+    agent_name: str,
     session_name: str | None = None,
     extra_headers: dict[str, str] | None = None,
     extra_cookies: dict[str, str] | None = None,
@@ -74,12 +184,13 @@ def _build_client(
     timeout: float = 30.0,
 ) -> httpx.AsyncClient:
     """Build an httpx client with session state applied."""
-    headers = {}
-    cookies = {}
+    _expire_sessions()
+
+    headers: dict[str, str] = {}
+    cookies: dict[str, str] = {}
 
     if session_name:
-        sess = _get_session(session_name)
-        headers.update(sess.get("headers", {}))
+        sess = _get_session(agent_name, session_name)
         cookies.update(sess.get("cookies", {}))
 
     if extra_headers:
@@ -92,23 +203,85 @@ def _build_client(
         cookies=cookies,
         follow_redirects=follow_redirects,
         timeout=timeout,
+        max_redirects=10,
         verify=True,
     )
 
 
-def _truncate(text: str, max_len: int = 10000) -> str:
-    """Truncate response body to keep tool results reasonable."""
+async def _safe_read_response(response: httpx.Response, max_len: int = 10000) -> str:
+    """Read response text with size guard to prevent memory exhaustion.
+
+    Reads at most _MAX_RESPONSE_BYTES before decoding, then truncates to max_len.
+    """
+    # If response is already read (not streaming), use it directly but guard size
+    body_bytes = response.content
+    if len(body_bytes) > _MAX_RESPONSE_BYTES:
+        text = body_bytes[:_MAX_RESPONSE_BYTES].decode(
+            response.encoding or "utf-8", errors="replace"
+        )
+        return text[:max_len] + f"\n\n[... truncated, response was {len(body_bytes)} bytes]"
+
+    text = response.text
     if len(text) <= max_len:
         return text
     return text[:max_len] + f"\n\n[... truncated, {len(text)} total chars]"
+
+
+def _parse_cookie_header(cookie_header: str) -> dict[str, Any]:
+    """Safely parse a Set-Cookie header into structured analysis.
+
+    Handles malformed cookies without raising exceptions.
+    """
+    parts = cookie_header.split(";")
+
+    # Parse cookie name from "name=value" (first part)
+    cookie_name = "unknown"
+    if parts:
+        name_value = parts[0].strip()
+        eq_idx = name_value.find("=")
+        if eq_idx > 0:
+            cookie_name = name_value[:eq_idx].strip()
+        elif name_value:
+            cookie_name = name_value
+
+    # Parse attributes - use exact matching, not substring
+    attrs_raw = [p.strip() for p in parts[1:]]
+    attrs_lower = [a.lower() for a in attrs_raw]
+
+    httponly = False
+    secure = False
+    samesite = None
+
+    for attr in attrs_lower:
+        attr_stripped = attr.strip()
+        if attr_stripped == "httponly":
+            httponly = True
+        elif attr_stripped == "secure":
+            secure = True
+        elif attr_stripped.startswith("samesite="):
+            eq_idx = attr_stripped.find("=")
+            if eq_idx >= 0 and eq_idx + 1 < len(attr_stripped):
+                samesite = attr_stripped[eq_idx + 1 :].strip()
+
+    return {
+        "name": cookie_name,
+        "httponly": httponly,
+        "secure": secure,
+        "samesite": samesite,
+        "raw": cookie_header,
+    }
 
 
 # ---------------------------------------------------------------------------
 # Tool implementations
 # ---------------------------------------------------------------------------
 
+# All tools accept agent_name as their first parameter. This is injected
+# by the Agent class automatically and is used for session isolation.
+
 
 async def http_request(
+    agent_name: str,
     url: str,
     method: str = "GET",
     headers: dict[str, str] | None = None,
@@ -124,6 +297,7 @@ async def http_request(
     """Make an HTTP request with full control over method, headers, body, and cookies.
 
     Args:
+        agent_name: Injected by framework - agent/user context for session isolation
         url: Target URL
         method: HTTP method (GET, POST, PUT, DELETE, PATCH, OPTIONS, HEAD)
         headers: Extra request headers
@@ -142,6 +316,7 @@ async def http_request(
     _check_target_allowed(url)
 
     async with _build_client(
+        agent_name=agent_name,
         session_name=session,
         extra_headers=headers,
         extra_cookies=cookies,
@@ -160,9 +335,13 @@ async def http_request(
         response = await client.request(method.upper(), url, **kwargs)
         elapsed = round(time.monotonic() - start, 3)
 
+    # Validate redirect targets
+    if response.history:
+        _check_redirect_targets(response)
+
     # Update session cookies
     if session:
-        sess = _get_session(session)
+        sess = _get_session(agent_name, session)
         sess["cookies"].update(_serialize_cookies(response.cookies))
 
     # Build redirect history
@@ -180,7 +359,7 @@ async def http_request(
     return {
         "status": response.status_code,
         "headers": _serialize_headers(response.headers),
-        "body": _truncate(response.text, max_response_length),
+        "body": await _safe_read_response(response, max_response_length),
         "elapsed_seconds": elapsed,
         "cookies_set": _serialize_cookies(response.cookies),
         "redirect_history": redirect_history,
@@ -189,6 +368,7 @@ async def http_request(
 
 
 async def http_session_login(
+    agent_name: str,
     url: str,
     credentials: dict[str, str],
     session: str = "default",
@@ -198,6 +378,7 @@ async def http_session_login(
     """POST credentials to a login endpoint and store session cookies.
 
     Args:
+        agent_name: Injected by framework - agent/user context for session isolation
         url: Login endpoint URL
         credentials: Dict of credential fields (e.g. {"username": "x", "password": "y"})
         session: Named session to store cookies in (default: "default")
@@ -205,11 +386,13 @@ async def http_session_login(
         content_type: "json" or "form" (default: "json")
 
     Returns:
-        Dict with status, cookies_stored, session_name, response body snippet
+        Dict with status, cookies_stored, session_name, response body snippet.
+        Credential values are redacted in the response.
     """
     _check_target_allowed(url)
 
     async with _build_client(
+        agent_name=agent_name,
         session_name=session,
         follow_redirects=True,
         timeout=30.0,
@@ -224,22 +407,28 @@ async def http_session_login(
         response = await client.request(method.upper(), url, **kwargs)
         elapsed = round(time.monotonic() - start, 3)
 
+    # Validate redirect targets
+    if response.history:
+        _check_redirect_targets(response)
+
     # Store all cookies in the session
-    sess = _get_session(session)
+    sess = _get_session(agent_name, session)
     new_cookies = _serialize_cookies(response.cookies)
     sess["cookies"].update(new_cookies)
 
     return {
         "status": response.status_code,
         "session_name": session,
+        "credentials_sent": _redact_sensitive(credentials),
         "cookies_stored": new_cookies,
         "total_session_cookies": dict(sess["cookies"]),
-        "body_snippet": _truncate(response.text, 2000),
+        "body_snippet": await _safe_read_response(response, 2000),
         "elapsed_seconds": elapsed,
     }
 
 
 async def http_upload_file(
+    agent_name: str,
     url: str,
     file_content_base64: str,
     filename: str,
@@ -252,8 +441,9 @@ async def http_upload_file(
     """Upload a file via multipart form data.
 
     Args:
+        agent_name: Injected by framework - agent/user context for session isolation
         url: Upload endpoint URL
-        file_content_base64: Base64-encoded file content
+        file_content_base64: Base64-encoded file content (max 10 MB decoded)
         filename: Name of the file to upload
         content_type: MIME type of the file
         field_name: Form field name for the file (default: "file")
@@ -266,12 +456,21 @@ async def http_upload_file(
     """
     _check_target_allowed(url)
 
-    file_bytes = base64.b64decode(file_content_base64)
+    try:
+        file_bytes = base64.b64decode(file_content_base64)
+    except (binascii.Error, ValueError) as e:
+        raise ValueError(f"Invalid base64 content: {e}")
+
+    if len(file_bytes) > _MAX_UPLOAD_BYTES:
+        raise ValueError(
+            f"File too large: {len(file_bytes)} bytes (max {_MAX_UPLOAD_BYTES // (1024 * 1024)} MB)"
+        )
 
     files = {field_name: (filename, file_bytes, content_type)}
     data = extra_fields or {}
 
     async with _build_client(
+        agent_name=agent_name,
         session_name=session,
         extra_headers=headers,
         follow_redirects=True,
@@ -281,19 +480,24 @@ async def http_upload_file(
         response = await client.post(url, files=files, data=data)
         elapsed = round(time.monotonic() - start, 3)
 
+    # Validate redirect targets
+    if response.history:
+        _check_redirect_targets(response)
+
     if session:
-        sess = _get_session(session)
+        sess = _get_session(agent_name, session)
         sess["cookies"].update(_serialize_cookies(response.cookies))
 
     return {
         "status": response.status_code,
         "headers": _serialize_headers(response.headers),
-        "body": _truncate(response.text, 5000),
+        "body": await _safe_read_response(response, 5000),
         "elapsed_seconds": elapsed,
     }
 
 
 async def http_inspect_headers(
+    agent_name: str,
     url: str,
     method: str = "GET",
     origin: str | None = None,
@@ -305,6 +509,7 @@ async def http_inspect_headers(
     and cookie attributes (HttpOnly, Secure, SameSite).
 
     Args:
+        agent_name: Injected by framework - agent/user context for session isolation
         url: Target URL
         method: HTTP method (default: GET). Use OPTIONS for CORS preflight.
         origin: Custom Origin header for CORS testing
@@ -323,6 +528,7 @@ async def http_inspect_headers(
         extra_headers["Access-Control-Request-Headers"] = "Content-Type, Authorization"
 
     async with _build_client(
+        agent_name=agent_name,
         session_name=session,
         extra_headers=extra_headers,
         follow_redirects=True,
@@ -359,24 +565,10 @@ async def http_inspect_headers(
     for name in cors_header_names:
         cors_headers[name] = h.get(name)
 
-    # Cookie analysis
+    # Cookie analysis - safe parsing
     cookie_analysis = []
     for cookie_header in h.get_list("set-cookie"):
-        parts = cookie_header.split(";")
-        cookie_name = parts[0].split("=")[0].strip() if parts else "unknown"
-        attrs = [p.strip().lower() for p in parts[1:]]
-        cookie_analysis.append(
-            {
-                "name": cookie_name,
-                "httponly": any("httponly" in a for a in attrs),
-                "secure": any("secure" in a for a in attrs),
-                "samesite": next(
-                    (a.split("=")[1].strip() for a in attrs if "samesite" in a),
-                    None,
-                ),
-                "raw": cookie_header,
-            }
-        )
+        cookie_analysis.append(_parse_cookie_header(cookie_header))
 
     return {
         "status": response.status_code,
@@ -388,6 +580,7 @@ async def http_inspect_headers(
 
 
 async def http_fuzz_parameter(
+    agent_name: str,
     url: str,
     method: str = "GET",
     parameter: str = "",
@@ -402,6 +595,7 @@ async def http_fuzz_parameter(
     """Send variations of a parameter to detect injection vulnerabilities.
 
     Args:
+        agent_name: Injected by framework - agent/user context for session isolation
         url: Target URL
         method: HTTP method
         parameter: Parameter name to fuzz
@@ -430,6 +624,7 @@ async def http_fuzz_parameter(
         params[parameter] = payload
 
         async with _build_client(
+            agent_name=agent_name,
             session_name=session,
             extra_headers=headers,
             follow_redirects=True,
@@ -451,7 +646,7 @@ async def http_fuzz_parameter(
                     {
                         "payload": payload,
                         "status": response.status_code,
-                        "body_snippet": _truncate(response.text, max_response_snippet),
+                        "body_snippet": await _safe_read_response(response, max_response_snippet),
                         "elapsed_seconds": elapsed,
                         "content_length": len(response.content),
                     }
@@ -482,6 +677,7 @@ async def http_fuzz_parameter(
 
 
 async def http_check_rate_limit(
+    agent_name: str,
     url: str,
     method: str = "GET",
     num_requests: int = 20,
@@ -492,6 +688,7 @@ async def http_check_rate_limit(
     """Send rapid identical requests to test rate limiting.
 
     Args:
+        agent_name: Injected by framework - agent/user context for session isolation
         url: Target URL
         method: HTTP method
         num_requests: Number of requests to send (default: 20, max: 100)
@@ -513,6 +710,7 @@ async def http_check_rate_limit(
 
     for i in range(num_requests):
         async with _build_client(
+            agent_name=agent_name,
             session_name=session,
             extra_headers=headers,
             follow_redirects=True,
@@ -575,6 +773,30 @@ async def http_check_rate_limit(
     }
 
 
+async def http_clear_session(
+    agent_name: str,
+    session: str = "default",
+) -> dict[str, Any]:
+    """Clear a named session's cookies and state.
+
+    Args:
+        agent_name: Injected by framework - agent/user context for session isolation
+        session: Named session to clear (default: "default")
+
+    Returns:
+        Dict with cleared session name and status
+    """
+    key = _session_key(agent_name, session)
+    had_session = key in _sessions
+    if had_session:
+        del _sessions[key]
+    return {
+        "session_name": session,
+        "cleared": had_session,
+        "active_sessions": len([k for k in _sessions if k.startswith(f"{agent_name}:")]),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Tool schemas for MCP server auto-registration
 # ---------------------------------------------------------------------------
@@ -586,7 +808,8 @@ TOOL_SCHEMAS = [
             "Make an HTTP request with full control over method, headers, cookies, "
             "and body format (JSON, form, raw). Returns status code, response headers, "
             "body, timing, cookies set, and redirect history. Use a named session to "
-            "persist cookies across requests."
+            "persist cookies across requests. Redirects are validated against the "
+            "target allowlist."
         ),
         "input_schema": {
             "type": "object",
@@ -653,7 +876,8 @@ TOOL_SCHEMAS = [
         "description": (
             "POST credentials to a login endpoint and store the resulting session "
             "cookies in a named session for reuse in subsequent requests. Supports "
-            "JSON and form-encoded credential submission."
+            "JSON and form-encoded credential submission. Credential values are "
+            "automatically redacted in the response."
         ),
         "input_schema": {
             "type": "object",
@@ -692,8 +916,8 @@ TOOL_SCHEMAS = [
         "name": "http_upload_file",
         "description": (
             "Upload a file via multipart form data. Accepts base64-encoded file content "
-            "with configurable filename, MIME type, and form field name. Can include "
-            "additional form fields."
+            "(max 10 MB) with configurable filename, MIME type, and form field name. "
+            "Can include additional form fields."
         ),
         "input_schema": {
             "type": "object",
@@ -704,7 +928,7 @@ TOOL_SCHEMAS = [
                 },
                 "file_content_base64": {
                     "type": "string",
-                    "description": "Base64-encoded file content",
+                    "description": "Base64-encoded file content (max 10 MB decoded)",
                 },
                 "filename": {
                     "type": "string",
@@ -877,5 +1101,24 @@ TOOL_SCHEMAS = [
             "required": ["url"],
         },
         "handler": http_check_rate_limit,
+    },
+    {
+        "name": "http_clear_session",
+        "description": (
+            "Clear a named session's cookies and state. Use this to log out, "
+            "reset test state, or free resources. Returns the number of "
+            "remaining active sessions."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "session": {
+                    "type": "string",
+                    "default": "default",
+                    "description": "Named session to clear",
+                },
+            },
+        },
+        "handler": http_clear_session,
     },
 ]

@@ -30,6 +30,7 @@ from .fastmail import (
 from .http_client import TOOL_SCHEMAS as _http_client_schemas
 from .http_client import (
     http_check_rate_limit,
+    http_clear_session,
     http_fuzz_parameter,
     http_inspect_headers,
     http_request,
@@ -148,4 +149,5 @@ __all__ = [
     "http_inspect_headers",
     "http_fuzz_parameter",
     "http_check_rate_limit",
+    "http_clear_session",
 ]

@@ -83,4 +83,5 @@ HTTP_CLIENT_TOOLS = [
     "http_inspect_headers",
     "http_fuzz_parameter",
     "http_check_rate_limit",
+    "http_clear_session",
 ]
