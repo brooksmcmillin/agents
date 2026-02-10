@@ -30,7 +30,7 @@ import logging
 import os
 import secrets
 import uuid
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -327,7 +327,9 @@ app.add_middleware(
 
 
 @app.middleware("http")
-async def add_correlation_id(request: Request, call_next) -> Response:
+async def add_correlation_id(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
     """Add correlation ID to each request for distributed tracing.
 
     If X-Correlation-ID header is present, use it. Otherwise, generate a new UUID.
@@ -395,10 +397,10 @@ else:
     limiter = None
 
 
-def rate_limit(limit_string: str) -> Callable:
+def rate_limit(limit_string: str) -> Callable[[Callable], Callable]:
     """Apply rate limit decorator only if rate limiting is enabled."""
 
-    def decorator(func) -> Callable:
+    def decorator(func: Callable) -> Callable:
         if limiter is not None:
             return limiter.limit(limit_string)(func)
         return func

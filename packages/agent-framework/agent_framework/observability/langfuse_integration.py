@@ -179,7 +179,7 @@ class TraceContext:
 
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
+    def __exit__(self, exc_type, exc_val, exc_tb) -> bool | None:
         if self._context_manager is not None:
             try:
                 # Update with error info if exception occurred
@@ -281,7 +281,7 @@ class SpanContext:
 
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
+    def __exit__(self, exc_type, exc_val, exc_tb) -> bool | None:
         if self._context_manager is not None:
             try:
                 if exc_type is not None and self.observation is not None:
