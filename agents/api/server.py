@@ -1203,6 +1203,11 @@ def _validate_twilio_signature(url: str, params: dict[str, str], signature: str)
     return hmac.compare_digest(expected_b64, signature)
 
 
+def _sanitize_for_log(value: str) -> str:
+    """Strip control characters from user input to prevent log injection."""
+    return value.replace("\n", "").replace("\r", "").replace("\x00", "")
+
+
 @app.post("/webhooks/sms/incoming")
 async def handle_incoming_sms(request: Request) -> Response:
     """
@@ -1224,10 +1229,10 @@ async def handle_incoming_sms(request: Request) -> Response:
 
     Returns TwiML response (empty for async processing).
     """
-    # Parse form data
+    # Parse form data and sanitize for safe logging
     form = await request.form()
-    from_phone = str(form.get("From", ""))
-    to_phone = str(form.get("To", ""))
+    from_phone = _sanitize_for_log(str(form.get("From", "")))
+    to_phone = _sanitize_for_log(str(form.get("To", "")))
     message_body = str(form.get("Body", ""))
 
     logger.info(f"Incoming SMS from {from_phone} to {to_phone}")
