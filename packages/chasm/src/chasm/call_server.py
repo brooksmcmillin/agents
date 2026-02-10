@@ -274,7 +274,7 @@ Focus on quick, helpful responses that work well when spoken aloud."""
             result = await handler.make_outbound_call(to_number)
             return result
         except Exception:
-            logger.exception("Failed to initiate outbound call to %s", mask_phone_number(to_number))
+            logger.exception("Failed to initiate outbound call")
             return {"error": "Failed to initiate outbound call"}
 
     @app.get("/calls")
