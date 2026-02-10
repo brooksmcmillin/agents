@@ -34,7 +34,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
 if TYPE_CHECKING:
     from agent_framework.storage import SMSPhonePoolManager
@@ -397,12 +397,15 @@ else:
     limiter = None
 
 
-def rate_limit(limit_string: str) -> Callable[[Callable], Callable]:
+F = TypeVar("F", bound=Callable[..., Any])
+
+
+def rate_limit(limit_string: str) -> Callable[[F], F]:
     """Apply rate limit decorator only if rate limiting is enabled."""
 
-    def decorator(func: Callable) -> Callable:
+    def decorator(func: F) -> F:
         if limiter is not None:
-            return limiter.limit(limit_string)(func)
+            return limiter.limit(limit_string)(func)  # type: ignore[return-value]
         return func
 
     return decorator
@@ -1233,7 +1236,7 @@ async def handle_incoming_sms(request: Request) -> Response:
     form = await request.form()
     from_phone = _sanitize_for_log(str(form.get("From", "")))
     to_phone = _sanitize_for_log(str(form.get("To", "")))
-    message_body = str(form.get("Body", ""))
+    message_body = _sanitize_for_log(str(form.get("Body", "")))
 
     logger.info(f"Incoming SMS from {from_phone} to {to_phone}")
 

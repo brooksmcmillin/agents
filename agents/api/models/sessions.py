@@ -1,5 +1,7 @@
 """Session management models."""
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -15,4 +17,4 @@ class SessionInfo(BaseModel):
     session_id: str
     agent: str
     message_count: int
-    context_stats: dict
+    context_stats: dict[str, Any]
