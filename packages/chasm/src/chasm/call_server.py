@@ -273,8 +273,8 @@ Focus on quick, helpful responses that work well when spoken aloud."""
         try:
             result = await handler.make_outbound_call(to_number)
             return result
-        except Exception as e:
-            return {"error": str(e)}
+        except Exception:
+            return {"error": "Failed to initiate outbound call"}
 
     @app.get("/calls")
     async def list_calls():
