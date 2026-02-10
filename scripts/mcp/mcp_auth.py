@@ -15,6 +15,7 @@ import os
 import secrets
 import sys
 import webbrowser
+from html import escape as html_escape
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
 
@@ -134,8 +135,8 @@ class MCPAuth:
             """
             return web.Response(text=response_html, content_type="text/html")
         elif "error" in params:
-            error = params["error"][0]
-            error_description = params.get("error_description", ["Unknown error"])[0]
+            error = html_escape(params["error"][0])
+            error_description = html_escape(params.get("error_description", ["Unknown error"])[0])
             response_html = f"""
             <html>
                 <head><title>Authorization Failed</title></head>
@@ -446,7 +447,8 @@ def show_config():
     print("  Auth Method: PKCE (no client secret needed)")
     print(f"  Redirect URI: {MCP_OAUTH_CONFIG['redirect_uri']}")
     print(f"  Scope: {MCP_OAUTH_CONFIG['scope']}")
-    print(f"  Current Token: {'✅ Set' if os.getenv('MCP_AUTH_TOKEN') else '❌ Not set'}")
+    token_status = "Set" if os.getenv("MCP_AUTH_TOKEN") else "Not set"
+    print(f"  Current Token: {token_status}")
     print()
 
 

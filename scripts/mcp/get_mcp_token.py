@@ -7,6 +7,7 @@ to obtain a valid access token from the MCP authorization server.
 
 import asyncio
 import webbrowser
+from html import escape as html_escape
 from urllib.parse import urlencode
 
 import httpx
@@ -77,7 +78,7 @@ async def get_oauth_token() -> str | None:
                 content_type="text/html",
             )
         else:
-            error = request.query.get("error", "Unknown error")
+            error = html_escape(request.query.get("error", "Unknown error"))
             return web.Response(text=f"❌ Authorization failed: {error}", content_type="text/html")
 
     app.router.add_get("/callback", callback)
