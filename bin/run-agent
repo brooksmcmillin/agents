@@ -74,6 +74,9 @@ AGENTS: dict[str, tuple[type, dict | None]] = {
         CodeAnalysisAgent,
         {
             "mcp_urls": [os.getenv(ENV_MCP_SERVER_URL, DEFAULT_MCP_SERVER_URL)],
+            "mcp_client_config": {
+                "prefer_device_flow": True,
+            },
         },
     ),
     "events": (EventsAgent, None),
