@@ -1,8 +1,6 @@
 """Local events discovery agent with preference learning."""
 
-import asyncio
-
-from shared import create_simple_agent, run_agent
+from shared import create_simple_agent
 
 from .prompts import SYSTEM_PROMPT, USER_GREETING_PROMPT
 
@@ -18,11 +16,9 @@ EventsAgent = create_simple_agent(
     ],
 )
 
-
-async def main() -> None:
-    """Start the events discovery agent."""
-    await run_agent(EventsAgent)
-
-
 if __name__ == "__main__":
-    asyncio.run(main())
+    import sys
+
+    print("Direct execution is not supported. Use bin/run-agent instead:")
+    print("  uv run bin/run-agent events")
+    sys.exit(1)

@@ -6,17 +6,11 @@ vulnerabilities, logic errors, performance issues, and architectural
 improvements.
 """
 
-import asyncio
-import os
-
 from shared import (
     COMMUNICATION_TOOLS,
-    DEFAULT_MCP_SERVER_URL,
-    ENV_MCP_SERVER_URL,
     FILESYSTEM_TOOLS,
     MEMORY_TOOLS,
     create_simple_agent,
-    run_agent,
 )
 
 from .prompts import SYSTEM_PROMPT, USER_GREETING_PROMPT
@@ -28,15 +22,9 @@ CodeAnalysisAgent = create_simple_agent(
     allowed_tools=(["fetch_web_content"] + MEMORY_TOOLS + COMMUNICATION_TOOLS + FILESYSTEM_TOOLS),
 )
 
-
-async def main() -> None:
-    """Start the Code Analysis agent.
-
-    Connects to remote MCP server at MCP_SERVER_URL for task management.
-    """
-    mcp_url = os.getenv(ENV_MCP_SERVER_URL, DEFAULT_MCP_SERVER_URL)
-    await run_agent(CodeAnalysisAgent, {"mcp_urls": [mcp_url]})
-
-
 if __name__ == "__main__":
-    asyncio.run(main())
+    import sys
+
+    print("Direct execution is not supported. Use bin/run-agent instead:")
+    print("  uv run bin/run-agent code-analysis")
+    sys.exit(1)
