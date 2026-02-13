@@ -134,7 +134,7 @@ Local MCP for fast tools, remote MCP for secure/shared tools:
 
 ```bash
 # 1. Create server configuration
-# File: config/mcp_server/server_http.py
+# File: mcp_server/server_http.py
 
 from agent_framework.server import create_mcp_server
 from agent_framework.tools import (
@@ -167,7 +167,7 @@ server.register_tool(
 
 # 2. Run with HTTP transport
 # Start server on port 8080
-uvicorn config.mcp_server.server_http:server --host 0.0.0.0 --port 8080
+uvicorn mcp_server.server_http:server --host 0.0.0.0 --port 8080
 ```
 
 #### Option 2: Using Existing MCP Server
@@ -716,7 +716,7 @@ class HybridAgent(Agent):
     def __init__(self):
         super().__init__(
             # Local MCP for file operations (fast)
-            mcp_stdio_command="python config/mcp_server/server.py",
+            mcp_stdio_command="python mcp_server/server.py",
 
             # Remote MCP for API keys (secure)
             mcp_urls=["https://secure-mcp.com/mcp"],

@@ -81,7 +81,7 @@ Lightweight notification script (not a full interactive agent) that sends Slack 
 
 All agents have access to:
 
-- **MCP Server** (`../config/mcp_server/`) - 29 shared tools across 8 categories
+- **MCP Server** (`../mcp_server/`) - 29 shared tools across 8 categories
   - Web analysis (2 tools)
   - Memory (6 tools)
   - RAG document search (6 tools)

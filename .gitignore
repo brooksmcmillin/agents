@@ -36,7 +36,6 @@ ENV/
 tokens/
 *.token
 memories/
-mcp_server/  # Moved to config/mcp_server/
 
 # Logs
 *.log

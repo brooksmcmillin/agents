@@ -302,7 +302,7 @@ If the agent reports a tool is unavailable:
 # Start agent and type: reload
 
 # Verify MCP server is running
-uv run python -m config.mcp_server.server
+uv run python -m mcp_server.server
 ```
 
 ### Memory Issues

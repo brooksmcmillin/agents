@@ -9,8 +9,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from config.mcp_server.auth.oauth_handler import OAuthHandler
-from config.mcp_server.auth.token_store import TokenData, TokenStore
+from mcp_server.auth.oauth_handler import OAuthHandler
+from mcp_server.auth.token_store import TokenData, TokenStore
 
 
 class TestOAuthHandler:
@@ -116,7 +116,7 @@ class TestOAuthHandler:
             "scope": "tweet.read users.read",
         }
 
-        with patch("config.mcp_server.auth.oauth_handler.AsyncOAuth2Client") as mock_client_class:
+        with patch("mcp_server.auth.oauth_handler.AsyncOAuth2Client") as mock_client_class:
             mock_client = AsyncMock()
             mock_client.fetch_token = AsyncMock(return_value=mock_token_response)
             mock_client.aclose = AsyncMock()
@@ -137,7 +137,7 @@ class TestOAuthHandler:
     @pytest.mark.asyncio
     async def test_exchange_code_failure(self, oauth_handler: OAuthHandler):
         """Test that exchange_code_for_token returns None on failure."""
-        with patch("config.mcp_server.auth.oauth_handler.AsyncOAuth2Client") as mock_client_class:
+        with patch("mcp_server.auth.oauth_handler.AsyncOAuth2Client") as mock_client_class:
             mock_client = AsyncMock()
             mock_client.fetch_token = AsyncMock(side_effect=Exception("OAuth server error"))
             mock_client.aclose = AsyncMock()
@@ -199,7 +199,7 @@ class TestOAuthHandler:
             # Note: no refresh_token in response
         }
 
-        with patch("config.mcp_server.auth.oauth_handler.AsyncOAuth2Client") as mock_client_class:
+        with patch("mcp_server.auth.oauth_handler.AsyncOAuth2Client") as mock_client_class:
             mock_client = AsyncMock()
             mock_client.fetch_token = AsyncMock(return_value=mock_response)
             mock_client.aclose = AsyncMock()
@@ -229,7 +229,7 @@ class TestOAuthHandler:
             "expires_in": 3600,
         }
 
-        with patch("config.mcp_server.auth.oauth_handler.AsyncOAuth2Client") as mock_client_class:
+        with patch("mcp_server.auth.oauth_handler.AsyncOAuth2Client") as mock_client_class:
             mock_client = AsyncMock()
             mock_client.fetch_token = AsyncMock(return_value=mock_response)
             mock_client.aclose = AsyncMock()
@@ -251,7 +251,7 @@ class TestOAuthHandler:
         )
         token_store.save_token("twitter", initial_token)
 
-        with patch("config.mcp_server.auth.oauth_handler.AsyncOAuth2Client") as mock_client_class:
+        with patch("mcp_server.auth.oauth_handler.AsyncOAuth2Client") as mock_client_class:
             mock_client = AsyncMock()
             mock_client.fetch_token = AsyncMock(side_effect=Exception("Refresh failed"))
             mock_client.aclose = AsyncMock()
@@ -303,7 +303,7 @@ class TestOAuthHandler:
             "expires_in": 3600,
         }
 
-        with patch("config.mcp_server.auth.oauth_handler.AsyncOAuth2Client") as mock_client_class:
+        with patch("mcp_server.auth.oauth_handler.AsyncOAuth2Client") as mock_client_class:
             mock_client = AsyncMock()
             mock_client.fetch_token = AsyncMock(return_value=mock_response)
             mock_client.aclose = AsyncMock()
@@ -326,7 +326,7 @@ class TestOAuthHandler:
         )
         token_store.save_token("twitter", expired)
 
-        with patch("config.mcp_server.auth.oauth_handler.AsyncOAuth2Client") as mock_client_class:
+        with patch("mcp_server.auth.oauth_handler.AsyncOAuth2Client") as mock_client_class:
             mock_client = AsyncMock()
             mock_client.fetch_token = AsyncMock(side_effect=Exception("Refresh failed"))
             mock_client.aclose = AsyncMock()

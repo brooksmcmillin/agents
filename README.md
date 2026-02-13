@@ -101,8 +101,8 @@ User Input → Agent → Claude API → MCP Client → MCP Server → Tools
 - Each agent has its own system prompt and behavior
 - Share common MCP tools and infrastructure
 
-**2. Configuration** (`config/`)
-- `mcp_server/` - Exposes tools via Model Context Protocol
+**2. MCP Server** (`mcp_server/`)
+- Exposes tools via Model Context Protocol
 - Handles authentication and tool execution
 - Can run locally (stdio) or remotely (HTTP/SSE)
 
@@ -313,12 +313,12 @@ agents/
 │   ├── run-agent        # Main agent entry point
 │   ├── run-voice-agent  # Voice-enabled agent entry
 │   └── slack-adapter    # Slack integration adapter
-├── config/              # Server configuration
-│   └── mcp_server/      # Shared MCP server and tools
-│       ├── server.py        # MCP server (stdio transport)
-│       ├── server_http.py   # MCP server (HTTP/SSE transport)
-│       ├── auth/            # OAuth handler and token storage
-│       └── config.py        # Server configuration
+├── mcp_server/          # Shared MCP server and tools
+│   ├── server.py            # MCP server (stdio transport)
+│   ├── server_http.py       # MCP server (HTTP/SSE transport)
+│   ├── auth/                # OAuth handler and token storage
+│   └── config.py            # Server configuration
+├── infra/               # Infrastructure configs (Grafana, Loki, Promtail)
 ├── docs/                # Documentation
 │   ├── TESTING.md       # Testing and debugging guide
 │   ├── VOICE_AGENTS.md  # Voice interface documentation
@@ -375,7 +375,7 @@ from .your_tool import your_tool
 __all__ = [..., "your_tool"]
 ```
 
-3. Register in `config/mcp_server/server.py`:
+3. Register in `mcp_server/server.py`:
    - Import the tool from `agent_framework.tools`
    - Register with `server.register_tool()` in `setup_custom_tools()`
    - Tool automatically available to all agents that use this MCP server
@@ -497,7 +497,7 @@ uv run python demo.py
 
 ```bash
 # Test MCP server starts
-uv run python -m config.mcp_server.server
+uv run python -m mcp_server.server
 
 # Test remote MCP connection
 curl https://mcp.brooksmcmillin.com/mcp/health

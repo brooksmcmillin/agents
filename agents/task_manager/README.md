@@ -312,4 +312,4 @@ asyncio.run(test())
 
 - [Remote MCP Setup](../../docs/REMOTE_MCP.md) - Remote MCP server architecture
 - [CLAUDE.md](../../CLAUDE.md) - Project overview and development guide
-- [MCP Tools](../../config/mcp_server/) - MCP server implementation examples
+- [MCP Tools](../../mcp_server/) - MCP server implementation examples

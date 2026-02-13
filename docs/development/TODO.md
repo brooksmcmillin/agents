@@ -81,12 +81,12 @@ async def main():
 
 ### Two OAuth Handler Implementations
 **Files:**
-- `config/mcp_server/auth/oauth_handler.py` (289 lines) - For Twitter/LinkedIn OAuth
+- `mcp_server/auth/oauth_handler.py` (289 lines) - For Twitter/LinkedIn OAuth
 - `shared/oauth_flow.py` (350 lines) - For MCP server OAuth
 
 **Problem:** ~640 lines total for OAuth handling with similar methods (`refresh_token()`, token storage integration).
 
-**Solution:** Keep `shared/oauth_flow.py` as the primary implementation, make `config/mcp_server/auth/oauth_handler.py` a thin wrapper that delegates to shared flow.
+**Solution:** Keep `shared/oauth_flow.py` as the primary implementation, make `mcp_server/auth/oauth_handler.py` a thin wrapper that delegates to shared flow.
 
 **Effort:** Medium (2-3 hours)
 
@@ -126,7 +126,7 @@ strategies = {
 
 ### Token Storage Interface Duplication
 **Files:**
-- `config/mcp_server/auth/token_store.py` (217 lines) - Uses Fernet encryption
+- `mcp_server/auth/token_store.py` (217 lines) - Uses Fernet encryption
 - `shared/oauth_tokens.py` (188 lines) - Uses plain JSON
 
 **Problem:** Two token storage implementations with similar interfaces but different encryption approaches.
@@ -224,7 +224,7 @@ Current coverage is critically low (17%). Tests have been added for critical sec
 - Edge cases: empty content, malformed HTML, very long content
 
 #### test_server.py - MCP Tool Registration Tests
-**File:** `config/mcp_server/server.py`
+**File:** `mcp_server/server.py`
 **Priority:** High
 **Areas to test:**
 - Tool registration in `list_tools()`

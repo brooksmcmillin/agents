@@ -290,7 +290,7 @@ __all__ = [
 
 **Step 3**: Register in MCP server (if needed)
 ```python
-# config/mcp_server/server.py
+# mcp_server/server.py
 from agent_framework.tools import my_new_tool
 
 # Register tool
@@ -543,7 +543,7 @@ For production deployments where hot reload is not needed:
 class YourAgent(Agent):
     def __init__(self):
         super().__init__(
-            mcp_stdio_command="python config/mcp_server/server.py",
+            mcp_stdio_command="python mcp_server/server.py",
             # Maintain persistent connection (no hot reload)
             # This is faster but requires restart for tool changes
         )
