@@ -13,6 +13,7 @@ from shared import (
     COMMUNICATION_TOOLS,
     DEFAULT_MCP_SERVER_URL,
     ENV_MCP_SERVER_URL,
+    FILESYSTEM_TOOLS,
     MEMORY_TOOLS,
     create_simple_agent,
     run_agent,
@@ -24,7 +25,7 @@ CodeAnalysisAgent = create_simple_agent(
     name="CodeAnalysisAgent",
     system_prompt=SYSTEM_PROMPT,
     greeting=USER_GREETING_PROMPT,
-    allowed_tools=(["fetch_web_content"] + MEMORY_TOOLS + COMMUNICATION_TOOLS),
+    allowed_tools=(["fetch_web_content"] + MEMORY_TOOLS + COMMUNICATION_TOOLS + FILESYSTEM_TOOLS),
 )
 
 

@@ -80,6 +80,13 @@ TOOL_PERMISSIONS: dict[str, set[Permission]] = {
     # =========================================================================
     "suggest_content_topics": {Permission.READ},
     # =========================================================================
+    # Filesystem Tools - READ only (scoped to FILESYSTEM_ALLOWED_DIRS)
+    # =========================================================================
+    "read_file": {Permission.READ},
+    "list_directory": {Permission.READ},
+    "glob_files": {Permission.READ},
+    "grep_files": {Permission.READ},
+    # =========================================================================
     # Claude Code Tools - EXECUTE required for running code
     # =========================================================================
     "run_claude_code": {Permission.EXECUTE},

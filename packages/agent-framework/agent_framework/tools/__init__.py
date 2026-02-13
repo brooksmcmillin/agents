@@ -27,6 +27,8 @@ from .fastmail import (
     send_email,
     update_email_flags,
 )
+from .filesystem import TOOL_SCHEMAS as _filesystem_schemas
+from .filesystem import glob_files, grep_files, list_directory, read_file
 from .http_client import TOOL_SCHEMAS as _http_client_schemas
 from .http_client import (
     http_check_rate_limit,
@@ -93,6 +95,7 @@ ALL_TOOL_SCHEMAS: list[dict] = [
     *_claude_code_schemas,
     *_markdown_files_schemas,
     *_http_client_schemas,
+    *_filesystem_schemas,
 ]
 
 __all__ = [
@@ -150,4 +153,9 @@ __all__ = [
     "http_fuzz_parameter",
     "http_check_rate_limit",
     "http_clear_session",
+    # Filesystem tools
+    "read_file",
+    "list_directory",
+    "glob_files",
+    "grep_files",
 ]
