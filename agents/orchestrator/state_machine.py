@@ -229,17 +229,26 @@ class Orchestrator:
         task.status = TaskStatus.PLANNING
 
         if task.is_leaf() and self._should_decompose(task):
-            subtasks = await self._plan_task(task)
-            if subtasks is not None and len(subtasks) > 1:
-                # This task becomes a parent; queue subtasks instead
-                for subtask in subtasks:
-                    self.add_task(subtask)
-                    task.subtask_ids.append(subtask.id)
-                task.status = TaskStatus.IN_PROGRESS
-                logger.info(
-                    f"Task {task.id} decomposed into {len(subtasks)} subtasks"
+            # Check headroom before spending an LLM call on planning
+            headroom = self.config.max_total_tasks - len(self.tasks)
+            if headroom < self.config.max_subtasks_per_task:
+                logger.warning(
+                    f"Insufficient task headroom ({headroom} slots for up to "
+                    f"{self.config.max_subtasks_per_task} subtasks), "
+                    f"executing task {task.id} as-is"
                 )
-                return
+            else:
+                subtasks = await self._plan_task(task)
+                if subtasks is not None and len(subtasks) > 1:
+                    # This task becomes a parent; queue subtasks instead
+                    for subtask in subtasks:
+                        self.add_task(subtask)
+                        task.subtask_ids.append(subtask.id)
+                    task.status = TaskStatus.IN_PROGRESS
+                    logger.info(
+                        f"Task {task.id} decomposed into {len(subtasks)} subtasks"
+                    )
+                    return
 
         # EXECUTE: Dispatch worker
         async with self._lock:
@@ -267,6 +276,10 @@ class Orchestrator:
 
         # COMPLETE or HUMAN_GATE based on autonomy tier
         await self._finalize_task(task)
+
+        # If this task has a parent, check whether the parent can be finalized
+        if task.parent_id:
+            await self._try_finalize_parent(task.parent_id)
 
     def _should_decompose(self, task: Task) -> bool:
         """Determine if a task should be decomposed into subtasks.
@@ -346,7 +359,17 @@ class Orchestrator:
             task.workspace_name, task.branch_name, self.config
         )
         if not diff.strip():
-            logger.info(f"No diff for task {task.id}, skipping review")
+            if task.worker_output:
+                logger.warning(
+                    f"No diff for task {task.id} despite worker producing output "
+                    f"({len(task.worker_output)} chars). Worker may have failed "
+                    f"to commit changes. Skipping review."
+                )
+            else:
+                logger.warning(
+                    f"No diff for task {task.id} and no worker output. "
+                    f"Skipping review."
+                )
             return True
 
         all_passed = True
@@ -462,7 +485,10 @@ class Orchestrator:
                 category=task.category,
                 depth=task.depth + 1,
                 workspace_name=task.workspace_name,
-                branch_name=task.branch_name,
+                # branch_name intentionally omitted: each remediation task
+                # gets its own branch via dispatch_worker() to avoid git
+                # conflicts when multiple remediation tasks run on the
+                # same workspace.
             )
             self.add_task(remediation)
             task.subtask_ids.append(remediation.id)
@@ -510,6 +536,50 @@ class Orchestrator:
                     self.state.phase = Phase.HUMAN_GATE
                 await self._notify_human_required(task)
 
+    async def _try_finalize_parent(self, parent_id: str) -> None:
+        """Check if all subtasks of a parent are done; if so, finalize it.
+
+        A parent is finalized when every one of its subtasks has reached a
+        terminal status (COMPLETED or FAILED).  If any subtask failed, the
+        parent is marked FAILED.  Otherwise the parent goes through the
+        normal autonomy-tier finalization path.
+        """
+        parent = self.tasks.get(parent_id)
+        if parent is None or parent.status not in (
+            TaskStatus.IN_PROGRESS,
+            TaskStatus.PLANNING,
+        ):
+            return
+
+        subtasks = self.get_subtasks(parent_id)
+        if not subtasks:
+            return
+
+        terminal = {TaskStatus.COMPLETED, TaskStatus.FAILED}
+        if not all(st.status in terminal for st in subtasks):
+            return  # Some subtasks still running
+
+        any_failed = any(st.status == TaskStatus.FAILED for st in subtasks)
+        if any_failed:
+            parent.status = TaskStatus.FAILED
+            failed_titles = [st.title for st in subtasks if st.status == TaskStatus.FAILED]
+            parent.error = f"Subtask(s) failed: {failed_titles}"
+            parent.completed_at = _utcnow()
+            async with self._lock:
+                self.state.tasks_failed += 1
+            logger.info(f"Parent task {parent_id} marked FAILED (subtask failures)")
+            await self._notify_failure(parent)
+        else:
+            logger.info(
+                f"All {len(subtasks)} subtasks of {parent_id} completed, "
+                f"finalizing parent"
+            )
+            await self._finalize_task(parent)
+
+        # Recurse upward: if this parent also has a parent, check it too
+        if parent.parent_id:
+            await self._try_finalize_parent(parent.parent_id)
+
     # ------------------------------------------------------------------
     # Notification hooks
     # ------------------------------------------------------------------
@@ -556,7 +626,7 @@ class Orchestrator:
             except Exception as e:
                 logger.error(f"Failure callback failed: {e}")
 
-    def approve_task(self, task_id: str) -> bool:
+    async def approve_task(self, task_id: str) -> bool:
         """Approve a task that is awaiting human approval.
 
         Args:
@@ -565,17 +635,23 @@ class Orchestrator:
         Returns:
             True if the task was approved, False if not found or not awaiting.
         """
-        task = self.tasks.get(task_id)
-        if not task or task.status != TaskStatus.AWAITING_HUMAN:
-            return False
+        async with self._lock:
+            task = self.tasks.get(task_id)
+            if not task or task.status != TaskStatus.AWAITING_HUMAN:
+                return False
 
-        task.status = TaskStatus.COMPLETED
-        task.completed_at = _utcnow()
-        self.state.tasks_completed += 1
-        logger.info(f"Task {task_id} approved by human")
+            task.status = TaskStatus.COMPLETED
+            task.completed_at = _utcnow()
+            self.state.tasks_completed += 1
+            logger.info(f"Task {task_id} approved by human")
+
+        # Check if completing this task finalizes a parent
+        if task.parent_id:
+            await self._try_finalize_parent(task.parent_id)
+
         return True
 
-    def reject_task(self, task_id: str, reason: str = "") -> bool:
+    async def reject_task(self, task_id: str, reason: str = "") -> bool:
         """Reject a task that is awaiting human approval.
 
         Args:
@@ -585,14 +661,16 @@ class Orchestrator:
         Returns:
             True if the task was rejected, False if not found or not awaiting.
         """
-        task = self.tasks.get(task_id)
-        if not task or task.status != TaskStatus.AWAITING_HUMAN:
-            return False
+        async with self._lock:
+            task = self.tasks.get(task_id)
+            if not task or task.status != TaskStatus.AWAITING_HUMAN:
+                return False
 
-        task.status = TaskStatus.FAILED
-        task.error = f"Rejected by human: {reason}" if reason else "Rejected by human"
-        self.state.tasks_failed += 1
-        logger.info(f"Task {task_id} rejected by human: {reason}")
+            task.status = TaskStatus.FAILED
+            task.error = f"Rejected by human: {reason}" if reason else "Rejected by human"
+            self.state.tasks_failed += 1
+            logger.info(f"Task {task_id} rejected by human: {reason}")
+
         return True
 
     def get_status_summary(self) -> dict[str, Any]:

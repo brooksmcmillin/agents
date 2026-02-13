@@ -13,7 +13,7 @@ from typing import Any
 
 from anthropic import AsyncAnthropic
 
-from .models import AutonomyTier, Task
+from .models import AutonomyTier, Task, validate_model_name
 from .prompts import PLANNER_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
@@ -47,42 +47,46 @@ async def plan_task(
     Raises:
         PlanningError: If the LLM response cannot be parsed as valid subtasks.
     """
+    validate_model_name(model)
+
     client = AsyncAnthropic(api_key=api_key or os.getenv("ANTHROPIC_API_KEY"))
+    try:
+        system_prompt = PLANNER_SYSTEM_PROMPT.format(max_subtasks=max_subtasks)
 
-    system_prompt = PLANNER_SYSTEM_PROMPT.format(max_subtasks=max_subtasks)
+        user_message = (
+            f"Task: {task.title}\n\n"
+            f"Description: {task.description}\n\n"
+            f"Category: {task.category}\n"
+            f"Priority: {task.priority}\n"
+            f"Autonomy Tier: {task.autonomy_tier} "
+            f"({AutonomyTier(task.autonomy_tier).name})\n"
+            f"Tags: {', '.join(task.tags) if task.tags else 'none'}"
+        )
 
-    user_message = (
-        f"Task: {task.title}\n\n"
-        f"Description: {task.description}\n\n"
-        f"Category: {task.category}\n"
-        f"Priority: {task.priority}\n"
-        f"Autonomy Tier: {task.autonomy_tier} "
-        f"({AutonomyTier(task.autonomy_tier).name})\n"
-        f"Tags: {', '.join(task.tags) if task.tags else 'none'}"
-    )
+        if task.metadata:
+            user_message += f"\n\nAdditional context:\n{json.dumps(task.metadata, indent=2)}"
 
-    if task.metadata:
-        user_message += f"\n\nAdditional context:\n{json.dumps(task.metadata, indent=2)}"
+        logger.info(f"Planning task {task.id}: {task.title}")
 
-    logger.info(f"Planning task {task.id}: {task.title}")
+        response = await client.messages.create(
+            model=model,
+            max_tokens=4096,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_message}],
+        )
 
-    response = await client.messages.create(
-        model=model,
-        max_tokens=4096,
-        system=system_prompt,
-        messages=[{"role": "user", "content": user_message}],
-    )
+        # Extract text from response
+        raw_text = ""
+        for block in response.content:
+            if hasattr(block, "text"):
+                raw_text += block.text
 
-    # Extract text from response
-    raw_text = ""
-    for block in response.content:
-        if hasattr(block, "text"):
-            raw_text += block.text
+        subtasks = _parse_subtasks(raw_text, parent=task)
 
-    subtasks = _parse_subtasks(raw_text, parent=task)
-
-    logger.info(f"Planned {len(subtasks)} subtasks for task {task.id}")
-    return subtasks
+        logger.info(f"Planned {len(subtasks)} subtasks for task {task.id}")
+        return subtasks
+    finally:
+        await client.close()
 
 
 def _parse_subtasks(raw_text: str, parent: Task) -> list[Task]:

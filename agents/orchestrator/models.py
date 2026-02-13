@@ -24,6 +24,38 @@ def _utcnow() -> datetime:
 _SAFE_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$")
 
 
+# Known model short names and full IDs accepted by the orchestrator.
+# This is not exhaustive but catches typos early with a clear error.
+KNOWN_MODELS = frozenset({
+    "sonnet",
+    "haiku",
+    "opus",
+    "claude-sonnet-4-5-20250929",
+    "claude-haiku-4-5-20251001",
+    "claude-opus-4-6",
+})
+
+
+def validate_model_name(model: str) -> str:
+    """Validate a model name against known values.
+
+    Args:
+        model: Model name or ID.
+
+    Returns:
+        The model name unchanged.
+
+    Raises:
+        ValueError: If the model name is not recognized.
+    """
+    if model not in KNOWN_MODELS:
+        raise ValueError(
+            f"Unknown model: {model!r}. "
+            f"Known models: {sorted(KNOWN_MODELS)}"
+        )
+    return model
+
+
 class AutonomyTier(IntEnum):
     """Controls how much human oversight a task requires.
 
@@ -79,6 +111,7 @@ class ReviewResult:
     summary: str
     issues: list[ReviewIssue] = field(default_factory=list)
     raw_output: str = ""
+    diff_truncated: bool = False  # True if the diff was too large and was cut
     reviewed_at: datetime = field(default_factory=_utcnow)
 
 

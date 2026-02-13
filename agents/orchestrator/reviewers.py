@@ -20,6 +20,7 @@ from .models import (
     ReviewResult,
     ReviewVerdict,
     Task,
+    validate_model_name,
 )
 from .prompts import CODE_REVIEW_SYSTEM_PROMPT, SECURITY_REVIEW_SYSTEM_PROMPT
 
@@ -151,6 +152,8 @@ async def _run_review(
 
     logger.info(f"Running {reviewer_name} for task {task.id}")
 
+    validate_model_name(model)
+
     client = AsyncAnthropic(api_key=api_key or os.getenv("ANTHROPIC_API_KEY"))
     try:
         response = await client.messages.create(
@@ -165,7 +168,9 @@ async def _run_review(
             if hasattr(block, "text"):
                 raw_text += block.text
 
-        return _parse_review_result(reviewer_name, raw_text)
+        result = _parse_review_result(reviewer_name, raw_text)
+        result.diff_truncated = truncated
+        return result
 
     except Exception as e:
         logger.error(f"{reviewer_name} failed for task {task.id}: {e}")

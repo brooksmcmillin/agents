@@ -177,6 +177,13 @@ async def dispatch_worker(
         raise ValueError(f"Task {task.id} has no workspace_name assigned")
 
     branch_name = task.branch_name or _branch_name_for_task(task, config)
+
+    # Defense-in-depth: even pre-validated branch names are re-checked
+    # before interpolation into commands sent to Claude Code.
+    if not _GIT_REF_COMPONENT_RE.match(branch_name):
+        raise ValueError(
+            f"Branch name failed safety check before dispatch: {branch_name!r}"
+        )
     task.branch_name = branch_name
 
     # Sanitise all user-controlled text before interpolation
