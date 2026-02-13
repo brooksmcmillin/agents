@@ -24,11 +24,7 @@ CodeAnalysisAgent = create_simple_agent(
     name="CodeAnalysisAgent",
     system_prompt=SYSTEM_PROMPT,
     greeting=USER_GREETING_PROMPT,
-    allowed_tools=(
-        ["fetch_web_content"]
-        + MEMORY_TOOLS
-        + COMMUNICATION_TOOLS
-    ),
+    allowed_tools=(["fetch_web_content"] + MEMORY_TOOLS + COMMUNICATION_TOOLS),
 )
 
 
