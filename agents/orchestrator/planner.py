@@ -19,11 +19,15 @@ from .prompts import PLANNER_SYSTEM_PROMPT
 logger = logging.getLogger(__name__)
 
 
+class PlanningError(Exception):
+    """Raised when the planner fails to produce valid subtasks."""
+
+
 async def plan_task(
     task: Task,
     *,
-    model: str = "claude-sonnet-4-5-20250929",
-    max_subtasks: int = 10,
+    model: str = "sonnet",
+    max_subtasks: int = 6,
     api_key: str | None = None,
 ) -> list[Task]:
     """Decompose a task into subtasks using an LLM.
@@ -33,12 +37,15 @@ async def plan_task(
 
     Args:
         task: The parent task to decompose.
-        model: Claude model to use for planning.
+        model: Claude model to use for planning (short name or full ID).
         max_subtasks: Maximum number of subtasks to generate.
         api_key: Anthropic API key (defaults to env var).
 
     Returns:
         List of subtask Task objects with parent_id set.
+
+    Raises:
+        PlanningError: If the LLM response cannot be parsed as valid subtasks.
     """
     client = AsyncAnthropic(api_key=api_key or os.getenv("ANTHROPIC_API_KEY"))
 
@@ -90,6 +97,9 @@ def _parse_subtasks(raw_text: str, parent: Task) -> list[Task]:
 
     Returns:
         List of Task objects.
+
+    Raises:
+        PlanningError: If the response cannot be parsed as valid JSON subtasks.
     """
     # Strip markdown code fences if present
     text = raw_text.strip()
@@ -102,27 +112,24 @@ def _parse_subtasks(raw_text: str, parent: Task) -> list[Task]:
 
     try:
         items: list[dict[str, Any]] = json.loads(text)
-    except json.JSONDecodeError:
-        logger.error(f"Failed to parse planner response as JSON: {text[:200]}")
-        # Fall back to a single subtask matching the parent
-        return [
-            Task(
-                title=parent.title,
-                description=parent.description,
-                parent_id=parent.id,
-                priority=parent.priority,
-                tags=list(parent.tags),
-                autonomy_tier=parent.autonomy_tier,
-                category=parent.category,
-                depth=parent.depth + 1,
-            )
-        ]
+    except json.JSONDecodeError as exc:
+        raise PlanningError(
+            f"LLM returned unparseable response (not valid JSON). "
+            f"First 200 chars: {text[:200]}"
+        ) from exc
 
     if not isinstance(items, list):
         items = [items]
 
+    if not items:
+        raise PlanningError("LLM returned an empty subtask list")
+
     subtasks: list[Task] = []
     for item in items:
+        if not isinstance(item, dict):
+            logger.warning(f"Skipping non-dict subtask item: {item!r}")
+            continue
+
         tier_value = item.get("autonomy_tier", parent.autonomy_tier)
         try:
             tier = AutonomyTier(tier_value)
@@ -140,5 +147,8 @@ def _parse_subtasks(raw_text: str, parent: Task) -> list[Task]:
             depth=parent.depth + 1,
         )
         subtasks.append(subtask)
+
+    if not subtasks:
+        raise PlanningError("No valid subtasks could be parsed from LLM response")
 
     return subtasks

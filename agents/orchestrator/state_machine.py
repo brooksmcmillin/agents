@@ -14,13 +14,18 @@ deterministic state machine:
 It is NOT an LLM agent. It invokes LLM agents at specific stages (planning,
 review) but the flow control is deterministic based on task configuration
 and review outcomes.
+
+NOTE: This class is **not** thread-safe.  All public methods must be called
+from the same asyncio event loop.  An ``asyncio.Lock`` guards internal state
+to prevent re-entrancy from concurrent coroutines.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections import deque
-from datetime import datetime
+from datetime import timezone
 from typing import Any
 
 from .models import (
@@ -29,16 +34,20 @@ from .models import (
     OrchestratorState,
     Phase,
     ReviewIssue,
-    ReviewResult,
     ReviewVerdict,
     Task,
     TaskStatus,
+    _utcnow,
 )
-from .planner import plan_task
+from .planner import PlanningError, plan_task
 from .reviewers import run_code_review, run_security_review
 from .workers import dispatch_worker, ensure_workspace, get_workspace_diff
 
 logger = logging.getLogger(__name__)
+
+
+class TaskLimitExceeded(Exception):
+    """Raised when the global task limit is reached."""
 
 
 class Orchestrator:
@@ -48,6 +57,9 @@ class Orchestrator:
     a deterministic pipeline. It does not make LLM-based routing decisions;
     routing is based on task configuration (autonomy tier) and review
     outcomes (pass/fail).
+
+    Concurrency: All public methods are guarded by an ``asyncio.Lock``.
+    Do **not** call from multiple threads; use a single event loop.
 
     Usage:
         config = OrchestratorConfig()
@@ -86,6 +98,9 @@ class Orchestrator:
         self._on_task_complete: list[Any] = []
         self._on_task_failed: list[Any] = []
 
+        # Lock to prevent re-entrant state mutation from concurrent coroutines
+        self._lock = asyncio.Lock()
+
     def add_task(self, task: Task) -> Task:
         """Add a task to the orchestrator.
 
@@ -94,7 +109,16 @@ class Orchestrator:
 
         Returns:
             The task (with any modifications).
+
+        Raises:
+            TaskLimitExceeded: If the global task limit would be exceeded.
         """
+        if len(self.tasks) >= self.config.max_total_tasks:
+            raise TaskLimitExceeded(
+                f"Global task limit reached ({self.config.max_total_tasks}). "
+                f"Cannot add task: {task.title!r}"
+            )
+
         self.tasks[task.id] = task
         if task.status == TaskStatus.PENDING:
             self.queue.append(task.id)
@@ -114,31 +138,43 @@ class Orchestrator:
 
         Returns the processed task, or None if the queue is empty.
         """
-        if not self.queue:
-            self.state.phase = Phase.IDLE
-            return None
+        async with self._lock:
+            if not self.queue:
+                self.state.phase = Phase.IDLE
+                return None
 
-        task_id = self.queue.popleft()
-        task = self.tasks.get(task_id)
-        if task is None:
-            logger.warning(f"Task {task_id} not found in registry, skipping")
-            return None
+            task_id = self.queue.popleft()
+            task = self.tasks.get(task_id)
+            if task is None:
+                logger.warning(f"Task {task_id} not found in registry, skipping")
+                return None
 
-        self.state.current_task_id = task.id
-        if self.state.started_at is None:
-            self.state.started_at = datetime.now()
+            self.state.current_task_id = task.id
+            if self.state.started_at is None:
+                self.state.started_at = _utcnow()
 
+        # Process outside the lock (long-running I/O)
         try:
             await self._process_task(task)
+        except TaskLimitExceeded as e:
+            logger.error(f"Task limit exceeded while processing {task.id}: {e}")
+            task.status = TaskStatus.FAILED
+            task.error = str(e)
+            async with self._lock:
+                self.state.tasks_failed += 1
+                self.state.phase = Phase.FAILED
+            await self._notify_failure(task)
         except Exception as e:
             logger.exception(f"Unhandled error processing task {task.id}: {e}")
             task.status = TaskStatus.FAILED
             task.error = str(e)
-            self.state.tasks_failed += 1
-            self.state.phase = Phase.FAILED
+            async with self._lock:
+                self.state.tasks_failed += 1
+                self.state.phase = Phase.FAILED
             await self._notify_failure(task)
 
-        self.state.current_task_id = None
+        async with self._lock:
+            self.state.current_task_id = None
         return task
 
     async def run(self, max_tasks: int | None = None) -> list[Task]:
@@ -175,23 +211,26 @@ class Orchestrator:
         Pipeline: INGEST -> PLAN -> EXECUTE -> REVIEW -> COMPLETE/HUMAN_GATE
         """
         # INGEST: Validate and prepare
-        self.state.phase = Phase.INGEST
-        task.started_at = datetime.now()
+        async with self._lock:
+            self.state.phase = Phase.INGEST
+        task.started_at = _utcnow()
 
         if task.autonomy_tier == AutonomyTier.MANUAL_ONLY:
             logger.info(f"Task {task.id} is MANUAL_ONLY, notifying human")
             task.status = TaskStatus.AWAITING_HUMAN
-            self.state.phase = Phase.HUMAN_GATE
+            async with self._lock:
+                self.state.phase = Phase.HUMAN_GATE
             await self._notify_human_required(task)
             return
 
         # PLAN: Decompose into subtasks if this is a high-level task
-        self.state.phase = Phase.PLAN
+        async with self._lock:
+            self.state.phase = Phase.PLAN
         task.status = TaskStatus.PLANNING
 
         if task.is_leaf() and self._should_decompose(task):
             subtasks = await self._plan_task(task)
-            if len(subtasks) > 1:
+            if subtasks is not None and len(subtasks) > 1:
                 # This task becomes a parent; queue subtasks instead
                 for subtask in subtasks:
                     self.add_task(subtask)
@@ -203,18 +242,21 @@ class Orchestrator:
                 return
 
         # EXECUTE: Dispatch worker
-        self.state.phase = Phase.EXECUTE
+        async with self._lock:
+            self.state.phase = Phase.EXECUTE
         task.status = TaskStatus.IN_PROGRESS
         await self._execute_task(task)
 
         if task.status == TaskStatus.FAILED:
-            self.state.tasks_failed += 1
-            self.state.phase = Phase.FAILED
+            async with self._lock:
+                self.state.tasks_failed += 1
+                self.state.phase = Phase.FAILED
             await self._notify_failure(task)
             return
 
         # REVIEW: Run review gates
-        self.state.phase = Phase.REVIEW
+        async with self._lock:
+            self.state.phase = Phase.REVIEW
         task.status = TaskStatus.IN_REVIEW
         review_passed = await self._review_task(task)
 
@@ -243,18 +285,26 @@ class Orchestrator:
             return False
         return True
 
-    async def _plan_task(self, task: Task) -> list[Task]:
-        """Plan/decompose a task into subtasks."""
+    async def _plan_task(self, task: Task) -> list[Task] | None:
+        """Plan/decompose a task into subtasks.
+
+        Returns:
+            List of subtasks, or None if planning failed (task executes as-is).
+        """
         try:
             subtasks = await plan_task(
                 task,
+                model=self.config.review_model,
                 max_subtasks=self.config.max_subtasks_per_task,
             )
             return subtasks
-        except Exception as e:
+        except PlanningError as e:
             logger.error(f"Planning failed for task {task.id}: {e}")
             # Fall through to execute the task as-is
-            return [task]
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected planning error for task {task.id}: {e}")
+            return None
 
     async def _execute_task(self, task: Task) -> None:
         """Execute a task by dispatching a Claude Code worker."""
@@ -269,7 +319,8 @@ class Orchestrator:
             result = await dispatch_worker(task, self.config)
 
             task.worker_output = result.output
-            self.state.total_worker_turns += result.turns_used
+            async with self._lock:
+                self.state.total_worker_turns += result.turns_used
 
             if not result.success:
                 task.status = TaskStatus.FAILED
@@ -291,7 +342,9 @@ class Orchestrator:
             return True
 
         # Get the diff
-        diff = await get_workspace_diff(task.workspace_name, task.branch_name)
+        diff = await get_workspace_diff(
+            task.workspace_name, task.branch_name, self.config
+        )
         if not diff.strip():
             logger.info(f"No diff for task {task.id}, skipping review")
             return True
@@ -302,11 +355,12 @@ class Orchestrator:
         if self.config.enable_code_review:
             code_result = await run_code_review(task, diff, self.config)
             task.review_results.append(code_result)
-            if code_result.verdict == ReviewVerdict.PASSED:
-                self.state.total_review_passes += 1
-            else:
-                self.state.total_review_failures += 1
-                all_passed = False
+            async with self._lock:
+                if code_result.verdict == ReviewVerdict.PASSED:
+                    self.state.total_review_passes += 1
+                else:
+                    self.state.total_review_failures += 1
+                    all_passed = False
             logger.info(
                 f"Code review for task {task.id}: {code_result.verdict.value} "
                 f"({len(code_result.issues)} issues)"
@@ -316,11 +370,12 @@ class Orchestrator:
         if self.config.enable_security_review:
             security_result = await run_security_review(task, diff, self.config)
             task.review_results.append(security_result)
-            if security_result.verdict == ReviewVerdict.PASSED:
-                self.state.total_review_passes += 1
-            else:
-                self.state.total_review_failures += 1
-                all_passed = False
+            async with self._lock:
+                if security_result.verdict == ReviewVerdict.PASSED:
+                    self.state.total_review_passes += 1
+                else:
+                    self.state.total_review_failures += 1
+                    all_passed = False
             logger.info(
                 f"Security review for task {task.id}: {security_result.verdict.value} "
                 f"({len(security_result.issues)} issues)"
@@ -332,7 +387,8 @@ class Orchestrator:
         """Handle a task that failed review by creating remediation tasks.
 
         Collects issues from all review results and creates child tasks
-        to fix them, subject to recursion depth limits.
+        to fix them, subject to recursion depth limits and the global
+        task cap.
         """
         all_issues: list[ReviewIssue] = []
         for result in task.review_results:
@@ -343,7 +399,8 @@ class Orchestrator:
             # Review failed but no specific issues -> mark as failed
             task.status = TaskStatus.FAILED
             task.error = "Review failed without specific issues"
-            self.state.tasks_failed += 1
+            async with self._lock:
+                self.state.tasks_failed += 1
             await self._notify_failure(task)
             return
 
@@ -358,12 +415,34 @@ class Orchestrator:
                 f"Review failed at max recursion depth. "
                 f"Issues: {[i.title for i in all_issues]}"
             )
-            self.state.tasks_failed += 1
+            async with self._lock:
+                self.state.tasks_failed += 1
             await self._notify_failure(task)
             return
 
-        # Create remediation tasks (limited count)
-        remediation_count = min(len(all_issues), self.config.max_remediation_tasks)
+        # Check global task limit headroom
+        headroom = self.config.max_total_tasks - len(self.tasks)
+        if headroom <= 0:
+            logger.warning(
+                f"Task {task.id} failed review but global task limit reached, "
+                f"cannot create remediation tasks"
+            )
+            task.status = TaskStatus.FAILED
+            task.error = (
+                f"Review failed; global task limit ({self.config.max_total_tasks}) "
+                f"prevents remediation. Issues: {[i.title for i in all_issues]}"
+            )
+            async with self._lock:
+                self.state.tasks_failed += 1
+            await self._notify_failure(task)
+            return
+
+        # Create remediation tasks (limited by both per-task and global caps)
+        remediation_count = min(
+            len(all_issues),
+            self.config.max_remediation_tasks,
+            headroom,
+        )
         # Sort by severity (critical first)
         severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
         sorted_issues = sorted(all_issues, key=lambda i: severity_order.get(i.severity, 2))
@@ -399,32 +478,36 @@ class Orchestrator:
             case AutonomyTier.AUTO_MERGE:
                 # Auto-complete
                 task.status = TaskStatus.COMPLETED
-                task.completed_at = datetime.now()
-                self.state.tasks_completed += 1
-                self.state.phase = Phase.COMPLETE
+                task.completed_at = _utcnow()
+                async with self._lock:
+                    self.state.tasks_completed += 1
+                    self.state.phase = Phase.COMPLETE
                 logger.info(f"Task {task.id} auto-completed (tier 1)")
                 await self._notify_complete(task)
 
             case AutonomyTier.PROPOSE_EXECUTE:
                 # Complete but notify human
                 task.status = TaskStatus.COMPLETED
-                task.completed_at = datetime.now()
-                self.state.tasks_completed += 1
-                self.state.phase = Phase.COMPLETE
+                task.completed_at = _utcnow()
+                async with self._lock:
+                    self.state.tasks_completed += 1
+                    self.state.phase = Phase.COMPLETE
                 logger.info(f"Task {task.id} completed, notifying human (tier 2)")
                 await self._notify_complete(task)
 
             case AutonomyTier.PROPOSE_WAIT:
                 # Wait for human approval
                 task.status = TaskStatus.AWAITING_HUMAN
-                self.state.phase = Phase.HUMAN_GATE
+                async with self._lock:
+                    self.state.phase = Phase.HUMAN_GATE
                 logger.info(f"Task {task.id} awaiting human approval (tier 3)")
                 await self._notify_human_required(task)
 
             case AutonomyTier.MANUAL_ONLY:
                 # Should not reach here, but handle gracefully
                 task.status = TaskStatus.AWAITING_HUMAN
-                self.state.phase = Phase.HUMAN_GATE
+                async with self._lock:
+                    self.state.phase = Phase.HUMAN_GATE
                 await self._notify_human_required(task)
 
     # ------------------------------------------------------------------
@@ -487,7 +570,7 @@ class Orchestrator:
             return False
 
         task.status = TaskStatus.COMPLETED
-        task.completed_at = datetime.now()
+        task.completed_at = _utcnow()
         self.state.tasks_completed += 1
         logger.info(f"Task {task_id} approved by human")
         return True

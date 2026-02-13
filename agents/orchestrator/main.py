@@ -35,6 +35,93 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Maximum allowed length for string fields from JSON input
+_MAX_TITLE_LEN = 200
+_MAX_DESCRIPTION_LEN = 10000
+_MAX_CATEGORY_LEN = 100
+_MAX_TAG_LEN = 50
+_MAX_TAGS_COUNT = 20
+
+
+class TaskFileValidationError(Exception):
+    """Raised when a task file contains invalid data."""
+
+
+def _validate_task_dict(td: dict, index: int) -> None:
+    """Validate a single task dictionary from JSON input.
+
+    Args:
+        td: Task dictionary to validate.
+        index: Position in the task list (for error messages).
+
+    Raises:
+        TaskFileValidationError: If validation fails.
+    """
+    if not isinstance(td, dict):
+        raise TaskFileValidationError(
+            f"Task #{index}: expected a JSON object, got {type(td).__name__}"
+        )
+
+    # title is required
+    if "title" not in td:
+        raise TaskFileValidationError(f"Task #{index}: missing required field 'title'")
+    if not isinstance(td["title"], str) or not td["title"].strip():
+        raise TaskFileValidationError(f"Task #{index}: 'title' must be a non-empty string")
+    if len(td["title"]) > _MAX_TITLE_LEN:
+        raise TaskFileValidationError(
+            f"Task #{index}: 'title' exceeds {_MAX_TITLE_LEN} characters"
+        )
+
+    # description (optional)
+    if "description" in td:
+        if not isinstance(td["description"], str):
+            raise TaskFileValidationError(f"Task #{index}: 'description' must be a string")
+        if len(td["description"]) > _MAX_DESCRIPTION_LEN:
+            raise TaskFileValidationError(
+                f"Task #{index}: 'description' exceeds {_MAX_DESCRIPTION_LEN} characters"
+            )
+
+    # priority (optional)
+    if "priority" in td:
+        if not isinstance(td["priority"], int) or not (1 <= td["priority"] <= 10):
+            raise TaskFileValidationError(
+                f"Task #{index}: 'priority' must be an integer 1-10"
+            )
+
+    # autonomy_tier (optional)
+    if "autonomy_tier" in td:
+        if not isinstance(td["autonomy_tier"], int) or td["autonomy_tier"] not in (1, 2, 3, 4):
+            raise TaskFileValidationError(
+                f"Task #{index}: 'autonomy_tier' must be 1, 2, 3, or 4"
+            )
+
+    # tags (optional)
+    if "tags" in td:
+        if not isinstance(td["tags"], list):
+            raise TaskFileValidationError(f"Task #{index}: 'tags' must be a list")
+        if len(td["tags"]) > _MAX_TAGS_COUNT:
+            raise TaskFileValidationError(
+                f"Task #{index}: too many tags (max {_MAX_TAGS_COUNT})"
+            )
+        for i, tag in enumerate(td["tags"]):
+            if not isinstance(tag, str):
+                raise TaskFileValidationError(
+                    f"Task #{index}: tag #{i} must be a string"
+                )
+            if len(tag) > _MAX_TAG_LEN:
+                raise TaskFileValidationError(
+                    f"Task #{index}: tag #{i} exceeds {_MAX_TAG_LEN} characters"
+                )
+
+    # category (optional)
+    if "category" in td:
+        if not isinstance(td["category"], str):
+            raise TaskFileValidationError(f"Task #{index}: 'category' must be a string")
+        if len(td["category"]) > _MAX_CATEGORY_LEN:
+            raise TaskFileValidationError(
+                f"Task #{index}: 'category' exceeds {_MAX_CATEGORY_LEN} characters"
+            )
+
 
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
@@ -140,12 +227,12 @@ def parse_args() -> argparse.Namespace:
 
 
 def load_tasks_from_file(file_path: str) -> list[dict]:
-    """Load tasks from a JSON file.
+    """Load and validate tasks from a JSON file.
 
     Expected format:
     [
         {
-            "title": "Task title",
+            "title": "Task title",  (required)
             "description": "Task description",
             "priority": 5,
             "autonomy_tier": 2,
@@ -153,26 +240,49 @@ def load_tasks_from_file(file_path: str) -> list[dict]:
             "category": "category"
         }
     ]
+
+    Raises:
+        TaskFileValidationError: If the file contains invalid data.
     """
     path = Path(file_path)
     if not path.exists():
         logger.error(f"Task file not found: {file_path}")
         sys.exit(1)
 
-    with open(path) as f:
-        data = json.load(f)
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except json.JSONDecodeError as e:
+        logger.error(f"Invalid JSON in task file: {e}")
+        sys.exit(1)
 
     if isinstance(data, dict):
         data = [data]
+
+    if not isinstance(data, list):
+        raise TaskFileValidationError(
+            f"Task file must contain a JSON array or object, got {type(data).__name__}"
+        )
+
+    for i, td in enumerate(data):
+        _validate_task_dict(td, i)
 
     return data
 
 
 async def run_orchestrator(args: argparse.Namespace) -> int:
     """Run the orchestrator with the given arguments."""
-    from .models import AutonomyTier, OrchestratorConfig, Task
+    from .models import AutonomyTier, OrchestratorConfig, Task, validate_workspace_name
     from .planner import plan_task
     from .state_machine import Orchestrator
+
+    # Validate workspace name if provided
+    if args.workspace:
+        try:
+            validate_workspace_name(args.workspace)
+        except ValueError as e:
+            logger.error(f"Invalid workspace name: {e}")
+            return 1
 
     # Build config
     config = OrchestratorConfig(
@@ -195,7 +305,12 @@ async def run_orchestrator(args: argparse.Namespace) -> int:
     tasks: list[Task] = []
 
     if args.file:
-        task_dicts = load_tasks_from_file(args.file)
+        try:
+            task_dicts = load_tasks_from_file(args.file)
+        except TaskFileValidationError as e:
+            logger.error(f"Task file validation failed: {e}")
+            return 1
+
         for td in task_dicts:
             tier_value = td.get("autonomy_tier", args.tier)
             tasks.append(

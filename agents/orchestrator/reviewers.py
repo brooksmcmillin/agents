@@ -80,12 +80,34 @@ async def run_security_review(
     )
 
 
+def _truncate_at_line_boundary(text: str, max_chars: int) -> tuple[str, bool]:
+    """Truncate text at a line boundary to avoid cutting mid-line or mid-hunk.
+
+    Args:
+        text: The text to potentially truncate.
+        max_chars: Maximum character count.
+
+    Returns:
+        Tuple of (truncated_text, was_truncated).
+    """
+    if len(text) <= max_chars:
+        return text, False
+
+    # Find the last newline before the limit
+    cut_point = text.rfind("\n", 0, max_chars)
+    if cut_point == -1:
+        # No newline found; fall back to hard cut
+        cut_point = max_chars
+
+    return text[:cut_point], True
+
+
 async def _run_review(
     reviewer_name: str,
     system_prompt: str,
     task: Task,
     diff: str,
-    model: str = "claude-sonnet-4-5-20250929",
+    model: str = "sonnet",
     api_key: str | None = None,
 ) -> ReviewResult:
     """Run a review agent on a diff.
@@ -112,14 +134,9 @@ async def _run_review(
             summary="No changes to review.",
         )
 
-    client = AsyncAnthropic(api_key=api_key or os.getenv("ANTHROPIC_API_KEY"))
-
-    # Truncate very large diffs to stay within context limits
+    # Truncate at line boundary to avoid cutting mid-hunk
     max_diff_chars = 50000
-    truncated = False
-    if len(diff) > max_diff_chars:
-        diff = diff[:max_diff_chars]
-        truncated = True
+    diff, truncated = _truncate_at_line_boundary(diff, max_diff_chars)
 
     user_message = (
         f"## Task\n{task.title}\n\n"
@@ -127,10 +144,14 @@ async def _run_review(
         f"## Diff\n```diff\n{diff}\n```"
     )
     if truncated:
-        user_message += "\n\n(Note: diff was truncated due to size)"
+        user_message += (
+            "\n\n(Note: diff was truncated at a line boundary due to size. "
+            "Review what is shown; further changes exist beyond the cutoff.)"
+        )
 
     logger.info(f"Running {reviewer_name} for task {task.id}")
 
+    client = AsyncAnthropic(api_key=api_key or os.getenv("ANTHROPIC_API_KEY"))
     try:
         response = await client.messages.create(
             model=model,
@@ -154,6 +175,8 @@ async def _run_review(
             summary=f"Review failed with error: {e}",
             raw_output=str(e),
         )
+    finally:
+        await client.close()
 
 
 def _parse_review_result(reviewer_name: str, raw_text: str) -> ReviewResult:
@@ -194,6 +217,8 @@ def _parse_review_result(reviewer_name: str, raw_text: str) -> ReviewResult:
     # Parse issues
     issues: list[ReviewIssue] = []
     for issue_data in data.get("issues", []):
+        if not isinstance(issue_data, dict):
+            continue
         issues.append(
             ReviewIssue(
                 title=issue_data.get("title", "Unknown issue"),

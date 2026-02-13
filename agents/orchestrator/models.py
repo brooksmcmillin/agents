@@ -6,11 +6,22 @@ the state machine phases that drive the orchestration loop.
 
 from __future__ import annotations
 
+import re
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum, IntEnum
 from typing import Any
+
+
+def _utcnow() -> datetime:
+    """Return timezone-aware UTC datetime."""
+    return datetime.now(timezone.utc)
+
+
+# Strict pattern for workspace names: alphanumeric, hyphens, underscores only.
+# Rejects path traversal sequences and special characters.
+_SAFE_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$")
 
 
 class AutonomyTier(IntEnum):
@@ -68,7 +79,7 @@ class ReviewResult:
     summary: str
     issues: list[ReviewIssue] = field(default_factory=list)
     raw_output: str = ""
-    reviewed_at: datetime = field(default_factory=datetime.now)
+    reviewed_at: datetime = field(default_factory=_utcnow)
 
 
 @dataclass
@@ -100,7 +111,7 @@ class Task:
     tasks into subtasks, dispatches workers, and tracks completion.
     """
 
-    id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
+    id: str = field(default_factory=lambda: uuid.uuid4().hex)
     title: str = ""
     description: str = ""
     status: TaskStatus = TaskStatus.PENDING
@@ -125,7 +136,7 @@ class Task:
     error: str | None = None
 
     # Metadata
-    created_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=_utcnow)
     started_at: datetime | None = None
     completed_at: datetime | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -148,10 +159,11 @@ class Task:
 class OrchestratorConfig:
     """Configuration for the orchestrator."""
 
-    # Recursion limits
+    # Recursion and task limits
     max_subtask_depth: int = 3
-    max_subtasks_per_task: int = 10
-    max_remediation_tasks: int = 5
+    max_subtasks_per_task: int = 6
+    max_remediation_tasks: int = 3
+    max_total_tasks: int = 50  # Absolute cap on tasks in the registry
 
     # Worker configuration
     worker_model: str = "sonnet"
@@ -165,6 +177,7 @@ class OrchestratorConfig:
 
     # Git configuration
     branch_prefix: str = "orchestrator"
+    base_branch: str = "main"  # Default base branch for diffs
     auto_create_workspace: bool = True
 
     # Notification
@@ -173,6 +186,32 @@ class OrchestratorConfig:
 
     # Polling
     poll_interval_seconds: int = 30
+
+
+def validate_workspace_name(name: str) -> str:
+    """Validate and return a safe workspace name.
+
+    Args:
+        name: Proposed workspace name.
+
+    Returns:
+        The validated name.
+
+    Raises:
+        ValueError: If the name contains unsafe characters or patterns.
+    """
+    if not name:
+        raise ValueError("Workspace name cannot be empty")
+    if ".." in name or "/" in name or "\\" in name:
+        raise ValueError(
+            f"Workspace name contains path traversal sequence: {name!r}"
+        )
+    if not _SAFE_NAME_RE.match(name):
+        raise ValueError(
+            f"Workspace name must be alphanumeric with hyphens/underscores "
+            f"(1-128 chars, start with alphanumeric): {name!r}"
+        )
+    return name
 
 
 @dataclass
