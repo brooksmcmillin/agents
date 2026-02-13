@@ -11,6 +11,7 @@ import fnmatch
 import logging
 import os
 import re
+import sre_parse
 from pathlib import Path
 from typing import Any
 
@@ -86,21 +87,78 @@ class FilesystemValidator:
         )
 
 
-# Module-level singleton – rebuilt each time the MCP server process starts.
+# Module-level cached validator.  Rebuilt only when the env var changes.
 _validator = FilesystemValidator()
+_validator_env_snapshot = os.environ.get("FILESYSTEM_ALLOWED_DIRS", "")
 
 
 def _get_validator() -> FilesystemValidator:
-    """Return the module-level validator, rebuilding if env changed."""
-    global _validator  # noqa: PLW0603
-    # Cheap: always re-read so hot-reload picks up .env changes.
-    _validator = FilesystemValidator()
+    """Return the cached validator, rebuilding only if the env var changed."""
+    global _validator, _validator_env_snapshot  # noqa: PLW0603
+    current = os.environ.get("FILESYSTEM_ALLOWED_DIRS", "")
+    if current != _validator_env_snapshot:
+        _validator = FilesystemValidator()
+        _validator_env_snapshot = current
     return _validator
 
 
 def _is_binary(data: bytes) -> bool:
     """Heuristic: file is binary if it contains null bytes in the first 8 KB."""
     return b"\x00" in data[:8192]
+
+
+# Maximum length of a single line we'll run regex against (defense in depth).
+_MAX_GREP_LINE_LEN = 10_000
+
+# Maximum regex pattern length.
+_MAX_PATTERN_LEN = 1000
+
+# sre_parse opcodes that represent quantifiers (repeat constructs).
+_QUANTIFIER_OPCODES = {sre_parse.MAX_REPEAT, sre_parse.MIN_REPEAT}
+
+
+def _has_nested_quantifier(parsed: sre_parse.SubPattern, in_quantifier: bool = False) -> bool:  # type: ignore[type-arg]
+    """Walk a parsed regex AST and detect nested quantifiers or ambiguous alternation.
+
+    Catches patterns like ``(a+)+``, ``(a*)*``, ``(\\d{1,10})+``
+    (nested quantifiers) and ``(a|a)+`` (alternation inside a quantifier,
+    which causes backtracking when branches overlap).
+    """
+    for op, av in parsed:  # type: ignore[assignment]
+        if op in _QUANTIFIER_OPCODES:
+            # av is (min, max, subpattern)
+            if in_quantifier:
+                return True
+            if _has_nested_quantifier(av[2], in_quantifier=True):  # type: ignore[index]
+                return True
+        elif op == sre_parse.SUBPATTERN:
+            # av is (group, add_flags, del_flags, pattern)
+            if _has_nested_quantifier(av[-1], in_quantifier):  # type: ignore[index]
+                return True
+        elif op == sre_parse.BRANCH:
+            # av is (None, [branch1, branch2, ...])
+            # Alternation inside a quantifier is dangerous when branches
+            # can match the same input (causes exponential backtracking).
+            branches = av[1]  # type: ignore[index]
+            if in_quantifier and len(branches) >= 2:  # type: ignore[arg-type]
+                return True
+            for branch in branches:  # type: ignore[union-attr]
+                if _has_nested_quantifier(branch, in_quantifier):
+                    return True
+    return False
+
+
+def _is_redos_pattern(pattern: str) -> bool:
+    """Check if a regex pattern is vulnerable to ReDoS.
+
+    Uses sre_parse to walk the AST and detect nested quantifiers.
+    Returns True if the pattern looks dangerous.
+    """
+    try:
+        parsed = sre_parse.parse(pattern)
+    except re.error:
+        return False  # Will be caught later by re.compile
+    return _has_nested_quantifier(parsed)
 
 
 # ---------------------------------------------------------------------------
@@ -257,14 +315,16 @@ async def glob_files(
             return {"error": f"Not a directory: {path}"}
 
         # Reject patterns that could traverse outside root
-        if ".." in pattern or pattern.startswith("/"):
-            return {"error": "Pattern must not contain '..' or start with '/'"}
+        if ".." in Path(pattern).parts or pattern.startswith("/"):
+            return {"error": "Pattern must not contain '..' path segments or start with '/'"}
 
         matches: list[dict[str, Any]] = []
         for match in sorted(resolved.glob(pattern)):
             if not match.is_file():
                 continue
-            # Validate each match is still within allowed dirs
+            # Validate each resolved match is within allowed dirs.
+            # validate() calls Path.resolve() which follows symlinks,
+            # so symlinks pointing outside allowed dirs are caught here.
             try:
                 validator.validate(str(match))
             except (PermissionError, ValueError):
@@ -320,14 +380,12 @@ async def grep_files(
         if not resolved.is_dir():
             return {"error": f"Not a directory: {path}"}
 
-        # Guard against ReDoS: cap pattern length and reject nested quantifiers
-        _MAX_PATTERN_LEN = 1000
+        # Guard against ReDoS
         if len(pattern) > _MAX_PATTERN_LEN:
             return {
                 "error": f"Regex pattern too long ({len(pattern)} chars, max {_MAX_PATTERN_LEN})"
             }
-        # Reject patterns with nested quantifiers like (a+)+, (a*)*,  (\d+)+
-        if re.search(r"[+*]\)+[+*?]", pattern) or re.search(r"[+*]\}[+*?]", pattern):
+        if _is_redos_pattern(pattern):
             return {"error": "Regex contains nested quantifiers (potential ReDoS)"}
 
         flags = 0 if case_sensitive else re.IGNORECASE
@@ -368,7 +426,7 @@ async def grep_files(
                     continue
 
                 for lineno, line in enumerate(text.splitlines(), start=1):
-                    if regex.search(line):
+                    if regex.search(line[:_MAX_GREP_LINE_LEN]):
                         matches.append(
                             {
                                 "file": str(fpath),
