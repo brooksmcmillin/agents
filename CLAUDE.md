@@ -844,14 +844,22 @@ uv run python -m config.mcp_server.server
 
 ## Adding New Agents
 
-To create a new agent:
+**MANDATORY RULES — all new agents MUST follow these:**
+
+1. **Subclass `Agent`** — Every agent must be a subclass of the `Agent` base class from `agent_framework`. Use either a direct subclass or `create_simple_agent()` from `shared/agent_factory.py` (which returns an `Agent` subclass).
+2. **Register in `bin/run-agent`** — Every agent must be importable and registered in the `AGENTS` dict in `bin/run-agent` so it can be run via `uv run python bin/run-agent <name>`. No exceptions.
+3. **Exportable agent class** — The agent's `main.py` must export the agent class (e.g., `YourAgent`) at module level so `bin/run-agent` can import it directly.
+
+### Steps
 
 1. **Create agent directory:**
    ```bash
    mkdir -p agents/your_agent
    ```
 
-2. **Create main.py extending Agent:**
+2. **Create main.py with an Agent subclass:**
+
+   **Option A — Direct subclass** (when you need custom init logic):
    ```python
    # agents/your_agent/main.py
    import asyncio
@@ -876,6 +884,27 @@ To create a new agent:
        asyncio.run(main())
    ```
 
+   **Option B — Factory function** (for simple prompt/tool-list agents):
+   ```python
+   # agents/your_agent/main.py
+   import asyncio
+   from shared import create_simple_agent, run_agent
+   from .prompts import SYSTEM_PROMPT, USER_GREETING_PROMPT
+
+   YourAgent = create_simple_agent(
+       name="YourAgent",
+       system_prompt=SYSTEM_PROMPT,
+       greeting=USER_GREETING_PROMPT,
+       allowed_tools=["fetch_web_content", "save_memory"],
+   )
+
+   async def main():
+       await run_agent(YourAgent)
+
+   if __name__ == "__main__":
+       asyncio.run(main())
+   ```
+
 3. **Create prompts.py:**
    ```python
    # agents/your_agent/prompts.py
@@ -890,9 +919,23 @@ To create a new agent:
    __version__ = "0.1.0"
    ```
 
-5. **Run your new agent:**
+5. **Register in `bin/run-agent`:**
+   ```python
+   # Add import at top of bin/run-agent
+   from agents.your_agent.main import YourAgent
+
+   # Add entry to the AGENTS dict
+   AGENTS: dict[str, tuple[type, dict | None]] = {
+       ...
+       "your-agent": (YourAgent, None),  # or pass MCP config dict
+       ...
+   }
+   ```
+
+6. **Run your new agent:**
    ```bash
-   uv run python -m agents.your_agent.main
+   uv run python bin/run-agent your-agent                # Interactive
+   uv run python bin/run-agent your-agent "Your message"  # One-off
    ```
 
 All agents automatically have access to the agent-framework tools via the MCP server. You can add agent-specific tools to agent-framework or create a custom MCP server configuration as needed.

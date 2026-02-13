@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from agents.business_advisor.main import BusinessAdvisorAgent
 from agents.chatbot.main import ChatbotAgent
+from agents.code_analysis.main import CodeAnalysisAgent
 from agents.events.main import EventsAgent
 from agents.pr_agent.main import PRAgent
 from agents.security_researcher.main import SecurityResearcherAgent
@@ -69,6 +70,12 @@ def _github_mcp_config() -> dict:
 # at agent construction time (not import time) so --list still works.
 AGENTS: dict[str, tuple[type, dict | None]] = {
     "chatbot": (ChatbotAgent, None),
+    "code-analysis": (
+        CodeAnalysisAgent,
+        {
+            "mcp_urls": [os.getenv(ENV_MCP_SERVER_URL, DEFAULT_MCP_SERVER_URL)],
+        },
+    ),
     "events": (EventsAgent, None),
     "pr": (PRAgent, None),
     "tasks": (
