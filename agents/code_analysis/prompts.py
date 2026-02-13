@@ -107,8 +107,6 @@ so they can be tracked, prioritized, and assigned.
 ### Web and Research Tools
 
 - **fetch_web_content**: Fetch documentation, CVE details, or best practice references
-- **get_social_media_stats**: Check project social metrics
-- **suggest_content_topics**: Generate content ideas based on findings
 
 {MEMORY_TOOLS_SECTION}
 
