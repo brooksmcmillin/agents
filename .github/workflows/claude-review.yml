@@ -4,25 +4,162 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
 
+# Cancel in-progress reviews when new commits are pushed
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   code-review:
     name: Code Review
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: write
       issues: read
       id-token: write
-    uses: brooksmcmillin/workflows/.github/workflows/claude-code-review.yml@main
-    secrets:
-      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Collect previous review comments
+        id: previous
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          REPO=${{ github.repository }}
+
+          # Fetch previous bot comments on this PR (issue comments)
+          ISSUE_COMMENTS=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+            --paginate \
+            --jq '[.[] | select(.user.type == "Bot") | {body: .body, created_at: .created_at}]' 2>/dev/null || echo "[]")
+
+          # Fetch previous bot review comments (inline comments)
+          REVIEW_COMMENTS=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/comments" \
+            --paginate \
+            --jq '[.[] | select(.user.type == "Bot") | {body: .body, path: .path, created_at: .created_at}]' 2>/dev/null || echo "[]")
+
+          ISSUE_COUNT=$(echo "$ISSUE_COMMENTS" | jq 'length')
+          REVIEW_COUNT=$(echo "$REVIEW_COMMENTS" | jq 'length')
+
+          echo "issue_comment_count=${ISSUE_COUNT}" >> "$GITHUB_OUTPUT"
+          echo "review_comment_count=${REVIEW_COUNT}" >> "$GITHUB_OUTPUT"
+
+          # Write to files (avoids output size limits)
+          echo "$ISSUE_COMMENTS" > /tmp/previous_issue_comments.json
+          echo "$REVIEW_COMMENTS" > /tmp/previous_review_comments.json
+
+          # Create a merged summary for the prompt (truncate to 50k chars)
+          {
+            echo "=== PREVIOUS PR COMMENTS (${ISSUE_COUNT} comments) ==="
+            echo "$ISSUE_COMMENTS" | jq -r '.[] | "--- Comment from \(.created_at) ---\n\(.body)\n"'
+            echo ""
+            echo "=== PREVIOUS INLINE REVIEW COMMENTS (${REVIEW_COUNT} comments) ==="
+            echo "$REVIEW_COMMENTS" | jq -r '.[] | "--- Comment on \(.path) from \(.created_at) ---\n\(.body)\n"'
+          } | head -c 50000 > /tmp/previous_comments_summary.txt
+
+      - name: Run Claude Code Review
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            You are a code reviewer. Review this pull request for code quality, correctness, and maintainability.
+
+            ## CRITICAL: Avoid Duplicate Feedback
+
+            There have been ${{ steps.previous.outputs.issue_comment_count }} previous PR comments and ${{ steps.previous.outputs.review_comment_count }} previous inline review comments from bots on this PR.
+
+            Before writing your review, you MUST read all existing review comments on this PR to understand what feedback has already been given. Use these commands:
+
+            ```
+            gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" --paginate --jq '.[] | select(.user.type == "Bot") | "\n--- Comment from \(.created_at) ---\n\(.body)"'
+            gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/comments" --paginate --jq '.[] | select(.user.type == "Bot") | "\n--- Comment on \(.path) from \(.created_at) ---\n\(.body)"'
+            ```
+
+            After reading previous comments, follow these rules strictly:
+
+            1. **Do NOT repeat** issues, suggestions, or feedback that were already raised in previous comments — even if they are still present in the code. Assume the author has seen them.
+            2. **Briefly acknowledge** previously flagged issues that have been FIXED (e.g., "Previously flagged X has been resolved.").
+            3. **Only raise issues that are NEW** — either in newly added/changed code, or genuinely new problems not covered by any prior comment.
+            4. If all previous issues are addressed and no new issues exist, keep your review very short (e.g., "All previously flagged issues have been resolved. Latest changes look good.").
+            5. Never re-explain or re-describe an issue that a previous comment already covers, even with different wording.
+
+            ## Review Focus Areas
+            - Correctness: logic errors, edge cases, error handling
+            - Maintainability: readability, structure, naming
+            - Style: consistency with project patterns
 
   security-review:
     name: Security Review
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: write
       issues: read
       id-token: write
-    uses: brooksmcmillin/workflows/.github/workflows/claude-security-review.yml@main
-    secrets:
-      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Collect previous review comments
+        id: previous
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          REPO=${{ github.repository }}
+
+          # Fetch previous bot comments on this PR (issue comments)
+          ISSUE_COMMENTS=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+            --paginate \
+            --jq '[.[] | select(.user.type == "Bot") | {body: .body, created_at: .created_at}]' 2>/dev/null || echo "[]")
+
+          # Fetch previous bot review comments (inline comments)
+          REVIEW_COMMENTS=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/comments" \
+            --paginate \
+            --jq '[.[] | select(.user.type == "Bot") | {body: .body, path: .path, created_at: .created_at}]' 2>/dev/null || echo "[]")
+
+          ISSUE_COUNT=$(echo "$ISSUE_COMMENTS" | jq 'length')
+          REVIEW_COUNT=$(echo "$REVIEW_COMMENTS" | jq 'length')
+
+          echo "issue_comment_count=${ISSUE_COUNT}" >> "$GITHUB_OUTPUT"
+          echo "review_comment_count=${REVIEW_COUNT}" >> "$GITHUB_OUTPUT"
+
+      - name: Run Claude Security Review
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            You are a security reviewer. Review this pull request for security vulnerabilities and concerns.
+
+            ## CRITICAL: Avoid Duplicate Feedback
+
+            There have been ${{ steps.previous.outputs.issue_comment_count }} previous PR comments and ${{ steps.previous.outputs.review_comment_count }} previous inline review comments from bots on this PR.
+
+            Before writing your review, you MUST read all existing review comments on this PR to understand what feedback has already been given. Use these commands:
+
+            ```
+            gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" --paginate --jq '.[] | select(.user.type == "Bot") | "\n--- Comment from \(.created_at) ---\n\(.body)"'
+            gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/comments" --paginate --jq '.[] | select(.user.type == "Bot") | "\n--- Comment on \(.path) from \(.created_at) ---\n\(.body)"'
+            ```
+
+            After reading previous comments, follow these rules strictly:
+
+            1. **Do NOT repeat** security issues or concerns that were already raised in previous comments — even if they are still present in the code. Assume the author has seen them.
+            2. **Briefly acknowledge** previously flagged vulnerabilities that have been FIXED (e.g., "Previously flagged SQL injection risk in X has been resolved.").
+            3. **Only raise issues that are NEW** — either in newly added/changed code, or genuinely new security concerns not covered by any prior comment.
+            4. If all previous security issues are addressed and no new issues exist, keep your review very short (e.g., "All previously flagged security issues have been resolved. No new concerns in latest changes.").
+            5. Never re-explain or re-describe a security issue that a previous comment already covers, even with different wording.
+
+            ## Security Review Focus Areas
+            - Injection vulnerabilities (SQL, command, XSS, template injection)
+            - Authentication and authorization issues
+            - Data exposure (secrets, PII in logs, information leakage)
+            - Input validation at system boundaries
+            - Dependency vulnerabilities
+            - SSRF, path traversal, and other OWASP Top 10 issues
