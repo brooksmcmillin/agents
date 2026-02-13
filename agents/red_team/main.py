@@ -5,15 +5,12 @@ using HTTP client tools, memory for persisting findings, and email
 for sending reports.
 """
 
-import asyncio
-
 from shared import (
     COMMUNICATION_TOOLS,
     EMAIL_TOOLS,
     HTTP_CLIENT_TOOLS,
     MEMORY_TOOLS,
     create_simple_agent,
-    run_agent,
 )
 
 from .prompts import SYSTEM_PROMPT, USER_GREETING_PROMPT
@@ -27,11 +24,9 @@ RedTeamAgent = create_simple_agent(
     ),
 )
 
-
-async def main() -> None:
-    """Start the Red Team security testing agent."""
-    await run_agent(RedTeamAgent)
-
-
 if __name__ == "__main__":
-    asyncio.run(main())
+    import sys
+
+    print("Direct execution is not supported. Use bin/run-agent instead:")
+    print("  uv run bin/run-agent red-team")
+    sys.exit(1)

@@ -96,4 +96,4 @@ ignore = [
 
 [tool.bandit]
 exclude_dirs = ["tests", "scripts/deployment"]
-skips = ["B101"]  # Allow assert statements (legitimate in tests and type narrowing)
+skips = ["B101", "B608"]  # B101: asserts in tests/type narrowing; B608: false positives on prompt strings containing "SQL"

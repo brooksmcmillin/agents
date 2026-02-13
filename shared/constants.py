@@ -85,3 +85,10 @@ HTTP_CLIENT_TOOLS = [
     "http_check_rate_limit",
     "http_clear_session",
 ]
+
+FILESYSTEM_TOOLS = [
+    "read_file",
+    "list_directory",
+    "glob_files",
+    "grep_files",
+]
