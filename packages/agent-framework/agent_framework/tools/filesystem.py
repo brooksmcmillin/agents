@@ -131,7 +131,8 @@ async def read_file(
         if not resolved.is_file():
             return {"error": f"Not a file: {path}"}
 
-        size = resolved.stat().st_size
+        raw = resolved.read_bytes()
+        size = len(raw)
         if size > MAX_FILE_SIZE:
             return {
                 "error": f"File too large ({size:,} bytes). Max is {MAX_FILE_SIZE:,} bytes.",
@@ -139,11 +140,13 @@ async def read_file(
                 "size_bytes": size,
             }
 
-        raw = resolved.read_bytes()
         if _is_binary(raw):
             return {"error": f"Binary file: {path}", "path": str(resolved), "size_bytes": size}
 
-        text = raw.decode("utf-8", errors="replace")
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return {"error": f"Not a UTF-8 text file: {path}", "path": str(resolved)}
         lines = text.splitlines(keepends=True)
         total_lines = len(lines)
 
@@ -253,9 +256,9 @@ async def glob_files(
         if not resolved.is_dir():
             return {"error": f"Not a directory: {path}"}
 
-        # Reject patterns that try to escape
-        if ".." in pattern:
-            return {"error": "Pattern must not contain '..'"}
+        # Reject patterns that could traverse outside root
+        if ".." in pattern or pattern.startswith("/"):
+            return {"error": "Pattern must not contain '..' or start with '/'"}
 
         matches: list[dict[str, Any]] = []
         for match in sorted(resolved.glob(pattern)):
@@ -317,6 +320,16 @@ async def grep_files(
         if not resolved.is_dir():
             return {"error": f"Not a directory: {path}"}
 
+        # Guard against ReDoS: cap pattern length and reject nested quantifiers
+        _MAX_PATTERN_LEN = 1000
+        if len(pattern) > _MAX_PATTERN_LEN:
+            return {
+                "error": f"Regex pattern too long ({len(pattern)} chars, max {_MAX_PATTERN_LEN})"
+            }
+        # Reject patterns with nested quantifiers like (a+)+, (a*)*,  (\d+)+
+        if re.search(r"[+*]\)+[+*?]", pattern) or re.search(r"[+*]\}[+*?]", pattern):
+            return {"error": "Regex contains nested quantifiers (potential ReDoS)"}
+
         flags = 0 if case_sensitive else re.IGNORECASE
         try:
             regex = re.compile(pattern, flags)
@@ -339,22 +352,21 @@ async def grep_files(
                     continue
 
                 try:
-                    stat = fpath.stat()
-                except OSError:
-                    continue
-
-                if stat.st_size > MAX_FILE_SIZE:
-                    continue
-
-                try:
                     raw = fpath.read_bytes()
                 except OSError:
+                    continue
+
+                if len(raw) > MAX_FILE_SIZE:
                     continue
 
                 if _is_binary(raw):
                     continue
 
-                text = raw.decode("utf-8", errors="replace")
+                try:
+                    text = raw.decode("utf-8")
+                except UnicodeDecodeError:
+                    continue
+
                 for lineno, line in enumerate(text.splitlines(), start=1):
                     if regex.search(line):
                         matches.append(
