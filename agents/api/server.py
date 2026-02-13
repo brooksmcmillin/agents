@@ -121,6 +121,7 @@ def _build_registry() -> dict[str, tuple[type[Agent], dict[str, Any] | None, str
     """
     from agents.business_advisor.main import BusinessAdvisorAgent
     from agents.chatbot.main import ChatbotAgent
+    from agents.code_analysis.main import CodeAnalysisAgent
     from agents.events.main import EventsAgent
     from agents.pr_agent.main import PRAgent
     from agents.red_team.main import RedTeamAgent
@@ -171,6 +172,14 @@ def _build_registry() -> dict[str, tuple[type[Agent], dict[str, Any] | None, str
             RedTeamAgent,
             None,
             "Red team security testing agent",
+        ),
+        "code-analysis": (
+            CodeAnalysisAgent,
+            {
+                "mcp_urls": [os.getenv(ENV_MCP_SERVER_URL, DEFAULT_MCP_SERVER_URL)],
+                "mcp_client_config": {"prefer_device_flow": True},
+            },
+            "Repository analysis agent for security, logic, performance, and architecture improvements",
         ),
     }
 
