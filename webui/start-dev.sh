@@ -10,7 +10,7 @@ echo "This requires TWO terminals:"
 echo ""
 echo "Terminal 1 (Backend):"
 echo "  cd $(pwd)/../.."
-echo "  uv run python -m agents.api"
+echo "  uv run python -m api"
 echo ""
 echo "Terminal 2 (Frontend):"
 echo "  cd $(pwd)/frontend"
@@ -27,8 +27,8 @@ if command -v tmux &> /dev/null; then
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         cd ../..
-        tmux new-session -d -s agents-webui "uv run python -m agents.api"
-        tmux split-window -h "cd agents/webui/frontend && npm run dev"
+        tmux new-session -d -s agents-webui "uv run python -m api"
+        tmux split-window -h "cd webui/frontend && npm run dev"
         tmux attach -t agents-webui
     fi
 fi

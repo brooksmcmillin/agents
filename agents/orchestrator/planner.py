@@ -76,10 +76,7 @@ async def plan_task(
         )
 
         # Extract text from response
-        raw_text = ""
-        for block in response.content:
-            if hasattr(block, "text"):
-                raw_text += block.text
+        raw_text = "".join(getattr(block, "text", "") for block in response.content)
 
         subtasks = _parse_subtasks(raw_text, parent=task)
 

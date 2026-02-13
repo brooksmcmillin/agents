@@ -11,7 +11,7 @@ Comprehensive test coverage for the Agents Web UI, including backend API tests a
 **Status:** ✅ 12 passed, 2 skipped
 
 ```bash
-uv run pytest agents/api/test_server.py -v
+uv run pytest api/test_server.py -v
 ```
 
 **Coverage:**
@@ -25,14 +25,14 @@ uv run pytest agents/api/test_server.py -v
 - ⏭️ Database integration (requires actual PostgreSQL)
 
 **Test Files:**
-- `agents/api/test_server.py` (14 tests)
+- `api/test_server.py` (14 tests)
 
 ### Frontend Tests (TypeScript + Vitest)
 
 **Status:** Ready to run
 
 ```bash
-cd agents/webui/frontend
+cd webui/frontend
 npm install  # Install test dependencies
 npm test     # Run tests
 ```
@@ -55,10 +55,10 @@ npm test     # Run tests
 
 ```bash
 # From project root
-uv run pytest agents/api/test_server.py -v
+uv run pytest api/test_server.py -v
 
 # With coverage report
-uv run pytest agents/api/test_server.py --cov=agents.api --cov-report=html
+uv run pytest api/test_server.py --cov=api --cov-report=html
 open htmlcov/index.html
 ```
 
@@ -66,7 +66,7 @@ open htmlcov/index.html
 
 ```bash
 # From frontend directory
-cd agents/webui/frontend
+cd webui/frontend
 
 # Install dependencies (first time only)
 npm install
@@ -119,7 +119,7 @@ agents/
 
 ## What's Tested
 
-### Backend (agents/api/test_server.py)
+### Backend (api/test_server.py)
 
 **Health & Discovery:**
 - Health check returns correct status
@@ -180,22 +180,22 @@ agents/
 
 ```bash
 # Run specific test class
-pytest agents/api/test_server.py::TestConversationEndpoints -v
+pytest api/test_server.py::TestConversationEndpoints -v
 
 # Run specific test method
-pytest agents/api/test_server.py::TestHealthEndpoint::test_health_check -v
+pytest api/test_server.py::TestHealthEndpoint::test_health_check -v
 
 # Run with verbose output
-pytest agents/api/test_server.py -vv
+pytest api/test_server.py -vv
 
 # Run with print statements visible
-pytest agents/api/test_server.py -s
+pytest api/test_server.py -s
 ```
 
 ### Frontend
 
 ```bash
-cd agents/webui/frontend
+cd webui/frontend
 
 # Run specific test file
 npm test -- src/api/client.test.ts
@@ -213,10 +213,10 @@ Tests are designed to run in CI environments. Example GitHub Actions workflow:
 
 ```yaml
 - name: Backend Tests
-  run: uv run pytest agents/api/test_server.py -v --cov
+  run: uv run pytest api/test_server.py -v --cov
 
 - name: Frontend Tests
-  working-directory: agents/webui/frontend
+  working-directory: webui/frontend
   run: |
     npm ci
     npm test -- --run
@@ -281,7 +281,7 @@ unset DATABASE_URL  # Most tests don't need database
 **Issue:** `Cannot find module` errors
 **Solution:**
 ```bash
-cd agents/webui/frontend
+cd webui/frontend
 rm -rf node_modules package-lock.json
 npm install
 ```
@@ -306,8 +306,8 @@ When adding new features:
 4. **Update this summary** when adding test files
 5. **Run full test suite** before committing:
    ```bash
-   uv run pytest agents/api/test_server.py -v
-   cd agents/webui/frontend && npm test -- --run
+   uv run pytest api/test_server.py -v
+   cd webui/frontend && npm test -- --run
    ```
 
 ## Test Metrics

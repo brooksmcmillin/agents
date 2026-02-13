@@ -163,10 +163,7 @@ async def _run_review(
             messages=[{"role": "user", "content": user_message}],
         )
 
-        raw_text = ""
-        for block in response.content:
-            if hasattr(block, "text"):
-                raw_text += block.text
+        raw_text = "".join(getattr(block, "text", "") for block in response.content)
 
         result = _parse_review_result(reviewer_name, raw_text)
         result.diff_truncated = truncated

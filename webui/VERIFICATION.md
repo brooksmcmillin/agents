@@ -22,7 +22,7 @@ psql --version
 
 ```bash
 # 1. Navigate to frontend directory
-cd agents/webui/frontend
+cd webui/frontend
 
 # 2. Verify package.json exists
 ls -l package.json
@@ -50,7 +50,7 @@ cd ../../..
 export DATABASE_URL=postgresql://user:password@localhost:5432/agents
 
 # 3. Start the API server
-uv run python -m agents.api
+uv run python -m api
 
 # Expected output:
 # - "Conversation persistence enabled (PostgreSQL)"
@@ -63,7 +63,7 @@ uv run python -m agents.api
 
 ```bash
 # In a separate terminal:
-cd agents/webui/frontend
+cd webui/frontend
 
 # Start dev server
 npm run dev
@@ -218,20 +218,20 @@ export DATABASE_URL=postgresql://user:password@localhost:5432/agents
 ### CORS errors in browser console
 **Solution:**
 - Verify backend is running on port 8080
-- Check CORS middleware is configured in `agents/api/server.py`
+- Check CORS middleware is configured in `api/server.py`
 - In dev mode, use `http://localhost:5173` (not :8080)
 
 ### "Web UI not built" error
 **Solution:** Build the frontend
 ```bash
-cd agents/webui/frontend
+cd webui/frontend
 npm run build
 ```
 
 ### TypeScript compilation errors
 **Solution:**
 ```bash
-cd agents/webui/frontend
+cd webui/frontend
 rm -rf node_modules package-lock.json
 npm install
 ```
@@ -243,7 +243,7 @@ npm install
 lsof -ti:8080 | xargs kill -9
 
 # Or use different port
-uvicorn agents.api.server:app --port 8081
+uvicorn api.server:app --port 8081
 ```
 
 ### Database connection errors

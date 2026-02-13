@@ -30,7 +30,7 @@ FAILED=0
 
 # Backend Tests
 print_step "Running backend tests (pytest)..."
-if uv run pytest agents/api/test_server.py -v --cov=agents.api --cov-report=term; then
+if uv run pytest api/test_server.py -v --cov=api --cov-report=term; then
     print_success "Backend tests passed"
 else
     print_error "Backend tests failed"
@@ -59,7 +59,7 @@ echo ""
 
 # Frontend Tests
 print_step "Running frontend tests (vitest)..."
-cd agents/webui/frontend
+cd webui/frontend
 if npm test -- --run; then
     print_success "Frontend tests passed"
 else
@@ -71,7 +71,7 @@ echo ""
 
 # Frontend Linting
 print_step "Running TypeScript linter (eslint)..."
-cd agents/webui/frontend
+cd webui/frontend
 if npm run lint; then
     print_success "ESLint passed"
 else
@@ -83,7 +83,7 @@ echo ""
 
 # TypeScript Type Check
 print_step "Running TypeScript type check..."
-cd agents/webui/frontend
+cd webui/frontend
 if npx tsc --noEmit; then
     print_success "TypeScript type check passed"
 else
@@ -95,7 +95,7 @@ echo ""
 
 # Frontend Build
 print_step "Building frontend..."
-cd agents/webui/frontend
+cd webui/frontend
 if npm run build; then
     print_success "Frontend build succeeded"
 else
@@ -107,7 +107,7 @@ echo ""
 
 # Build verification
 print_step "Verifying build output..."
-if [ -f "agents/webui/dist/index.html" ] && [ -d "agents/webui/dist/assets" ]; then
+if [ -f "webui/dist/index.html" ] && [ -d "webui/dist/assets" ]; then
     print_success "Build output verified"
 else
     print_error "Build output missing"

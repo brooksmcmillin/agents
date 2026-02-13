@@ -62,12 +62,12 @@ uv run python -m agents.business_advisor.main
 uv run python -m agents.task_manager.main
 
 # REST API Server - HTTP access to agents
-uv run python -m agents.api
+uv run python -m api
 
 # Web UI - Modern React interface for agents
 # (requires npm and built frontend)
-cd agents/webui/frontend && npm install && npm run build
-cd ../../../ && uv run python -m agents.api
+cd webui/frontend && npm install && npm run build
+cd ../.. && uv run python -m api
 # Visit http://localhost:8080
 
 # Notifier - Send Slack notifications about tasks
@@ -101,8 +101,8 @@ User Input → Agent → Claude API → MCP Client → MCP Server → Tools
 - Each agent has its own system prompt and behavior
 - Share common MCP tools and infrastructure
 
-**2. Configuration** (`config/`)
-- `mcp_server/` - Exposes tools via Model Context Protocol
+**2. MCP Server** (`mcp_server/`)
+- Exposes tools via Model Context Protocol
 - Handles authentication and tool execution
 - Can run locally (stdio) or remotely (HTTP/SSE)
 
@@ -195,7 +195,7 @@ HTTP/REST interface for accessing agents via API:
 - Automatic session management with TTL
 - Token usage tracking per request
 
-**Run:** `uv run python -m agents.api` | **[Documentation](agents/api/README.md)**
+**Run:** `uv run python -m api` | **[Documentation](api/README.md)**
 
 ### Task Notifier
 Lightweight notification script (not a full interactive agent):
@@ -223,12 +223,12 @@ A modern React web interface for interacting with agents via persistent conversa
 **Setup:**
 ```bash
 # Install Node.js dependencies
-cd agents/webui/frontend
+cd webui/frontend
 npm install
 
 # Development mode (hot reload)
 # Terminal 1: Backend
-uv run python -m agents.api
+uv run python -m api
 
 # Terminal 2: Frontend
 npm run dev
@@ -236,7 +236,7 @@ npm run dev
 
 # Production build
 npm run build
-uv run python -m agents.api
+uv run python -m api
 # Visit http://localhost:8080
 ```
 
@@ -244,7 +244,7 @@ uv run python -m agents.api
 - Node.js 18+
 - PostgreSQL database (set `DATABASE_URL` environment variable)
 
-See [agents/webui/README.md](agents/webui/README.md) for detailed documentation.
+See [webui/README.md](webui/README.md) for detailed documentation.
 
 ## MCP Tools
 
@@ -295,56 +295,32 @@ Memory persists across conversations (default: `memories/memories.json`, optiona
 ### Content Suggestions (1 tool)
 - `suggest_content_topics` - Generate content topic ideas (currently mock data)
 
-**Total: 29 tools** available to agents via MCP. See [GUIDES.md](GUIDES.md) for detailed usage guides and [agent-framework documentation](packages/agent-framework/) for technical details.
+**Total: 29 tools** available to agents via MCP. See [GUIDES.md](docs/GUIDES.md) for detailed usage guides and [agent-framework documentation](packages/agent-framework/) for technical details.
 
 ## Project Structure
 
 ```
-agents/
-├── agents/              # Agent implementations
-│   ├── chatbot/         # General-purpose assistant with all tools
-│   ├── pr_agent/        # PR and content strategy assistant
-│   ├── security_researcher/  # AI security research expert
-│   ├── business_advisor/     # Business strategy and monetization
-│   ├── task_manager/    # Interactive task management
-│   ├── api/             # REST API server for agent access
-│   └── notifier/        # Slack notification script
-├── bin/                 # Executable scripts
-│   ├── run-agent        # Main agent entry point
-│   ├── run-voice-agent  # Voice-enabled agent entry
-│   └── slack-adapter    # Slack integration adapter
-├── config/              # Server configuration
-│   └── mcp_server/      # Shared MCP server and tools
-│       ├── server.py        # MCP server (stdio transport)
-│       ├── server_http.py   # MCP server (HTTP/SSE transport)
-│       ├── auth/            # OAuth handler and token storage
-│       └── config.py        # Server configuration
-├── docs/                # Documentation
-│   ├── TESTING.md       # Testing and debugging guide
-│   ├── VOICE_AGENTS.md  # Voice interface documentation
-│   └── development/     # Development documentation
-├── packages/            # Internal libraries (monorepo)
-│   ├── agent-framework/ # Base agent classes, MCP client, and tools
-│   │   ├── agent_framework/
-│   │   │   ├── tools/   # MCP tools (web, social, memory, RAG, Slack)
-│   │   │   ├── security/  # SSRF protection
-│   │   │   ├── core/    # Agent base class
-│   │   │   └── server.py  # MCP server base classes
-│   │   └── tests/       # Framework tests
-│   └── chasm/           # Voice interface library
-│       └── src/chasm/   # Deepgram + Cartesia voice pipeline
-├── shared/              # Common utilities
-├── scripts/             # Utility scripts
-│   ├── oauth/           # OAuth setup scripts
-│   ├── mcp/             # MCP server management
-│   └── testing/         # Test scripts
-├── tests/               # Test suite
-│   ├── integration/     # Integration tests
-│   └── unit/            # Unit tests
-├── .data/               # Runtime data (logs, memories, tokens)
-├── CLAUDE.md            # Project instructions for Claude Code
-├── GUIDES.md            # Feature guides (hot reload, memory, remote MCP)
-└── README.md            # This file
+agents/              # Agent implementations ONLY
+├── chatbot/         # General-purpose assistant with all tools
+├── pr_agent/        # PR and content strategy assistant
+├── security_researcher/  # AI security research expert
+├── business_advisor/     # Business strategy and monetization
+├── task_manager/    # Interactive task management
+├── code_reviewer/   # Batch code review runner
+├── email_intake/    # Email inbox monitor
+└── notifier/        # Slack notification script
+api/                 # REST API server (FastAPI)
+webui/               # React frontend
+mcp_server/          # Shared MCP server and tools
+infra/               # Infrastructure configs (Grafana, Loki, Promtail)
+docs/                # Documentation
+packages/            # Internal libraries (monorepo)
+├── agent-framework/ # Base agent classes, MCP client, and tools
+└── chasm/           # Voice interface library
+shared/              # Common utilities
+bin/                 # Executable scripts
+tests/               # Test suite
+scripts/             # Utility scripts
 ```
 
 ## Development Workflow
@@ -375,7 +351,7 @@ from .your_tool import your_tool
 __all__ = [..., "your_tool"]
 ```
 
-3. Register in `config/mcp_server/server.py`:
+3. Register in `mcp_server/server.py`:
    - Import the tool from `agent_framework.tools`
    - Register with `server.register_tool()` in `setup_custom_tools()`
    - Tool automatically available to all agents that use this MCP server
@@ -472,9 +448,9 @@ LINKEDIN_CLIENT_SECRET=...
 - **[CLAUDE.md](CLAUDE.md)** - Comprehensive project documentation for Claude Code
 - **[docs/TESTING.md](docs/TESTING.md)** - Testing and debugging guide (memory tools, logs, common issues)
 - **[docs/VOICE_AGENTS.md](docs/VOICE_AGENTS.md)** - Voice-enabled agents with chasm audio pipeline
-- **[GUIDES.md](GUIDES.md)** - Feature guides (memory system, OAuth, deployment, voice interface)
-- **[REMOTE_MCP.md](REMOTE_MCP.md)** - Remote MCP server setup and configuration
-- **[HOT_RELOAD.md](HOT_RELOAD.md)** - Hot reload development workflow
+- **[GUIDES.md](docs/GUIDES.md)** - Feature guides (memory system, OAuth, deployment, voice interface)
+- **[REMOTE_MCP.md](docs/REMOTE_MCP.md)** - Remote MCP server setup and configuration
+- **[HOT_RELOAD.md](docs/HOT_RELOAD.md)** - Hot reload development workflow
 - **Agent READMEs** - See `agents/*/README.md` for agent-specific docs
 - **Code Comments** - Extensive inline documentation
 
@@ -497,7 +473,7 @@ uv run python demo.py
 
 ```bash
 # Test MCP server starts
-uv run python -m config.mcp_server.server
+uv run python -m mcp_server.server
 
 # Test remote MCP connection
 curl https://mcp.brooksmcmillin.com/mcp/health
@@ -571,8 +547,8 @@ Automated testing and deployment with GitHub Actions.
 .github/workflows/test-local.sh
 
 # Or run individually:
-uv run pytest agents/api/test_server.py -v --cov
-cd agents/webui/frontend && npm test -- --run
+uv run pytest api/test_server.py -v --cov
+cd webui/frontend && npm test -- --run
 uv run ruff check . && uv run ruff format --check .
 ```
 

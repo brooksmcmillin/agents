@@ -30,7 +30,7 @@ services:
     networks:
       - agents-network
     restart: unless-stopped
-    command: uv run uvicorn agents.api.server:app --host 0.0.0.0 --port 8080 --reload
+    command: uv run uvicorn api.server:app --host 0.0.0.0 --port 8080 --reload
 
   # Frontend dev server with hot reload
   frontend:
@@ -41,7 +41,7 @@ services:
       # Vite proxy target (Docker service name)
       VITE_API_URL: http://backend:8080
     volumes:
-      - ./agents/webui/frontend:/app
+      - ./webui/frontend:/app
       # Exclude node_modules to avoid permission issues
       - /app/node_modules
     ports:

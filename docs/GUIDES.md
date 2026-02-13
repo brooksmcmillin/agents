@@ -305,7 +305,7 @@ The project includes complete OAuth 2.0 infrastructure ready for production use.
 ### Components
 
 ```
-config/mcp_server/auth/
+mcp_server/auth/
 ├── oauth_handler.py      # OAuth flows (authorization code, device, client credentials)
 ├── token_store.py        # Encrypted token storage using Fernet
 └── oauth_providers.py    # Provider configurations (Twitter, LinkedIn, etc.)
@@ -343,7 +343,7 @@ LINKEDIN_REDIRECT_URI=http://localhost:8000/callback
 #### Step 3: Enable OAuth Check in MCP Server
 
 ```python
-# config/mcp_server/server.py
+# mcp_server/server.py
 
 async def call_tool(name: str, arguments: dict) -> Any:
     # Uncomment for production
@@ -363,7 +363,7 @@ async def call_tool(name: str, arguments: dict) -> Any:
 Create web UI for OAuth callback:
 
 ```python
-# config/mcp_server/auth_server.py
+# mcp_server/auth_server.py
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 
@@ -437,7 +437,7 @@ class DatabaseTokenStore:
 ### Adding New OAuth Providers
 
 ```python
-# config/mcp_server/auth/oauth_providers.py
+# mcp_server/auth/oauth_providers.py
 
 PROVIDERS = {
     "twitter": {
@@ -550,11 +550,11 @@ Deploy MCP server separately from agents:
 
 ```bash
 # Server machine
-cd config/mcp_server/
+cd mcp_server/
 uvicorn server_http:app --host 0.0.0.0 --port 8080 --workers 4
 
 # Or with gunicorn
-gunicorn config.mcp_server.server_http:app \
+gunicorn mcp_server.server_http:app \
   --workers 4 \
   --worker-class uvicorn.workers.UvicornWorker \
   --bind 0.0.0.0:8080

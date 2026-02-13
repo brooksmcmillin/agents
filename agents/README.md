@@ -62,7 +62,7 @@ HTTP/REST interface providing stateless and stateful access to agents via API en
 
 **Features**: Stateless requests, stateful sessions, multi-agent support, token tracking
 
-**Run:** `uv run python -m agents.api` | **[Documentation](api/README.md)**
+**Run:** `uv run python -m api` | **[Documentation](api/README.md)**
 
 ---
 
@@ -81,7 +81,7 @@ Lightweight notification script (not a full interactive agent) that sends Slack 
 
 All agents have access to:
 
-- **MCP Server** (`../config/mcp_server/`) - 29 shared tools across 8 categories
+- **MCP Server** (`../mcp_server/`) - 29 shared tools across 8 categories
   - Web analysis (2 tools)
   - Memory (6 tools)
   - RAG document search (6 tools)
@@ -125,6 +125,6 @@ Each agent directory contains:
 For framework documentation, see:
 - [../CLAUDE.md](../CLAUDE.md) - Project overview and development guide
 - [../packages/agent-framework/](../packages/agent-framework/) - Framework documentation
-- [../GUIDES.md](../GUIDES.md) - Feature guides (memory, OAuth, deployment)
-- [../HOT_RELOAD.md](../HOT_RELOAD.md) - Development workflow
-- [../REMOTE_MCP.md](../REMOTE_MCP.md) - Remote MCP setup
+- [../docs/GUIDES.md](../docs/GUIDES.md) - Feature guides (memory, OAuth, deployment)
+- [../docs/HOT_RELOAD.md](../docs/HOT_RELOAD.md) - Development workflow
+- [../docs/REMOTE_MCP.md](../docs/REMOTE_MCP.md) - Remote MCP setup

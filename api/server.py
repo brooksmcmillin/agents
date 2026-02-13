@@ -22,7 +22,7 @@ Provides three usage patterns:
        GET    /conversations/{id}/export  Export as JSON
 
 Run with:
-    uv run python -m agents.api
+    uv run python -m api
 """
 
 import asyncio
@@ -1481,7 +1481,7 @@ if WEBUI_DIST.exists():
 
         raise HTTPException(
             status_code=404,
-            detail="Web UI not built. Run 'npm run build' in agents/webui/frontend/",
+            detail="Web UI not built. Run 'npm run build' in webui/frontend/",
         )
 else:
-    logger.info("Web UI not built. To enable, run 'npm run build' in agents/webui/frontend/")
+    logger.info("Web UI not built. To enable, run 'npm run build' in webui/frontend/")

@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 @pytest.fixture
 def client():
     """Create a test client for the API server."""
-    from agents.api.server import app
+    from api.server import app
 
     with TestClient(app) as c:
         yield c
@@ -88,7 +88,7 @@ class TestAgentProcessingErrors:
 
     def test_agent_exception_returns_500(self):
         """Agent exceptions should return 500 with error detail."""
-        from agents.api.server import app
+        from api.server import app
 
         # Create a mock agent that raises an exception
         mock_agent = MagicMock()
@@ -96,7 +96,7 @@ class TestAgentProcessingErrors:
         mock_agent.total_input_tokens = 0
         mock_agent.total_output_tokens = 0
 
-        with patch("agents.api.server._create_agent", return_value=mock_agent):
+        with patch("api.server._create_agent", return_value=mock_agent):
             with TestClient(app) as client:
                 response = client.post("/agents/chatbot/message", json={"message": "test"})
                 assert response.status_code == 500
@@ -104,33 +104,35 @@ class TestAgentProcessingErrors:
 
 
 class TestAuthenticationErrors:
-    """Test authentication error responses (401)."""
+    """Test authentication error responses (401).
+
+    These tests reload the server module to pick up env changes,
+    so each test must restore the module to a clean state afterward.
+    """
+
+    @staticmethod
+    def _reload_server():
+        import importlib
+
+        import api.server as server_module
+
+        importlib.reload(server_module)
+        return server_module
 
     def test_missing_api_key_when_required(self):
         """Missing API key when required should return 401."""
-
         with patch.dict("os.environ", {"API_KEY": "secret123"}):
-            # Need to reimport to pick up the env change
-            import importlib
-
-            import agents.api.server as server_module
-
-            importlib.reload(server_module)
-
+            server_module = self._reload_server()
             with TestClient(server_module.app) as client:
                 response = client.post("/agents/chatbot/message", json={"message": "test"})
                 assert response.status_code == 401
+        # Restore module without API_KEY
+        self._reload_server()
 
     def test_invalid_api_key(self):
         """Invalid API key should return 401."""
-
         with patch.dict("os.environ", {"API_KEY": "secret123"}):
-            import importlib
-
-            import agents.api.server as server_module
-
-            importlib.reload(server_module)
-
+            server_module = self._reload_server()
             with TestClient(server_module.app) as client:
                 response = client.post(
                     "/agents/chatbot/message",
@@ -138,17 +140,13 @@ class TestAuthenticationErrors:
                     headers={"Authorization": "Bearer wrongkey"},
                 )
                 assert response.status_code == 401
+        # Restore module without API_KEY
+        self._reload_server()
 
     def test_valid_api_key_allowed(self):
         """Valid API key should be allowed through."""
         with patch.dict("os.environ", {"API_KEY": "secret123"}):
-            import importlib
-
-            import agents.api.server as server_module
-
-            importlib.reload(server_module)
-
-            # Mock the agent to avoid actual API calls
+            server_module = self._reload_server()
             mock_agent = MagicMock()
             mock_agent.process_message = AsyncMock(return_value="Hello!")
             mock_agent.total_input_tokens = 10
@@ -161,68 +159,68 @@ class TestAuthenticationErrors:
                         json={"message": "test"},
                         headers={"Authorization": "Bearer secret123"},
                     )
-                    # Should not be 401
                     assert response.status_code != 401
+        # Restore module without API_KEY
+        self._reload_server()
 
 
 class TestConversationEndpointsWithoutDatabase:
     """Test conversation endpoints when database is not configured."""
 
+    @staticmethod
+    def _reload_server():
+        import importlib
+
+        import api.server as server_module
+
+        importlib.reload(server_module)
+        return server_module
+
     def test_list_conversations_no_database(self):
         """List conversations without database should return 503."""
-        # Clear DATABASE_URL and reload module to test without database
-        import importlib
-
-        import agents.api.server as server_module
-
-        with patch.dict("os.environ", {"DATABASE_URL": ""}, clear=False):
-            # Remove DATABASE_URL from environ
-            import os
-
-            orig_url = os.environ.pop("DATABASE_URL", None)
-            try:
-                importlib.reload(server_module)
-                with TestClient(server_module.app) as client:
-                    response = client.get("/conversations")
-                    assert response.status_code == 503
-                    assert "not configured" in response.json()["detail"].lower()
-            finally:
-                if orig_url:
-                    os.environ["DATABASE_URL"] = orig_url
-
-    def test_get_conversation_no_database(self):
-        """Get conversation without database should return 503."""
-        import importlib
         import os
-
-        import agents.api.server as server_module
 
         orig_url = os.environ.pop("DATABASE_URL", None)
         try:
-            importlib.reload(server_module)
+            server_module = self._reload_server()
+            with TestClient(server_module.app) as client:
+                response = client.get("/conversations")
+                assert response.status_code == 503
+                assert "not configured" in response.json()["detail"].lower()
+        finally:
+            if orig_url:
+                os.environ["DATABASE_URL"] = orig_url
+            self._reload_server()
+
+    def test_get_conversation_no_database(self):
+        """Get conversation without database should return 503."""
+        import os
+
+        orig_url = os.environ.pop("DATABASE_URL", None)
+        try:
+            server_module = self._reload_server()
             with TestClient(server_module.app) as client:
                 response = client.get("/conversations/some-id")
                 assert response.status_code == 503
         finally:
             if orig_url:
                 os.environ["DATABASE_URL"] = orig_url
+            self._reload_server()
 
     def test_conversation_stats_no_database(self):
         """Get stats without database should return 503."""
-        import importlib
         import os
-
-        import agents.api.server as server_module
 
         orig_url = os.environ.pop("DATABASE_URL", None)
         try:
-            importlib.reload(server_module)
+            server_module = self._reload_server()
             with TestClient(server_module.app) as client:
                 response = client.get("/conversations/stats")
                 assert response.status_code == 503
         finally:
             if orig_url:
                 os.environ["DATABASE_URL"] = orig_url
+            self._reload_server()
 
 
 class TestHealthEndpoint:

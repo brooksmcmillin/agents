@@ -182,7 +182,7 @@ async def run_agent_task(
     # Import agent classes dynamically to avoid circular imports
     from agent_framework import Agent
 
-    from agents.api.server import _build_registry
+    from api.server import _build_registry
 
     registry = _build_registry()
 
@@ -475,7 +475,7 @@ def show_status() -> None:
 
     # Check which agents are available
     try:
-        from agents.api.server import _build_registry
+        from api.server import _build_registry
 
         registry = _build_registry()
         print("Available Agents:")

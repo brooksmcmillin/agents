@@ -45,13 +45,13 @@ services:
     restart: unless-stopped
     depends_on:
       - loki
-    command: uv run python -m agents.api
+    command: uv run python -m api
 
   # Frontend build and serve (production mode)
   # For development, run "npm run dev" locally instead
   frontend:
     build:
-      context: ./agents/webui/frontend
+      context: ./webui/frontend
       dockerfile: Dockerfile
     container_name: agents-frontend
     environment:
@@ -73,7 +73,7 @@ services:
     ports:
       - "3100:3100"
     volumes:
-      - ./config/loki/loki-config.yaml:/etc/loki/local-config.yaml:ro
+      - ./infra/loki/loki-config.yaml:/etc/loki/local-config.yaml:ro
       - loki_data:/loki
     command: -config.file=/etc/loki/local-config.yaml
     networks:
@@ -90,7 +90,7 @@ services:
     image: grafana/promtail:3.0.0
     container_name: agents-promtail
     volumes:
-      - ./config/promtail/promtail-config.yaml:/etc/promtail/config.yaml:ro
+      - ./infra/promtail/promtail-config.yaml:/etc/promtail/config.yaml:ro
       - agent_logs:/var/log/agents:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
     command: -config.file=/etc/promtail/config.yaml
@@ -116,9 +116,9 @@ services:
       - GF_ANALYTICS_REPORTING_ENABLED=false
       - GF_ANALYTICS_CHECK_FOR_UPDATES=false
     volumes:
-      - ./config/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
-      - ./config/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
-      - ./config/grafana/dashboards:/etc/grafana/dashboards:ro
+      - ./infra/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./infra/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./infra/grafana/dashboards:/etc/grafana/dashboards:ro
       - grafana_data:/var/lib/grafana
     networks:
       - agents-network

@@ -1,10 +1,10 @@
 {
   "include": [
     "agents",
-    "config",
+    "api",
+    "mcp_server",
     "shared",
-    "packages/agent-framework/agent_framework",
-    "packages/chasm/chasm"
+    "packages/agent-framework/agent_framework"
   ],
   "exclude": [
     "**/__pycache__",

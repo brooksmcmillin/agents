@@ -39,18 +39,18 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: agents/webui/frontend/package-lock.json
+          cache-dependency-path: webui/frontend/package-lock.json
 
       - name: Install frontend dependencies
-        working-directory: agents/webui/frontend
+        working-directory: webui/frontend
         run: npm ci
 
       - name: ESLint
-        working-directory: agents/webui/frontend
+        working-directory: webui/frontend
         run: npm run lint
 
       - name: TypeScript check
-        working-directory: agents/webui/frontend
+        working-directory: webui/frontend
         run: npx tsc --noEmit
 
   unit-tests:
@@ -136,14 +136,14 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: agents/webui/frontend/package-lock.json
+          cache-dependency-path: webui/frontend/package-lock.json
 
       - name: Install dependencies
-        working-directory: agents/webui/frontend
+        working-directory: webui/frontend
         run: npm ci
 
       - name: Run tests
-        working-directory: agents/webui/frontend
+        working-directory: webui/frontend
         run: npm test -- --run --coverage
 
   frontend-build:
@@ -157,25 +157,25 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: agents/webui/frontend/package-lock.json
+          cache-dependency-path: webui/frontend/package-lock.json
 
       - name: Install dependencies
-        working-directory: agents/webui/frontend
+        working-directory: webui/frontend
         run: npm ci
 
       - name: Build
-        working-directory: agents/webui/frontend
+        working-directory: webui/frontend
         run: npm run build
 
       - name: Verify build output
         run: |
-          test -f agents/webui/dist/index.html || exit 1
-          test -d agents/webui/dist/assets || exit 1
+          test -f webui/dist/index.html || exit 1
+          test -d webui/dist/assets || exit 1
 
       - uses: actions/upload-artifact@v6
         with:
           name: frontend-build
-          path: agents/webui/dist/
+          path: webui/dist/
           retention-days: 7
 
   integration-tests:
@@ -212,14 +212,14 @@ jobs:
       - uses: actions/download-artifact@v7
         with:
           name: frontend-build
-          path: agents/webui/dist/
+          path: webui/dist/
 
       - name: Start API server
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/agents_test
           DEV_MODE: "true"
         run: |
-          uv run python -m agents.api &
+          uv run python -m api &
           echo $! > api.pid
           sleep 5
 

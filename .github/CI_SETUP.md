@@ -148,21 +148,21 @@ Already added to README.md! Just update the username.
 
 ```bash
 # Backend tests
-uv run pytest agents/api/test_server.py -v --cov
+uv run pytest api/test_server.py -v --cov
 
 # Frontend tests
-cd agents/webui/frontend
+cd webui/frontend
 npm test -- --run
 
 # Linting
 uv run ruff check .
-cd agents/webui/frontend && npm run lint
+cd webui/frontend && npm run lint
 
 # Type check
-cd agents/webui/frontend && npx tsc --noEmit
+cd webui/frontend && npx tsc --noEmit
 
 # Build
-cd agents/webui/frontend && npm run build
+cd webui/frontend && npm run build
 ```
 
 ## Workflow Execution Flow
@@ -263,7 +263,7 @@ uv sync --upgrade
 
 **Node:**
 ```bash
-cd agents/webui/frontend
+cd webui/frontend
 npm update
 # Commit updated package-lock.json
 ```

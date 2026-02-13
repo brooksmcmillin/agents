@@ -1,4 +1,4 @@
-"""Entry point: ``uv run python -m agents.api``."""
+"""Entry point: ``uv run python -m api``."""
 
 import uvicorn
 from dotenv import load_dotenv

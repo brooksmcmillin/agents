@@ -46,4 +46,4 @@ async with client:
     )
 ```
 
-**See:** [REMOTE_MCP.md](../REMOTE_MCP.md) for full documentation on remote MCP setup.
+**See:** [REMOTE_MCP.md](../docs/REMOTE_MCP.md) for full documentation on remote MCP setup.

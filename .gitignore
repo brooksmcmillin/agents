@@ -36,7 +36,6 @@ ENV/
 tokens/
 *.token
 memories/
-mcp_server/  # Moved to config/mcp_server/
 
 # Logs
 *.log
@@ -93,6 +92,6 @@ test_output/
 scratch/
 
 # Web UI
-agents/webui/dist/
-agents/webui/frontend/node_modules/
-agents/webui/frontend/.env
+webui/dist/
+webui/frontend/node_modules/
+webui/frontend/.env
