@@ -295,7 +295,7 @@ Memory persists across conversations (default: `memories/memories.json`, optiona
 ### Content Suggestions (1 tool)
 - `suggest_content_topics` - Generate content topic ideas (currently mock data)
 
-**Total: 29 tools** available to agents via MCP. See [GUIDES.md](GUIDES.md) for detailed usage guides and [agent-framework documentation](packages/agent-framework/) for technical details.
+**Total: 29 tools** available to agents via MCP. See [GUIDES.md](docs/GUIDES.md) for detailed usage guides and [agent-framework documentation](packages/agent-framework/) for technical details.
 
 ## Project Structure
 
@@ -343,7 +343,7 @@ agents/
 │   └── unit/            # Unit tests
 ├── .data/               # Runtime data (logs, memories, tokens)
 ├── CLAUDE.md            # Project instructions for Claude Code
-├── GUIDES.md            # Feature guides (hot reload, memory, remote MCP)
+├── docs/                # Project documentation
 └── README.md            # This file
 ```
 
@@ -472,9 +472,9 @@ LINKEDIN_CLIENT_SECRET=...
 - **[CLAUDE.md](CLAUDE.md)** - Comprehensive project documentation for Claude Code
 - **[docs/TESTING.md](docs/TESTING.md)** - Testing and debugging guide (memory tools, logs, common issues)
 - **[docs/VOICE_AGENTS.md](docs/VOICE_AGENTS.md)** - Voice-enabled agents with chasm audio pipeline
-- **[GUIDES.md](GUIDES.md)** - Feature guides (memory system, OAuth, deployment, voice interface)
-- **[REMOTE_MCP.md](REMOTE_MCP.md)** - Remote MCP server setup and configuration
-- **[HOT_RELOAD.md](HOT_RELOAD.md)** - Hot reload development workflow
+- **[GUIDES.md](docs/GUIDES.md)** - Feature guides (memory system, OAuth, deployment, voice interface)
+- **[REMOTE_MCP.md](docs/REMOTE_MCP.md)** - Remote MCP server setup and configuration
+- **[HOT_RELOAD.md](docs/HOT_RELOAD.md)** - Hot reload development workflow
 - **Agent READMEs** - See `agents/*/README.md` for agent-specific docs
 - **Code Comments** - Extensive inline documentation
 

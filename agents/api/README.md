@@ -869,7 +869,7 @@ ab -n 100 -c 10 http://localhost:8000/agents/chatbot/message
 - [CLAUDE.md](../../CLAUDE.md) - Project overview and development guide
 - [Agent Documentation](../) - Individual agent READMEs
 - [agent-framework](../../packages/agent-framework/) - Shared library
-- [REMOTE_MCP.md](../../REMOTE_MCP.md) - Remote MCP setup for task manager
+- [REMOTE_MCP.md](../../docs/REMOTE_MCP.md) - Remote MCP setup for task manager
 - [Testing Guide](../../docs/TESTING.md) - Testing and debugging
 
 ---

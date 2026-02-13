@@ -596,15 +596,15 @@ Edit tools while the agent is running:
 2. Save the file
 3. Type `reload` or next tool call picks up changes
 
-See [HOT_RELOAD.md](../../HOT_RELOAD.md) for details.
+See [HOT_RELOAD.md](../../docs/HOT_RELOAD.md) for details.
 
 ## Related Documentation
 
 - [CLAUDE.md](../../CLAUDE.md) - Project overview and development guide
-- [GUIDES.md](../../GUIDES.md) - RAG setup, memory system, deployment
+- [GUIDES.md](../../docs/GUIDES.md) - RAG setup, memory system, deployment
 - [agent-framework](../../packages/agent-framework/) - Shared library documentation
 - [Testing Guide](../../docs/TESTING.md) - Testing and debugging
-- [HOT_RELOAD.md](../../HOT_RELOAD.md) - Development workflow
+- [HOT_RELOAD.md](../../docs/HOT_RELOAD.md) - Development workflow
 
 ## Security Considerations
 

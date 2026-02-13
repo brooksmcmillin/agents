@@ -238,7 +238,7 @@ User Input → Agent → Claude API → RemoteMCPClient (HTTP/SSE) → Remote MC
 **Remote MCP Option:**
 - MCP servers can be hosted remotely via HTTP/SSE transport
 - Multiple agents can share one remote MCP server
-- See [REMOTE_MCP.md](REMOTE_MCP.md) for setup guide
+- See [REMOTE_MCP.md](docs/REMOTE_MCP.md) for setup guide
 
 ### Agentic Loop Pattern
 
@@ -777,7 +777,7 @@ response = await agent.process_message(
 4. Next tool call automatically picks up changes
 5. Type `reload` to force reconnection if needed
 
-See `HOT_RELOAD.md` for details.
+See `docs/HOT_RELOAD.md` for details.
 
 **Note:** Tools are in the local agent-framework package, making them reusable across all agents in this monorepo.
 

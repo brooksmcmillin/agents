@@ -377,7 +377,7 @@ You can edit MCP tools while the agent is running:
 3. Next tool call automatically picks up changes
 4. Or type `reload` to force reconnection
 
-See [HOT_RELOAD.md](../../HOT_RELOAD.md) for details.
+See [HOT_RELOAD.md](../../docs/HOT_RELOAD.md) for details.
 
 ### Testing Tools
 
@@ -402,7 +402,7 @@ See [CLAUDE.md](../../CLAUDE.md) for full development guide.
 ## Related Documentation
 
 - [CLAUDE.md](../../CLAUDE.md) - Project overview and development guide
-- [HOT_RELOAD.md](../../HOT_RELOAD.md) - Hot reload development workflow
-- [GUIDES.md](../../GUIDES.md) - Memory, RAG, and deployment guides
+- [HOT_RELOAD.md](../../docs/HOT_RELOAD.md) - Hot reload development workflow
+- [GUIDES.md](../../docs/GUIDES.md) - Memory, RAG, and deployment guides
 - [agent-framework](../../packages/agent-framework/) - Shared agent library
 - [Testing Guide](../../docs/TESTING.md) - Testing and debugging

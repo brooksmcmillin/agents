@@ -125,6 +125,6 @@ Each agent directory contains:
 For framework documentation, see:
 - [../CLAUDE.md](../CLAUDE.md) - Project overview and development guide
 - [../packages/agent-framework/](../packages/agent-framework/) - Framework documentation
-- [../GUIDES.md](../GUIDES.md) - Feature guides (memory, OAuth, deployment)
-- [../HOT_RELOAD.md](../HOT_RELOAD.md) - Development workflow
-- [../REMOTE_MCP.md](../REMOTE_MCP.md) - Remote MCP setup
+- [../docs/GUIDES.md](../docs/GUIDES.md) - Feature guides (memory, OAuth, deployment)
+- [../docs/HOT_RELOAD.md](../docs/HOT_RELOAD.md) - Development workflow
+- [../docs/REMOTE_MCP.md](../docs/REMOTE_MCP.md) - Remote MCP setup

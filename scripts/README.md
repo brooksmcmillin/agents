@@ -210,5 +210,5 @@ The OAuth infrastructure is designed for easy migration from file-based storage 
 ## Need Help?
 
 - See main [README.md](../README.md) for project overview
-- Check [GUIDES.md](../GUIDES.md) for feature-specific documentation
+- Check [GUIDES.md](../docs/GUIDES.md) for feature-specific documentation
 - Review `.env.example` for configuration options
