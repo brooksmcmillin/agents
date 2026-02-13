@@ -25,7 +25,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import deque
-from datetime import timezone
 from typing import Any
 
 from .models import (
@@ -245,9 +244,7 @@ class Orchestrator:
                         self.add_task(subtask)
                         task.subtask_ids.append(subtask.id)
                     task.status = TaskStatus.IN_PROGRESS
-                    logger.info(
-                        f"Task {task.id} decomposed into {len(subtasks)} subtasks"
-                    )
+                    logger.info(f"Task {task.id} decomposed into {len(subtasks)} subtasks")
                     return
 
         # EXECUTE: Dispatch worker
@@ -355,9 +352,7 @@ class Orchestrator:
             return True
 
         # Get the diff
-        diff = await get_workspace_diff(
-            task.workspace_name, task.branch_name, self.config
-        )
+        diff = await get_workspace_diff(task.workspace_name, task.branch_name, self.config)
         if not diff.strip():
             if task.worker_output:
                 logger.warning(
@@ -366,10 +361,7 @@ class Orchestrator:
                     f"to commit changes. Skipping review."
                 )
             else:
-                logger.warning(
-                    f"No diff for task {task.id} and no worker output. "
-                    f"Skipping review."
-                )
+                logger.warning(f"No diff for task {task.id} and no worker output. Skipping review.")
             return True
 
         all_passed = True
@@ -435,8 +427,7 @@ class Orchestrator:
             )
             task.status = TaskStatus.FAILED
             task.error = (
-                f"Review failed at max recursion depth. "
-                f"Issues: {[i.title for i in all_issues]}"
+                f"Review failed at max recursion depth. Issues: {[i.title for i in all_issues]}"
             )
             async with self._lock:
                 self.state.tasks_failed += 1
@@ -493,9 +484,7 @@ class Orchestrator:
             self.add_task(remediation)
             task.subtask_ids.append(remediation.id)
 
-        logger.info(
-            f"Created {remediation_count} remediation tasks for task {task.id}"
-        )
+        logger.info(f"Created {remediation_count} remediation tasks for task {task.id}")
         task.status = TaskStatus.IN_PROGRESS  # Parent stays in progress
 
     async def _finalize_task(self, task: Task) -> None:
@@ -570,10 +559,7 @@ class Orchestrator:
             logger.info(f"Parent task {parent_id} marked FAILED (subtask failures)")
             await self._notify_failure(parent)
         else:
-            logger.info(
-                f"All {len(subtasks)} subtasks of {parent_id} completed, "
-                f"finalizing parent"
-            )
+            logger.info(f"All {len(subtasks)} subtasks of {parent_id} completed, finalizing parent")
             await self._finalize_task(parent)
 
         # Recurse upward: if this parent also has a parent, check it too

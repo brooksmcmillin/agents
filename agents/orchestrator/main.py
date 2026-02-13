@@ -68,9 +68,7 @@ def _validate_task_dict(td: dict, index: int) -> None:
     if not isinstance(td["title"], str) or not td["title"].strip():
         raise TaskFileValidationError(f"Task #{index}: 'title' must be a non-empty string")
     if len(td["title"]) > _MAX_TITLE_LEN:
-        raise TaskFileValidationError(
-            f"Task #{index}: 'title' exceeds {_MAX_TITLE_LEN} characters"
-        )
+        raise TaskFileValidationError(f"Task #{index}: 'title' exceeds {_MAX_TITLE_LEN} characters")
 
     # description (optional)
     if "description" in td:
@@ -84,30 +82,22 @@ def _validate_task_dict(td: dict, index: int) -> None:
     # priority (optional)
     if "priority" in td:
         if not isinstance(td["priority"], int) or not (1 <= td["priority"] <= 10):
-            raise TaskFileValidationError(
-                f"Task #{index}: 'priority' must be an integer 1-10"
-            )
+            raise TaskFileValidationError(f"Task #{index}: 'priority' must be an integer 1-10")
 
     # autonomy_tier (optional)
     if "autonomy_tier" in td:
         if not isinstance(td["autonomy_tier"], int) or td["autonomy_tier"] not in (1, 2, 3, 4):
-            raise TaskFileValidationError(
-                f"Task #{index}: 'autonomy_tier' must be 1, 2, 3, or 4"
-            )
+            raise TaskFileValidationError(f"Task #{index}: 'autonomy_tier' must be 1, 2, 3, or 4")
 
     # tags (optional)
     if "tags" in td:
         if not isinstance(td["tags"], list):
             raise TaskFileValidationError(f"Task #{index}: 'tags' must be a list")
         if len(td["tags"]) > _MAX_TAGS_COUNT:
-            raise TaskFileValidationError(
-                f"Task #{index}: too many tags (max {_MAX_TAGS_COUNT})"
-            )
+            raise TaskFileValidationError(f"Task #{index}: too many tags (max {_MAX_TAGS_COUNT})")
         for i, tag in enumerate(td["tags"]):
             if not isinstance(tag, str):
-                raise TaskFileValidationError(
-                    f"Task #{index}: tag #{i} must be a string"
-                )
+                raise TaskFileValidationError(f"Task #{index}: tag #{i} must be a string")
             if len(tag) > _MAX_TAG_LEN:
                 raise TaskFileValidationError(
                     f"Task #{index}: tag #{i} exceeds {_MAX_TAG_LEN} characters"
@@ -392,8 +382,7 @@ async def run_orchestrator(args: argparse.Namespace) -> int:
             logger.info(f"      Error: {task.error}")
         for review in task.review_results:
             logger.info(
-                f"      Review ({review.reviewer}): {review.verdict.value} "
-                f"- {review.summary[:80]}"
+                f"      Review ({review.reviewer}): {review.verdict.value} - {review.summary[:80]}"
             )
 
     # Exit code: 0 if all completed, 1 if any failed

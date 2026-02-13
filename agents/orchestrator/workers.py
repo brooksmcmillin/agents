@@ -14,6 +14,7 @@ import asyncio
 import logging
 import os
 import re
+import shlex
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -23,7 +24,12 @@ from agent_framework.tools.claude_code import (
     run_claude_code,
 )
 
-from .models import OrchestratorConfig, Task, validate_workspace_name
+from .models import (
+    OrchestratorConfig,
+    Task,
+    validate_git_ref,
+    validate_workspace_name,
+)
 from .prompts import WORKER_INSTRUCTIONS_TEMPLATE
 
 logger = logging.getLogger(__name__)
@@ -31,9 +37,6 @@ logger = logging.getLogger(__name__)
 # Characters allowed in task text that gets interpolated into worker commands.
 # Everything else is stripped to prevent injection via task title/description.
 _SAFE_TASK_TEXT_RE = re.compile(r"[^a-zA-Z0-9 _.,'\"()\-:;!?@#/\n\r\t]+")
-
-# Valid git branch name component (after sanitisation)
-_GIT_REF_COMPONENT_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_/-]{0,200}$")
 
 
 def _sanitise_task_text(text: str, max_length: int = 5000) -> str:
@@ -90,8 +93,7 @@ def _branch_name_for_task(task: Task, config: OrchestratorConfig) -> str:
     branch = f"{config.branch_prefix}/{safe_id}-{slug}"
 
     # Final validation
-    if not _GIT_REF_COMPONENT_RE.match(branch):
-        raise ValueError(f"Generated branch name is not git-safe: {branch!r}")
+    validate_git_ref(branch, "generated branch name")
 
     return branch
 
@@ -180,10 +182,7 @@ async def dispatch_worker(
 
     # Defense-in-depth: even pre-validated branch names are re-checked
     # before interpolation into commands sent to Claude Code.
-    if not _GIT_REF_COMPONENT_RE.match(branch_name):
-        raise ValueError(
-            f"Branch name failed safety check before dispatch: {branch_name!r}"
-        )
+    validate_git_ref(branch_name, "branch name before dispatch")
     task.branch_name = branch_name
 
     # Sanitise all user-controlled text before interpolation
@@ -204,10 +203,12 @@ async def dispatch_worker(
         context=safe_context,
     )
 
-    # Prepend git branch setup
+    # Prepend git branch setup — shlex.quote provides defense-in-depth
+    # even though branch_name is already validated by regex above.
+    quoted_branch = shlex.quote(branch_name)
     git_setup = (
-        f"First, create and switch to a new git branch: `git checkout -b {branch_name}`\n"
-        f"If the branch already exists, just switch to it: `git checkout {branch_name}`\n\n"
+        f"First, create and switch to a new git branch: `git checkout -b {quoted_branch}`\n"
+        f"If the branch already exists, just switch to it: `git checkout {quoted_branch}`\n\n"
     )
 
     full_command = git_setup + instructions
@@ -232,9 +233,7 @@ async def dispatch_worker(
     error = result.get("error_output") or result.get("error")
 
     if not success:
-        logger.warning(
-            f"Worker for task {task.id} failed: exit_code={exit_code}, error={error}"
-        )
+        logger.warning(f"Worker for task {task.id} failed: exit_code={exit_code}, error={error}")
 
     return WorkerResult(
         success=success,
@@ -279,10 +278,18 @@ async def get_workspace_diff(
 
     base_branch = config.base_branch if config else "main"
 
+    # Validate refs before passing to subprocess (defense-in-depth)
+    validate_git_ref(base_branch, "base_branch")
+    validate_git_ref(branch_name, "branch_name")
+
     # Try diffing against the configured base branch
+    # "--" separates revisions from paths, preventing option injection.
     try:
         proc = await asyncio.create_subprocess_exec(
-            "git", "diff", f"{base_branch}...{branch_name}",
+            "git",
+            "diff",
+            f"{base_branch}...{branch_name}",
+            "--",
             cwd=str(workspace_path),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -295,22 +302,23 @@ async def get_workspace_diff(
         # Base branch might not exist — detect and try fallback
         stderr_text = stderr.decode("utf-8", errors="replace")
         if "unknown revision" in stderr_text or "bad revision" in stderr_text:
-            logger.info(
-                f"Base branch '{base_branch}' not found, falling back to HEAD~1"
-            )
+            logger.info(f"Base branch '{base_branch}' not found, falling back to HEAD~1")
         else:
             # Some other git error (empty diff is fine)
             if proc.returncode != 0:
                 logger.warning(f"git diff failed: {stderr_text}")
             return stdout.decode("utf-8", errors="replace") if stdout else ""
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.warning("git diff timed out against base branch")
         return ""
 
     # Fallback: diff against HEAD~1
     try:
         proc = await asyncio.create_subprocess_exec(
-            "git", "diff", "HEAD~1",
+            "git",
+            "diff",
+            "HEAD~1",
+            "--",
             cwd=str(workspace_path),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -322,14 +330,18 @@ async def get_workspace_diff(
 
         # HEAD~1 doesn't exist (first commit) — diff against empty tree
         proc = await asyncio.create_subprocess_exec(
-            "git", "diff", "4b825dc642cb6eb9a060e54bf899d8e3b71d8631", "HEAD",
+            "git",
+            "diff",
+            "4b825dc642cb6eb9a060e54bf899d8e3b71d8631",
+            "HEAD",
+            "--",
             cwd=str(workspace_path),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
         return stdout.decode("utf-8", errors="replace") if stdout else ""
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.warning("git diff fallback timed out")
         return ""
     except Exception as e:

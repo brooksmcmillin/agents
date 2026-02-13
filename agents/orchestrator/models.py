@@ -9,31 +9,37 @@ from __future__ import annotations
 import re
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum, IntEnum
 from typing import Any
 
 
 def _utcnow() -> datetime:
     """Return timezone-aware UTC datetime."""
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 # Strict pattern for workspace names: alphanumeric, hyphens, underscores only.
 # Rejects path traversal sequences and special characters.
 _SAFE_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$")
 
+# Valid git ref component: starts with alphanumeric, allows hyphens, underscores,
+# slashes.  Used for branch names, branch prefixes, and base branch values.
+_SAFE_GIT_REF_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_/-]{0,200}$")
+
 
 # Known model short names and full IDs accepted by the orchestrator.
 # This is not exhaustive but catches typos early with a clear error.
-KNOWN_MODELS = frozenset({
-    "sonnet",
-    "haiku",
-    "opus",
-    "claude-sonnet-4-5-20250929",
-    "claude-haiku-4-5-20251001",
-    "claude-opus-4-6",
-})
+KNOWN_MODELS = frozenset(
+    {
+        "sonnet",
+        "haiku",
+        "opus",
+        "claude-sonnet-4-5-20250929",
+        "claude-haiku-4-5-20251001",
+        "claude-opus-4-6",
+    }
+)
 
 
 def validate_model_name(model: str) -> str:
@@ -49,11 +55,29 @@ def validate_model_name(model: str) -> str:
         ValueError: If the model name is not recognized.
     """
     if model not in KNOWN_MODELS:
-        raise ValueError(
-            f"Unknown model: {model!r}. "
-            f"Known models: {sorted(KNOWN_MODELS)}"
-        )
+        raise ValueError(f"Unknown model: {model!r}. Known models: {sorted(KNOWN_MODELS)}")
     return model
+
+
+def validate_git_ref(ref: str, label: str = "git ref") -> str:
+    """Validate a git reference name (branch, prefix, etc.).
+
+    Args:
+        ref: The git reference to validate.
+        label: Human-readable label for error messages.
+
+    Returns:
+        The validated reference unchanged.
+
+    Raises:
+        ValueError: If the reference contains unsafe characters.
+    """
+    if not _SAFE_GIT_REF_RE.match(ref):
+        raise ValueError(
+            f"Invalid {label}: {ref!r}. Must start with alphanumeric "
+            f"and contain only alphanumeric, hyphens, underscores, or slashes."
+        )
+    return ref
 
 
 class AutonomyTier(IntEnum):
@@ -62,10 +86,10 @@ class AutonomyTier(IntEnum):
     Lower numbers = more autonomous. Higher numbers = more human involvement.
     """
 
-    AUTO_MERGE = 1       # Review passes -> merge automatically
+    AUTO_MERGE = 1  # Review passes -> merge automatically
     PROPOSE_EXECUTE = 2  # Execute + review, notify human, merge unless vetoed
-    PROPOSE_WAIT = 3     # Execute + review, wait for human approval before merge
-    MANUAL_ONLY = 4      # Notify human, do not attempt autonomous work
+    PROPOSE_WAIT = 3  # Execute + review, wait for human approval before merge
+    MANUAL_ONLY = 4  # Notify human, do not attempt autonomous work
 
 
 class TaskStatus(str, Enum):
@@ -220,6 +244,11 @@ class OrchestratorConfig:
     # Polling
     poll_interval_seconds: int = 30
 
+    def __post_init__(self) -> None:
+        """Validate configuration values on construction."""
+        validate_git_ref(self.base_branch, "base_branch")
+        validate_git_ref(self.branch_prefix, "branch_prefix")
+
 
 def validate_workspace_name(name: str) -> str:
     """Validate and return a safe workspace name.
@@ -236,9 +265,7 @@ def validate_workspace_name(name: str) -> str:
     if not name:
         raise ValueError("Workspace name cannot be empty")
     if ".." in name or "/" in name or "\\" in name:
-        raise ValueError(
-            f"Workspace name contains path traversal sequence: {name!r}"
-        )
+        raise ValueError(f"Workspace name contains path traversal sequence: {name!r}")
     if not _SAFE_NAME_RE.match(name):
         raise ValueError(
             f"Workspace name must be alphanumeric with hyphens/underscores "

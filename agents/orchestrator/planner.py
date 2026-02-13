@@ -118,8 +118,7 @@ def _parse_subtasks(raw_text: str, parent: Task) -> list[Task]:
         items: list[dict[str, Any]] = json.loads(text)
     except json.JSONDecodeError as exc:
         raise PlanningError(
-            f"LLM returned unparseable response (not valid JSON). "
-            f"First 200 chars: {text[:200]}"
+            f"LLM returned unparseable response (not valid JSON). First 200 chars: {text[:200]}"
         ) from exc
 
     if not isinstance(items, list):
