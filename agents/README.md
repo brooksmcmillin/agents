@@ -62,7 +62,7 @@ HTTP/REST interface providing stateless and stateful access to agents via API en
 
 **Features**: Stateless requests, stateful sessions, multi-agent support, token tracking
 
-**Run:** `uv run python -m agents.api` | **[Documentation](api/README.md)**
+**Run:** `uv run python -m api` | **[Documentation](api/README.md)**
 
 ---
 

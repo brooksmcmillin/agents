@@ -96,7 +96,7 @@ LOG_LEVEL=INFO
 
 ```bash
 # Start the REST API server
-uv run python -m agents.api
+uv run python -m api
 
 # Server starts on http://localhost:8000
 # API docs available at http://localhost:8000/docs
@@ -106,13 +106,13 @@ uv run python -m agents.api
 
 ```bash
 # For production with more control
-uv run uvicorn agents.api.server:app --host 0.0.0.0 --port 8000
+uv run uvicorn api.server:app --host 0.0.0.0 --port 8000
 
 # With auto-reload for development
-uv run uvicorn agents.api.server:app --reload
+uv run uvicorn api.server:app --reload
 
 # With multiple workers (production)
-uv run uvicorn agents.api.server:app --workers 4
+uv run uvicorn api.server:app --workers 4
 ```
 
 ## API Endpoints
@@ -643,7 +643,7 @@ LOG_LEVEL=INFO
 
 ### Customizing Session TTL
 
-Edit `agents/api/sessions.py`:
+Edit `api/sessions.py`:
 
 ```python
 SESSION_TTL = 7200  # 2 hours instead of 1
@@ -652,7 +652,7 @@ CLEANUP_INTERVAL = 600  # 10 minutes
 
 ### Adding New Agents
 
-Edit `agents/api/server.py` in `_build_registry()`:
+Edit `api/server.py` in `_build_registry()`:
 
 ```python
 def _build_registry():
@@ -681,7 +681,7 @@ Agent automatically available at `/agents/youragent/message`.
 lsof -i :8000
 
 # Use different port
-uv run uvicorn agents.api.server:app --port 8080
+uv run uvicorn api.server:app --port 8080
 
 # Check environment variables
 env | grep -E '(ANTHROPIC|MCP|RAG)'
@@ -790,7 +790,7 @@ while True:
 
 **Use multiple workers**:
 ```bash
-uv run uvicorn agents.api.server:app --workers 4 --host 0.0.0.0 --port 8000
+uv run uvicorn api.server:app --workers 4 --host 0.0.0.0 --port 8000
 ```
 
 **Add reverse proxy** (nginx, caddy):
@@ -837,7 +837,7 @@ location /api/ {
 ### Running with Auto-Reload
 
 ```bash
-uv run uvicorn agents.api.server:app --reload
+uv run uvicorn api.server:app --reload
 ```
 
 Changes to code automatically reload server.

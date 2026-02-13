@@ -1,7 +1,7 @@
 """Tests for the REST API server and web UI endpoints.
 
 Run with:
-    pytest agents/api/test_server.py -v
+    pytest api/test_server.py -v
 """
 
 import os
@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 
 # Mock the database before importing the server
 with patch.dict(os.environ, {"DATABASE_URL": ""}):
-    from agents.api.server import app
+    from api.server import app
 
 
 @pytest.fixture
@@ -26,7 +26,7 @@ def client():
 def mock_conversation_store(monkeypatch):
     """Mock conversation store for testing."""
     mock = MagicMock()
-    monkeypatch.setattr("agents.api.server._conversation_store", mock)
+    monkeypatch.setattr("api.server._conversation_store", mock)
     # Mock the store with sample data
     mock.list_conversations = AsyncMock(
         return_value=[
@@ -198,7 +198,7 @@ class TestCORSConfiguration:
 class TestStaticFileServing:
     """Tests for static file serving."""
 
-    @patch("agents.api.server.WEBUI_DIST")
+    @patch("api.server.WEBUI_DIST")
     def test_spa_catchall_when_dist_exists(self, mock_dist, client):
         """Test SPA catch-all route when dist exists."""
         # Mock dist directory existence
@@ -206,7 +206,7 @@ class TestStaticFileServing:
         mock_index = MagicMock()
         mock_index.exists.return_value = True
 
-        with patch("agents.api.server.FileResponse"):
+        with patch("api.server.FileResponse"):
             # This should catch non-API routes
             response = client.get("/some-random-path")
             # Will either serve index.html or 404
@@ -223,7 +223,7 @@ class TestStaticFileServing:
 class TestMessageSending:
     """Tests for sending messages in conversations."""
 
-    @patch("agents.api.server._create_agent")
+    @patch("api.server._create_agent")
     def test_send_message(self, mock_create_agent, client, mock_conversation_store):
         """Test sending a message to a conversation."""
         # Mock the agent
@@ -249,7 +249,7 @@ class TestMessageSending:
 @pytest.mark.asyncio
 async def test_conversation_persistence_workflow():
     """Integration test for full conversation workflow."""
-    from agents.api.server import _conversation_store
+    from api.server import _conversation_store
 
     if _conversation_store is None:
         pytest.skip("Database not configured")

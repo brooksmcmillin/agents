@@ -7,7 +7,7 @@ Usage:
     uv run python bin/run-api --reload     # Auto-reload on code changes
 
 Alternatively:
-    uv run python -m agents.api
+    uv run python -m api
 """
 
 import argparse
@@ -27,7 +27,7 @@ def main() -> None:
 
     # Use string import path so uvicorn can handle --reload correctly
     uvicorn.run(
-        "agents.api.server:app",
+        "api.server:app",
         host=args.host,
         port=args.port,
         reload=args.reload,

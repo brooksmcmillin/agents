@@ -22,33 +22,33 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: agents/webui/frontend/package-lock.json
+          cache-dependency-path: webui/frontend/package-lock.json
 
       - name: Install dependencies
-        working-directory: agents/webui/frontend
+        working-directory: webui/frontend
         run: npm ci
 
       - name: Build production frontend
-        working-directory: agents/webui/frontend
+        working-directory: webui/frontend
         run: npm run build
 
       - name: Create build info
         run: |
-          echo "Build Date: $(date -u +"%Y-%m-%dT%H:%M:%SZ")" > agents/webui/dist/build-info.txt
-          echo "Git SHA: ${{ github.sha }}" >> agents/webui/dist/build-info.txt
-          echo "Git Ref: ${{ github.ref }}" >> agents/webui/dist/build-info.txt
+          echo "Build Date: $(date -u +"%Y-%m-%dT%H:%M:%SZ")" > webui/dist/build-info.txt
+          echo "Git SHA: ${{ github.sha }}" >> webui/dist/build-info.txt
+          echo "Git Ref: ${{ github.ref }}" >> webui/dist/build-info.txt
 
       - name: Upload production build
         uses: actions/upload-artifact@v6
         with:
           name: production-build
-          path: agents/webui/dist/
+          path: webui/dist/
           retention-days: 30
 
       - name: Create release archive (on tags)
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
-          cd agents/webui
+          cd webui
           tar -czf ../../webui-${{ github.ref_name }}.tar.gz dist/
           cd ../..
 

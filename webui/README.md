@@ -32,7 +32,7 @@ Modern React web interface for the multi-agent system with persistent conversati
 ### 1. Install Frontend Dependencies
 
 ```bash
-cd agents/webui/frontend
+cd webui/frontend
 npm install
 ```
 
@@ -61,14 +61,14 @@ Run the backend and frontend in separate terminals:
 
 ```bash
 # From project root
-uv run python -m agents.api
+uv run python -m api
 # Runs on http://localhost:8080
 ```
 
 ### Terminal 2: Frontend Dev Server
 
 ```bash
-# From agents/webui/frontend
+# From webui/frontend
 npm run dev
 # Runs on http://localhost:5173
 # API calls automatically proxied to :8080
@@ -81,9 +81,9 @@ Visit http://localhost:5173 to use the web UI.
 ### 1. Build the Frontend
 
 ```bash
-cd agents/webui/frontend
+cd webui/frontend
 npm run build
-# Output: agents/webui/dist/
+# Output: webui/dist/
 ```
 
 ### 2. Start the Server
@@ -92,7 +92,7 @@ The API server automatically serves the built web UI:
 
 ```bash
 # From project root
-uv run python -m agents.api
+uv run python -m api
 ```
 
 Visit http://localhost:8080 to access both the API and web UI.
@@ -100,7 +100,7 @@ Visit http://localhost:8080 to access both the API and web UI.
 ## Project Structure
 
 ```
-agents/webui/
+webui/
 ├── frontend/           # React app source
 │   ├── src/
 │   │   ├── api/       # API client and types
@@ -196,9 +196,9 @@ export DATABASE_URL=postgresql://user:password@localhost:5432/agents
 
 ### Web UI not served in production
 
-1. Verify the build exists: `ls agents/webui/dist/`
+1. Verify the build exists: `ls webui/dist/`
 2. Check server logs for "Serving Web UI" message
-3. Rebuild: `cd agents/webui/frontend && npm run build`
+3. Rebuild: `cd webui/frontend && npm run build`
 
 ## Contributing
 

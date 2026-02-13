@@ -8,7 +8,7 @@ A modern React web interface was successfully implemented for the multi-agent sy
 
 ### Frontend (React + TypeScript + Vite)
 
-**42 files created** in `agents/webui/frontend/`:
+**42 files created** in `webui/frontend/`:
 
 #### Configuration Files (8)
 - `package.json` - Dependencies and scripts
@@ -51,18 +51,18 @@ A modern React web interface was successfully implemented for the multi-agent sy
 
 ### Backend Modifications (1 file)
 
-**`agents/api/server.py`**:
+**`api/server.py`**:
 - Added CORS middleware for dev and production
 - Added static file serving for production builds
 - SPA catch-all route for client-side routing
 
 ### Documentation (3 files)
-- `agents/webui/README.md` - Complete setup and usage guide
-- `agents/webui/start-dev.sh` - Helper script for development
+- `webui/README.md` - Complete setup and usage guide
+- `webui/start-dev.sh` - Helper script for development
 - Updated `README.md` and `CLAUDE.md` with Web UI documentation
 
 ### Build Output
-- `agents/webui/dist/` - Production build (gitignored)
+- `webui/dist/` - Production build (gitignored)
   - `index.html` - 460 bytes
   - `assets/index-*.css` - 25.81 KB (gzipped: 5.25 KB)
   - `assets/index-*.js` - 221.24 KB (gzipped: 70.47 KB)
@@ -121,7 +121,7 @@ A modern React web interface was successfully implemented for the multi-agent sy
 ## File Structure
 
 ```
-agents/webui/
+webui/
 ├── frontend/                    # React app source
 │   ├── src/
 │   │   ├── api/                # API client + types
@@ -180,8 +180,8 @@ agents/webui/
 4. Hot module reload enabled for instant feedback
 
 ### Production Mode
-1. Build frontend: `npm run build` → creates `agents/webui/dist/`
-2. Start backend: `uv run python -m agents.api`
+1. Build frontend: `npm run build` → creates `webui/dist/`
+2. Start backend: `uv run python -m api`
 3. Backend serves:
    - API endpoints at `/agents`, `/conversations`, etc.
    - Static files from `/assets`
@@ -291,30 +291,30 @@ User Action → Component → Zustand Store → API Client → Backend
 ### For Users
 ```bash
 # Quick start
-cd agents/webui/frontend
+cd webui/frontend
 npm install
 npm run build
 cd ../../..
 export DATABASE_URL=postgresql://user:pass@localhost:5432/agents
-uv run python -m agents.api
+uv run python -m api
 # Visit http://localhost:8080
 ```
 
 ### For Developers
 ```bash
 # Development with hot reload
-cd agents/webui/frontend
+cd webui/frontend
 npm install
 
 # Terminal 1: Backend
 cd ../..
 export DATABASE_URL=postgresql://user:pass@localhost:5432/agents
-uv run python -m agents.api
+uv run python -m api
 
 # Terminal 2: Frontend
-cd agents/webui/frontend
+cd webui/frontend
 npm run dev
 # Visit http://localhost:5173
 ```
 
-See [agents/webui/README.md](README.md) for detailed documentation.
+See [webui/README.md](README.md) for detailed documentation.

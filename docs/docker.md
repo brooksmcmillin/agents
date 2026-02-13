@@ -95,7 +95,7 @@ The Docker setup includes two services:
 - Uses uv for Python dependency management
 - Includes health check endpoint
 
-### `agents/webui/frontend/Dockerfile` (Frontend)
+### `webui/frontend/Dockerfile` (Frontend)
 - Multi-stage build for optimized image size
 - Stage 1: Node.js for building React app
 - Stage 2: nginx alpine for serving static files
@@ -201,7 +201,7 @@ curl http://localhost:8080/conversations/stats
 4. Ensure remote PostgreSQL is accessible from the container
 
 ### Frontend build fails
-1. Clear node_modules: `rm -rf agents/webui/frontend/node_modules`
+1. Clear node_modules: `rm -rf webui/frontend/node_modules`
 2. Rebuild: `docker-compose build --no-cache frontend`
 
 ### Database connection errors
@@ -286,7 +286,7 @@ docker-compose build backend
 ### Installing new npm packages
 ```bash
 # Add to package.json locally
-cd agents/webui/frontend
+cd webui/frontend
 npm install package-name
 
 # Rebuild container

@@ -54,10 +54,10 @@ def mock_agent():
 def client(mock_agent):
     """Create a test client with the API."""
     # Import here to avoid issues with env vars
-    from agents.api.server import app
+    from api.server import app
 
     # Patch the agent creation to return our mock
-    with patch("agents.api.server._create_agent", return_value=mock_agent):
+    with patch("api.server._create_agent", return_value=mock_agent):
         with TestClient(app) as test_client:
             yield test_client
 
@@ -76,8 +76,8 @@ class TestConversationEndpointsWithoutDatabase:
             env_without_db = {k: v for k, v in os.environ.items() if k != "DATABASE_URL"}
             with patch.dict(os.environ, env_without_db, clear=True):
                 # Need to reset the conversation store
-                import agents.api.server as server_module
-                from agents.api.server import app
+                import api.server as server_module
+                from api.server import app
 
                 original_store = server_module._conversation_store
                 server_module._conversation_store = None

@@ -115,10 +115,10 @@ Run the same checks locally before pushing:
 
 ```bash
 # Backend tests
-uv run pytest agents/api/test_server.py -v --cov
+uv run pytest api/test_server.py -v --cov
 
 # Frontend tests
-cd agents/webui/frontend
+cd webui/frontend
 npm test -- --run
 npm run lint
 npx tsc --noEmit

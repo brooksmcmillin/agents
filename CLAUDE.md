@@ -15,21 +15,21 @@ This is a multi-agent system built with Claude (Anthropic SDK) and Model Context
    - `task_manager/` - Interactive task management agent
    - `code_reviewer/` - Batch code review runner (5 specialized review agents)
    - `email_intake/` - Email inbox monitor that routes tasks to appropriate agents
-   - `api/` - REST API server providing HTTP access to agents
-   - `webui/` - Modern React web interface for agents (requires Node.js)
    - `notifier/` - Lightweight task notification script (Slack)
-2. **Entry Points** (`bin/`) - Executable scripts for running agents and services
-3. **MCP Server** (`mcp_server/`) - Local MCP server configuration and OAuth infrastructure
-4. **Infrastructure** (`infra/`) - Grafana, Loki, Promtail configs
-5. **Documentation** (`docs/`) - Project documentation and guides
-6. **Shared Utilities** (`shared/`) - Common code reusable across all agents
-7. **Packages** (`packages/`) - Internal libraries in monorepo structure:
+2. **API Server** (`api/`) - REST API server providing HTTP access to agents
+3. **Web UI** (`webui/`) - Modern React web interface for agents (requires Node.js)
+4. **Entry Points** (`bin/`) - Executable scripts for running agents and services
+5. **MCP Server** (`mcp_server/`) - Local MCP server configuration and OAuth infrastructure
+6. **Infrastructure** (`infra/`) - Grafana, Loki, Promtail configs
+7. **Documentation** (`docs/`) - Project documentation and guides
+8. **Shared Utilities** (`shared/`) - Common code reusable across all agents
+9. **Packages** (`packages/`) - Internal libraries in monorepo structure:
    - `agent-framework/` - Shared library containing:
      - MCP tools (web analysis, social media, memory, etc.)
      - Security utilities (SSRF protection)
      - Base agent classes and MCP client
    - `chasm/` - Voice interface for agent-framework agents (Deepgram + Cartesia) - optional dependency
-8. **Runtime Data** (`.data/`) - Runtime data (logs, memories, tokens)
+10. **Runtime Data** (`.data/`) - Runtime data (logs, memories, tokens)
 
 ## Development Setup
 
@@ -68,7 +68,7 @@ uv run python -m agents.email_intake.main
 # Dry run (don't send replies): --dry-run
 
 # Run the REST API server (HTTP access to agents)
-uv run python -m agents.api
+uv run python -m api
 
 # Send Slack notification about open tasks
 uv run python -m agents.notifier.main
@@ -90,18 +90,18 @@ The project includes a modern React web interface for interacting with agents:
 
 ```bash
 # Development mode (requires Node.js 18+)
-cd agents/webui/frontend
+cd webui/frontend
 npm install
 npm run dev
 # Opens on http://localhost:5173 (dev server with hot reload)
 
 # Production build
-cd agents/webui/frontend
+cd webui/frontend
 npm run build
-# Output: agents/webui/dist/
+# Output: webui/dist/
 
 # Start server (serves both API and web UI)
-uv run python -m agents.api
+uv run python -m api
 # Visit http://localhost:8080
 ```
 
@@ -120,7 +120,7 @@ uv run python -m agents.api
 - Headless UI for accessible components
 - Heroicons for icons
 
-See [agents/webui/README.md](agents/webui/README.md) for detailed documentation.
+See [webui/README.md](webui/README.md) for detailed documentation.
 
 ## REST API Server
 
@@ -128,7 +128,7 @@ The project includes a FastAPI REST server that exposes agents via HTTP endpoint
 
 ```bash
 # Start the REST API server
-uv run python -m agents.api
+uv run python -m api
 # Runs on http://localhost:8080
 # API docs at http://localhost:8080/docs
 ```
@@ -747,7 +747,7 @@ response = await agent.process_message(
 - `agents/security_researcher/main.py` - Security research expert with RAG
 - `agents/business_advisor/main.py` - Business strategy and monetization advisor
 - `agents/task_manager/main.py` - Task management with remote MCP
-- `agents/api/server.py` - REST API server for HTTP access to agents
+- `api/server.py` - REST API server for HTTP access to agents
 - `agents/notifier/main.py` - Slack notification script
 - `agents/*/prompts.py` - System prompts defining agent behavior and memory usage
 

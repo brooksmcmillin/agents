@@ -35,20 +35,20 @@ Backend tests are already set up with the existing pytest configuration. No addi
 # From project root
 
 # Run all API tests
-pytest agents/api/test_server.py -v
+pytest api/test_server.py -v
 
 # Run specific test class
-pytest agents/api/test_server.py::TestConversationEndpoints -v
+pytest api/test_server.py::TestConversationEndpoints -v
 
 # Run specific test
-pytest agents/api/test_server.py::TestConversationEndpoints::test_create_conversation -v
+pytest api/test_server.py::TestConversationEndpoints::test_create_conversation -v
 
 # Run with coverage
-pytest agents/api/test_server.py --cov=agents.api --cov-report=html
+pytest api/test_server.py --cov=api --cov-report=html
 
 # Run integration tests (requires database)
 export DATABASE_URL=postgresql://user:password@localhost:5432/agents_test
-pytest agents/api/test_server.py::test_conversation_persistence_workflow -v
+pytest api/test_server.py::test_conversation_persistence_workflow -v
 ```
 
 ### Backend Test Coverage
@@ -79,7 +79,7 @@ pytest agents/api/test_server.py::test_conversation_persistence_workflow -v
 Install testing dependencies:
 
 ```bash
-cd agents/webui/frontend
+cd webui/frontend
 npm install
 ```
 
@@ -94,7 +94,7 @@ This installs:
 ### Running Frontend Tests
 
 ```bash
-cd agents/webui/frontend
+cd webui/frontend
 
 # Run all tests (watch mode)
 npm test
@@ -178,12 +178,12 @@ Each test file includes:
 # Mock conversation store
 @pytest.fixture
 def mock_conversation_store():
-    with patch("agents.api.server._conversation_store") as mock:
+    with patch("api.server._conversation_store") as mock:
         mock.list_conversations = AsyncMock(return_value=[...])
         yield mock
 
 # Mock agent creation
-@patch("agents.api.server._create_agent")
+@patch("api.server._create_agent")
 def test_send_message(mock_create_agent):
     mock_agent = MagicMock()
     mock_agent.process_message = AsyncMock(return_value="Response")
@@ -213,7 +213,7 @@ const mockMessage: MessageType = {
 
 ```bash
 # Generate HTML coverage report
-pytest agents/api/test_server.py --cov=agents.api --cov-report=html
+pytest api/test_server.py --cov=api --cov-report=html
 
 # Open report
 open htmlcov/index.html
@@ -222,7 +222,7 @@ open htmlcov/index.html
 ### Frontend Coverage
 
 ```bash
-cd agents/webui/frontend
+cd webui/frontend
 
 # Generate coverage report
 npm run test:coverage
@@ -269,7 +269,7 @@ jobs:
       - name: Run tests
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
-        run: uv run pytest agents/api/test_server.py -v --cov
+        run: uv run pytest api/test_server.py -v --cov
 
   frontend-tests:
     runs-on: ubuntu-latest
@@ -279,13 +279,13 @@ jobs:
         with:
           node-version: '18'
       - name: Install dependencies
-        working-directory: agents/webui/frontend
+        working-directory: webui/frontend
         run: npm ci
       - name: Run tests
-        working-directory: agents/webui/frontend
+        working-directory: webui/frontend
         run: npm test -- --run
       - name: Generate coverage
-        working-directory: agents/webui/frontend
+        working-directory: webui/frontend
         run: npm run test:coverage
 ```
 
@@ -407,16 +407,16 @@ it('displays error message on API failure', async () => {
 
 ```bash
 # Run with verbose output
-pytest agents/api/test_server.py -vv
+pytest api/test_server.py -vv
 
 # Run with print statements visible
-pytest agents/api/test_server.py -s
+pytest api/test_server.py -s
 
 # Run with pdb on failure
-pytest agents/api/test_server.py --pdb
+pytest api/test_server.py --pdb
 
 # Run last failed tests only
-pytest agents/api/test_server.py --lf
+pytest api/test_server.py --lf
 ```
 
 ### Frontend
@@ -447,7 +447,7 @@ npm test -- --reporter=verbose
 ### "Cannot find module" errors (Frontend)
 
 ```bash
-cd agents/webui/frontend
+cd webui/frontend
 rm -rf node_modules package-lock.json
 npm install
 ```

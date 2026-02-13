@@ -45,13 +45,13 @@ services:
     restart: unless-stopped
     depends_on:
       - loki
-    command: uv run python -m agents.api
+    command: uv run python -m api
 
   # Frontend build and serve (production mode)
   # For development, run "npm run dev" locally instead
   frontend:
     build:
-      context: ./agents/webui/frontend
+      context: ./webui/frontend
       dockerfile: Dockerfile
     container_name: agents-frontend
     environment:

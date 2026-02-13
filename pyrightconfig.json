@@ -1,6 +1,7 @@
 {
   "include": [
     "agents",
+    "api",
     "mcp_server",
     "shared",
     "packages/agent-framework/agent_framework"
