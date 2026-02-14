@@ -77,8 +77,8 @@ class BatchAgent(ABC):
         if not token:
             raise RuntimeError(
                 "No valid authentication token found.\n"
-                "Run an interactive agent first to authenticate:\n"
-                "  uv run python -m agents.task_manager.main"
+                "Authenticate first:\n"
+                "  uv run python scripts/mcp_auth.py"
             )
         self._auth_token = token
         return token
