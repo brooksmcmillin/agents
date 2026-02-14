@@ -44,6 +44,7 @@ from .constants import (
     WEB_RESEARCH_TOOLS,
 )
 from .env_utils import check_env_vars, env_file_exists
+from .json_parsing import strip_and_parse_json, strip_markdown_fences
 from .logging_config import setup_logging
 from .task_utils import format_priority_emoji, parse_priority, parse_task_result
 
@@ -76,5 +77,7 @@ __all__ = [
     "parse_task_result",
     "run_agent",
     "setup_logging",
+    "strip_and_parse_json",
+    "strip_markdown_fences",
 ]
 __version__ = "0.1.0"

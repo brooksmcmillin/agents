@@ -6,7 +6,6 @@ research-only, or not actionable.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 
@@ -217,48 +216,8 @@ def _parse_triage_result(raw_text: str) -> TriageResult:
 def _strip_and_parse_json(text: str) -> dict | list | None:
     """Extract and parse JSON from LLM response text.
 
-    Handles markdown fences, leading/trailing text, and extracts
-    the first complete JSON object or array found.
+    Delegates to shared.json_parsing.strip_and_parse_json.
     """
-    text = text.strip()
+    from shared.json_parsing import strip_and_parse_json
 
-    # Try direct parse first
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        pass
-
-    # Strip markdown fences
-    if "```" in text:
-        # Extract content between first ``` and last ```
-        parts = text.split("```")
-        if len(parts) >= 3:
-            # parts[1] is the content inside fences (may have "json\n" prefix)
-            inner = parts[1]
-            if inner.startswith(("json", "JSON")):
-                inner = inner[4:]
-            inner = inner.strip()
-            try:
-                return json.loads(inner)
-            except json.JSONDecodeError:
-                pass
-
-    # Find first { ... } or [ ... ] by scanning for balanced braces
-    for start_char, end_char in [("{", "}"), ("[", "]")]:
-        start = text.find(start_char)
-        if start == -1:
-            continue
-        # Find the matching closing brace by counting depth
-        depth = 0
-        for i in range(start, len(text)):
-            if text[i] == start_char:
-                depth += 1
-            elif text[i] == end_char:
-                depth -= 1
-                if depth == 0:
-                    try:
-                        return json.loads(text[start : i + 1])
-                    except json.JSONDecodeError:
-                        break
-
-    return None
+    return strip_and_parse_json(text)

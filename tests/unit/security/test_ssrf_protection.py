@@ -280,6 +280,42 @@ class TestSSRFValidator:
         assert not is_safe
         assert "private" in reason.lower() or "::1" in reason
 
+    @patch("socket.getaddrinfo")
+    def test_blocks_invalid_ip_in_dns_response(self, mock_getaddrinfo):
+        """Test that invalid IP format in DNS response is blocked (line 133-135)."""
+        mock_getaddrinfo.return_value = [(2, 1, 6, "", ("not-an-ip", 0))]
+
+        is_safe, reason = SSRFValidator.is_safe_url("http://weird-dns.example.com/")
+        assert not is_safe
+        assert "invalid ip" in reason.lower()
+
+    @patch("socket.getaddrinfo")
+    def test_blocks_generic_dns_exception(self, mock_getaddrinfo):
+        """Test that generic DNS resolution errors are blocked (line 144-146)."""
+        mock_getaddrinfo.side_effect = OSError("Unexpected DNS error")
+
+        is_safe, reason = SSRFValidator.is_safe_url("http://dns-error.example.com/")
+        assert not is_safe
+        assert "dns" in reason.lower() or "error" in reason.lower()
+
+    @patch("socket.getaddrinfo")
+    def test_blocks_hostname_resolving_to_metadata_ip(self, mock_getaddrinfo):
+        """Test hostname resolving to metadata endpoint via DNS (line 127-131).
+
+        Note: 169.254.169.254 is in the link-local range so it's caught as
+        'private IP' before the metadata check. Both are correct blocks.
+        """
+        mock_getaddrinfo.return_value = [(2, 1, 6, "", ("169.254.169.254", 0))]
+
+        is_safe, reason = SSRFValidator.is_safe_url("http://sneaky.example.com/")
+        assert not is_safe
+        assert "private" in reason.lower() or "metadata" in reason.lower()
+
+    def test_handles_completely_invalid_url(self):
+        """Test that completely invalid URLs are caught by outer exception (line 150-151)."""
+        is_safe, reason = SSRFValidator.is_safe_url("")
+        assert not is_safe
+
 
 class TestSSRFRedirectProtection:
     """Tests for SSRF protection in redirect following."""
@@ -381,6 +417,51 @@ class TestSSRFRedirectProtection:
 
         assert not is_safe
         assert "localhost" in reason.lower()
+
+    @pytest.mark.asyncio
+    @patch("httpx.AsyncClient.get")
+    async def test_blocks_redirect_without_location_header(self, mock_get):
+        """Test redirect response missing Location header (line 196-197)."""
+        mock_response = MagicMock()
+        mock_response.status_code = 302
+        mock_response.headers = {}  # No Location header
+        mock_get.return_value = mock_response
+
+        is_safe, reason = await SSRFValidator.validate_request_with_redirects(
+            "http://example.com/redirect"
+        )
+
+        assert not is_safe
+        assert "location" in reason.lower()
+
+    @pytest.mark.asyncio
+    @patch("httpx.AsyncClient.get")
+    async def test_handles_request_failure_during_redirect(self, mock_get):
+        """Test network error during redirect following (line 210-211)."""
+        mock_get.side_effect = Exception("Connection reset")
+
+        is_safe, reason = await SSRFValidator.validate_request_with_redirects(
+            "http://example.com/unstable"
+        )
+
+        assert not is_safe
+        assert "request failed" in reason.lower()
+
+    @pytest.mark.asyncio
+    @patch("httpx.AsyncClient.get")
+    async def test_returns_final_url_on_non_redirect(self, mock_get):
+        """Test that non-redirect response returns the current URL (line 208)."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {}
+        mock_get.return_value = mock_response
+
+        is_safe, final_url = await SSRFValidator.validate_request_with_redirects(
+            "http://example.com/page"
+        )
+
+        assert is_safe
+        assert final_url == "http://example.com/page"
 
 
 class TestSSRFIntegrationWithWebTools:

@@ -1,8 +1,8 @@
 # Multi-Agent System
 
-[![Tests](https://github.com/YOUR_USERNAME/agents/workflows/Tests/badge.svg)](https://github.com/YOUR_USERNAME/agents/actions/workflows/tests.yml)
-[![Integration](https://github.com/YOUR_USERNAME/agents/workflows/Integration%20Tests/badge.svg)](https://github.com/YOUR_USERNAME/agents/actions/workflows/integration.yml)
-[![Deploy](https://github.com/YOUR_USERNAME/agents/workflows/Deploy/badge.svg)](https://github.com/YOUR_USERNAME/agents/actions/workflows/deploy.yml)
+[![Tests](https://github.com/brooksmcmillin/agents/workflows/Tests/badge.svg)](https://github.com/brooksmcmillin/agents/actions/workflows/tests.yml)
+[![Integration](https://github.com/brooksmcmillin/agents/workflows/Integration%20Tests/badge.svg)](https://github.com/brooksmcmillin/agents/actions/workflows/integration.yml)
+[![Deploy](https://github.com/brooksmcmillin/agents/workflows/Deploy/badge.svg)](https://github.com/brooksmcmillin/agents/actions/workflows/deploy.yml)
 
 A multi-agent system built with Claude (Anthropic SDK) and Model Context Protocol (MCP). This repository supports multiple specialized agents that share common infrastructure for content analysis, task management, and persistent memory.
 
@@ -10,9 +10,9 @@ A multi-agent system built with Claude (Anthropic SDK) and Model Context Protoco
 
 This project demonstrates production-ready patterns for building LLM-powered agents with external tool integrations. It includes:
 
-- **Multiple Agents** - 7 specialized agents including PR assistant, chatbot, security researcher, business advisor, task manager, REST API server, and notification system
+- **Multiple Agents** - 12 specialized agents including chatbot, PR assistant, security researcher, business advisor, task manager, code reviewer, email intake, notifier, orchestrator, red team, events, and code analysis
 - **Web UI** - Modern React interface for chatting with agents via persistent conversations
-- **Shared MCP Tools** - 29 tools including web analysis, memory, RAG document search, email management, and communication
+- **Shared MCP Tools** - 51 tools including web analysis, memory, RAG document search, email management, HTTP client, filesystem, Claude Code, and communication
 - **Hot Reload** - Edit tools without restarting agents
 - **OAuth Infrastructure** - Ready for real API integration
 - **Remote MCP Support** - Deploy tools separately from agents
@@ -21,7 +21,7 @@ This project demonstrates production-ready patterns for building LLM-powered age
 
 ### Prerequisites
 
-- Python 3.11 or higher
+- Python 3.12 or higher
 - `uv` package manager
 - Anthropic API key
 
@@ -73,8 +73,8 @@ cd ../.. && uv run python -m api
 # Notifier - Send Slack notifications about tasks
 uv run python -m agents.notifier.main
 
-# Demo - Test MCP tools without agent
-uv run python demo.py
+# MCP server standalone
+uv run python -m mcp_server.server
 ```
 
 ### Interactive Commands
@@ -139,7 +139,7 @@ while not done:
 ## Available Agents
 
 ### Chatbot
-General-purpose AI assistant with access to all 29 MCP tools:
+General-purpose AI assistant with access to all 51 MCP tools:
 - Web content analysis and research
 - Persistent memory across conversations
 - RAG document search (requires PostgreSQL + OpenAI)
@@ -156,7 +156,7 @@ Content strategy assistant that helps with:
 - SEO recommendations
 - Brand voice consistency
 
-**Run:** `uv run python -m agents.pr_agent.main` | **[Documentation](agents/pr_agent/README.md)**
+**Run:** `uv run python -m agents.pr_agent.main`
 
 ### Security Researcher
 AI/ML security expert with RAG-backed knowledge base:
@@ -248,7 +248,7 @@ See [webui/README.md](webui/README.md) for detailed documentation.
 
 ## MCP Tools
 
-The MCP server exposes **29 tools** across 8 categories to agents:
+The MCP server exposes **51 tools** across 14 categories to agents:
 
 ### Web Analysis (2 tools)
 - `fetch_web_content` - Fetch and read web content as clean markdown for analysis
@@ -295,7 +295,7 @@ Memory persists across conversations (default: `memories/memories.json`, optiona
 ### Content Suggestions (1 tool)
 - `suggest_content_topics` - Generate content topic ideas (currently mock data)
 
-**Total: 29 tools** available to agents via MCP. See [GUIDES.md](docs/GUIDES.md) for detailed usage guides and [agent-framework documentation](packages/agent-framework/) for technical details.
+**Total: 51 tools** available to agents via MCP. See [GUIDES.md](docs/GUIDES.md) for detailed usage guides and [agent-framework documentation](packages/agent-framework/) for technical details.
 
 ## Project Structure
 
@@ -400,8 +400,8 @@ See [CLAUDE.md](CLAUDE.md#adding-new-agents) for detailed instructions.
 
 **Working Now:**
 - Full agentic loop with Claude Sonnet 4.5
-- 7 agents with specialized capabilities
-- 29 MCP tools (web, memory, RAG, email, communication)
+- 12 agents with specialized capabilities
+- 51 MCP tools (web, memory, RAG, email, HTTP client, filesystem, Claude Code, communication)
 - Real web scraping and content analysis
 - RAG document search with semantic similarity
 - FastMail email integration
@@ -465,8 +465,8 @@ tail -f pr_agent.log
 # Enable debug logging
 # In .env: LOG_LEVEL=DEBUG
 
-# Test MCP tools in isolation
-uv run python demo.py
+# Test MCP server starts
+uv run python -m mcp_server.server
 ```
 
 ### MCP Connection Issues
@@ -491,7 +491,7 @@ rm memories/memories.json
 
 ## Technology Stack
 
-- **Python 3.11+**
+- **Python 3.12+**
 - **anthropic** - Official Anthropic SDK for Claude
 - **agent-framework** - Base agent class and MCP client (local package)
 - **chasm** - Voice interface library (local package, optional)

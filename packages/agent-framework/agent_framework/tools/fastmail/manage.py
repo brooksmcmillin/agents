@@ -7,7 +7,7 @@ import logging
 from typing import Any
 
 from .client import _get_client
-from .helpers import _handle_jmap_error
+from .helpers import _handle_jmap_error, _resolve_mailbox_id
 
 logger = logging.getLogger(__name__)
 
@@ -52,29 +52,9 @@ async def move_email(
         # Resolve mailbox ID from role if needed
         target_mailbox_id = to_mailbox_id
         if not target_mailbox_id and to_mailbox_role:
-            mailbox_response = await client._call(
-                [
-                    [
-                        "Mailbox/query",
-                        {
-                            "accountId": client.account_id,
-                            "filter": {"role": to_mailbox_role},
-                        },
-                        "find-mailbox",
-                    ]
-                ]
-            )
-
-            responses = mailbox_response.get("methodResponses", [])
-            if responses and responses[0][0] == "Mailbox/query":
-                ids = responses[0][1].get("ids", [])
-                if ids:
-                    target_mailbox_id = ids[0]
-                else:
-                    return {
-                        "status": "error",
-                        "message": f"No mailbox found with role: {to_mailbox_role}",
-                    }
+            target_mailbox_id, err = await _resolve_mailbox_id(client, to_mailbox_role)
+            if err:
+                return err
 
         # Get current mailboxes for the email
         get_response = await client._call(

@@ -7,7 +7,12 @@ import logging
 from typing import Any
 
 from .client import _get_client
-from .helpers import _format_email_full, _format_email_summary, _handle_jmap_error
+from .helpers import (
+    _format_email_full,
+    _format_email_summary,
+    _handle_jmap_error,
+    _resolve_mailbox_id,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -62,29 +67,9 @@ async def get_emails(
         # If role specified, first get the mailbox ID
         target_mailbox_id = mailbox_id
         if not target_mailbox_id and mailbox_role:
-            mailbox_response = await client._call(
-                [
-                    [
-                        "Mailbox/query",
-                        {
-                            "accountId": client.account_id,
-                            "filter": {"role": mailbox_role},
-                        },
-                        "find-mailbox",
-                    ]
-                ]
-            )
-
-            responses = mailbox_response.get("methodResponses", [])
-            if responses and responses[0][0] == "Mailbox/query":
-                ids = responses[0][1].get("ids", [])
-                if ids:
-                    target_mailbox_id = ids[0]
-                else:
-                    return {
-                        "status": "error",
-                        "message": f"No mailbox found with role: {mailbox_role}",
-                    }
+            target_mailbox_id, err = await _resolve_mailbox_id(client, mailbox_role)
+            if err:
+                return err
 
         # Build filter
         email_filter: dict[str, Any] = {}

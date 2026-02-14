@@ -539,6 +539,100 @@ class TestOAuthFlowHandler:
             with pytest.raises(ValueError, match="Failed to exchange code for token"):
                 await flow_handler._exchange_code("auth_code", "verifier")
 
+    @pytest.mark.asyncio
+    async def test_exchange_code_http_status_error_with_oauth_error(
+        self, flow_handler: OAuthFlowHandler
+    ) -> None:
+        """Test code exchange parses OAuth error response (lines 286-290)."""
+        flow_handler.client_id = "test_client_id"
+
+        mock_response = MagicMock()
+        mock_response.status_code = 400
+        mock_response.json.return_value = {
+            "error": "invalid_grant",
+            "error_description": "Code has expired",
+        }
+        mock_response.text = '{"error":"invalid_grant"}'
+        mock_request = MagicMock()
+
+        error = httpx.HTTPStatusError("Bad Request", request=mock_request, response=mock_response)
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client_class.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client_class.return_value.__aexit__ = AsyncMock(return_value=None)
+
+            # First call succeeds (the POST), but raise_for_status raises
+            post_response = MagicMock()
+            post_response.raise_for_status.side_effect = error
+            post_response.json.return_value = mock_response.json.return_value
+            mock_client.post = AsyncMock(return_value=post_response)
+
+            # Also need to mock the error response for _parse_oauth_error
+            error.response = mock_response
+
+            with pytest.raises(ValueError, match="Failed to exchange code for token"):
+                await flow_handler._exchange_code("expired_code", "verifier")
+
+    @pytest.mark.asyncio
+    async def test_exchange_code_http_status_error_no_oauth_body(
+        self, flow_handler: OAuthFlowHandler
+    ) -> None:
+        """Test code exchange HTTPStatusError without parseable OAuth body (line 291)."""
+        flow_handler.client_id = "test_client_id"
+
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+        mock_response.json.side_effect = ValueError("Not JSON")
+        mock_response.text = "Internal Server Error"
+        mock_request = MagicMock()
+
+        error = httpx.HTTPStatusError("Server Error", request=mock_request, response=mock_response)
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client_class.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client_class.return_value.__aexit__ = AsyncMock(return_value=None)
+
+            post_response = MagicMock()
+            post_response.raise_for_status.side_effect = error
+            mock_client.post = AsyncMock(return_value=post_response)
+
+            with pytest.raises(ValueError, match="Failed to exchange code for token"):
+                await flow_handler._exchange_code("code", "verifier")
+
+    @pytest.mark.asyncio
+    async def test_authorize_registers_client_if_needed(
+        self, flow_handler: OAuthFlowHandler
+    ) -> None:
+        """Test authorize() calls register_client when client_id is None (line 127-128)."""
+        assert flow_handler.client_id is None
+
+        flow_handler.register_client = AsyncMock()
+        flow_handler.register_client.side_effect = lambda: setattr(
+            flow_handler, "client_id", "registered_id"
+        )
+        flow_handler._run_callback_server = AsyncMock(return_value="auth_code_123")
+        flow_handler._exchange_code = AsyncMock(
+            return_value=TokenSet(access_token="tok", token_type="Bearer")
+        )
+
+        with patch("webbrowser.open"):
+            token = await flow_handler.authorize()
+
+        flow_handler.register_client.assert_called_once()
+        assert token.access_token == "tok"
+
+    @pytest.mark.asyncio
+    async def test_authorize_fails_without_code(self, flow_handler: OAuthFlowHandler) -> None:
+        """Test authorize() raises when callback returns None (line 153-154)."""
+        flow_handler.client_id = "test_id"
+        flow_handler._run_callback_server = AsyncMock(return_value=None)
+
+        with patch("webbrowser.open"):
+            with pytest.raises(ValueError, match="no code received"):
+                await flow_handler.authorize()
+
 
 class TestTokenSet:
     """Tests for TokenSet dataclass."""
