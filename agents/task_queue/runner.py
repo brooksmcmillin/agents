@@ -35,6 +35,16 @@ from .triage import triage_task
 
 logger = logging.getLogger(__name__)
 
+# Max characters for comment content posted to tasks.
+COMMENT_MAX_LENGTH = 1000
+
+
+def _normalize_task_id(task_id: str) -> str:
+    """Ensure task ID has the ``task_`` prefix."""
+    if not task_id.startswith("task_"):
+        return f"task_{task_id}"
+    return task_id
+
 
 class TaskQueueRunner(BatchAgent):
     """Batch agent that processes TaskManager tasks through triage and execution.
@@ -62,10 +72,10 @@ class TaskQueueRunner(BatchAgent):
         try:
             await self.call_tool(
                 "add_task_comment",
-                {"task_id": task_id, "content": content},
+                {"task_id": task_id, "content": content[:COMMENT_MAX_LENGTH]},
             )
         except Exception as e:
-            logger.debug(f"Failed to add comment to {task_id}: {e}")
+            logger.warning(f"Failed to add comment to {task_id}: {e}")
 
     async def execute(self) -> None:
         """Run the full task queue pipeline."""
@@ -142,9 +152,7 @@ class TaskQueueRunner(BatchAgent):
         """Fetch specific tasks by ID from TaskManager via MCP."""
         tasks: list[dict] = []
         for task_id in task_ids:
-            # Normalize: accept "123" or "task_123"
-            if not task_id.startswith("task_"):
-                task_id = f"task_{task_id}"
+            task_id = _normalize_task_id(task_id)
             try:
                 result = await self.call_tool("get_task", {"task_id": task_id})
                 data = json.loads(result) if isinstance(result, str) else result
@@ -297,7 +305,38 @@ class TaskQueueRunner(BatchAgent):
         except Exception as e:
             logger.warning(f"Failed to set in_progress for {task_id}: {e}")
 
-        # Triage
+        # Triage and route — reset status on unexpected failure so the task
+        # doesn't stay stuck in in_progress indefinitely.
+        try:
+            await self._triage_and_route(task, task_id, title)
+        except Exception as e:
+            logger.error(f"Triage/routing failed for {task_id}: {e}")
+            try:
+                await self.call_tool(
+                    "set_agent_status",
+                    {
+                        "task_id": task_id,
+                        "status": "blocked",
+                        "blocking_reason": f"Triage/routing error: {str(e)[:180]}",
+                    },
+                )
+            except Exception:
+                logger.debug("Failed to reset status for %s after triage failure", task_id)
+            await self._add_comment(task_id, f"Processing failed: {str(e)[:500]}")
+            self.report.tasks_processed.append(
+                ProcessedTask(
+                    external_id=task_id,
+                    title=title,
+                    triage_verdict=TriageVerdict.NOT_ACTIONABLE,
+                    confidence=0.0,
+                    outcome="failed",
+                    error=str(e),
+                )
+            )
+            self.context.failed_ids.append(task_id)
+
+    async def _triage_and_route(self, task: dict, task_id: str, title: str) -> None:
+        """Run triage and route the task to the appropriate executor."""
         accumulated_context = self.context.get_related_context(title, task.get("description", ""))
         triage = await triage_task(
             task=task,

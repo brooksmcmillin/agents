@@ -25,6 +25,9 @@ logger = logging.getLogger(__name__)
 ToolCaller = Callable[[str, dict[str, Any]], Coroutine[Any, Any, Any]]
 ToolLister = Callable[[], Coroutine[Any, Any, list[dict[str, Any]]]]
 
+# Max characters of agent output to include in the completion verification prompt.
+VERIFY_OUTPUT_LIMIT = 4000
+
 LIGHTWEIGHT_SYSTEM_PROMPT = """\
 You are a task execution agent. Complete the assigned task using the available \
 MCP tools. You have access to tools for web search, email, task management, \
@@ -90,17 +93,26 @@ async def _verify_completion(
 ) -> bool:
     """Ask a fast model whether the agent actually completed the task.
 
-    Returns True if completed, False if the output indicates failure.
+    Returns True if completed, False if the output indicates failure or
+    verification itself fails.
     """
+    # Include beginning and end of output so the verifier sees the conclusion
+    # even for long outputs where the failure message is near the end.
+    if len(agent_output) > VERIFY_OUTPUT_LIMIT:
+        half = VERIFY_OUTPUT_LIMIT // 2
+        output_excerpt = f"{agent_output[:half]}\n\n[...truncated...]\n\n{agent_output[-half:]}"
+    else:
+        output_excerpt = agent_output
+
     user_msg = (
         f"Task: {task_title}\n"
         f"Description: {task_description or '(none)'}\n\n"
-        f"Agent output:\n{agent_output[:2000]}"
+        f"Agent output:\n{output_excerpt}"
     )
     try:
         response = await client.messages.create(
             model=resolve_model("haiku"),
-            max_tokens=16,
+            max_tokens=64,
             system=COMPLETION_CHECK_PROMPT,
             messages=[{"role": "user", "content": user_msg}],
         )
@@ -108,9 +120,8 @@ async def _verify_completion(
         logger.info(f"Completion check verdict: {verdict}")
         return verdict.startswith("COMPLETED")
     except Exception as e:
-        logger.warning(f"Completion check failed, assuming completed: {e}")
-        # If the check itself fails, don't block — assume completed
-        return True
+        logger.warning(f"Completion check failed, defaulting to not completed: {e}")
+        return False
 
 
 async def execute_lightweight(
