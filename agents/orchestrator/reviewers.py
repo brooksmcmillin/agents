@@ -20,7 +20,7 @@ from .models import (
     ReviewResult,
     ReviewVerdict,
     Task,
-    validate_model_name,
+    resolve_model,
 )
 from .prompts import CODE_REVIEW_SYSTEM_PROMPT, SECURITY_REVIEW_SYSTEM_PROMPT
 
@@ -152,12 +152,12 @@ async def _run_review(
 
     logger.info(f"Running {reviewer_name} for task {task.id}")
 
-    validate_model_name(model)
+    model_id = resolve_model(model)
 
     client = AsyncAnthropic(api_key=api_key or os.getenv("ANTHROPIC_API_KEY"))
     try:
         response = await client.messages.create(
-            model=model,
+            model=model_id,
             max_tokens=4096,
             system=system_prompt,
             messages=[{"role": "user", "content": user_message}],

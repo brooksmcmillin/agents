@@ -92,3 +92,8 @@ FILESYSTEM_TOOLS = [
     "glob_files",
     "grep_files",
 ]
+
+WEB_RESEARCH_TOOLS = [
+    "fetch_web_content",
+    "analyze_website",
+]
