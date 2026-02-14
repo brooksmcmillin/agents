@@ -83,6 +83,11 @@ Examples:
         help="Model for research summarization (default: haiku)",
     )
     parser.add_argument(
+        "--lightweight-model",
+        default="sonnet",
+        help="Model for lightweight non-code task execution (default: sonnet)",
+    )
+    parser.add_argument(
         "--repo",
         default=None,
         help="Git repository URL for code tasks",
@@ -118,6 +123,7 @@ Examples:
         triage_model=args.triage_model,
         research_model=args.research_model,
         worker_model=args.worker_model,
+        lightweight_model=args.lightweight_model,
         include_overdue=not args.no_overdue,
         priority_bump_overdue=not args.no_priority_bump,
         enable_code_review=not args.no_review,

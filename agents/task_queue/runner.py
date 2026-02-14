@@ -20,6 +20,7 @@ from agents.orchestrator.state_machine import Orchestrator
 from shared import BatchAgent, parse_task_result
 
 from .dependency_graph import compute_processing_order, identify_blocked_tasks
+from .lightweight_executor import execute_lightweight
 from .models import (
     ProcessedTask,
     RunReport,
@@ -140,7 +141,9 @@ class TaskQueueRunner(BatchAgent):
                 if "error" in data:
                     logger.error(f"Failed to fetch {task_id}: {data['error']}")
                     continue
-                tasks.append(data)
+                # get_task wraps task data inside a "task" key
+                task_data = data.get("task", data)
+                tasks.append(task_data)
                 logger.info(f"Fetched task {task_id}: {data.get('title', '')[:60]}")
             except Exception as e:
                 logger.error(f"Failed to fetch {task_id}: {e}")
@@ -332,7 +335,10 @@ class TaskQueueRunner(BatchAgent):
         # Route by verdict
         match triage.verdict:
             case TriageVerdict.FULLY_EXECUTABLE:
-                await self._execute_task(task, triage)
+                if self._should_use_lightweight(triage):
+                    await self._execute_lightweight_task(task, triage)
+                else:
+                    await self._execute_task(task, triage)
             case TriageVerdict.PRE_RESEARCH_ONLY:
                 await self._pre_research_task(task, triage)
             case TriageVerdict.NOT_ACTIONABLE:
@@ -499,6 +505,129 @@ class TaskQueueRunner(BatchAgent):
 
         except Exception as e:
             logger.error(f"Execution failed for {task_id}: {e}")
+            try:
+                await self.call_tool(
+                    "set_agent_status",
+                    {
+                        "task_id": task_id,
+                        "status": "blocked",
+                        "blocking_reason": str(e)[:200],
+                    },
+                )
+            except Exception:
+                logger.debug("Failed to set blocked status for %s", task_id)
+
+            self.report.tasks_processed.append(
+                ProcessedTask(
+                    external_id=task_id,
+                    title=title,
+                    triage_verdict=triage.verdict,
+                    confidence=triage.confidence,
+                    outcome="failed",
+                    error=str(e),
+                )
+            )
+            self.context.failed_ids.append(task_id)
+
+    def _should_use_lightweight(self, triage: TriageResult) -> bool:
+        """Determine if a task should use the lightweight executor.
+
+        Returns True for non-code tasks, or code tasks without a configured repo.
+        """
+        action = triage.suggested_action_type
+        if action != "code":
+            return True
+        # Code task but no repo configured — can't use orchestrator
+        if not self.config.git_repo_url:
+            return True
+        return False
+
+    async def _execute_lightweight_task(self, task: dict, triage: TriageResult) -> None:
+        """Execute a non-code task via the lightweight executor."""
+        task_id = task.get("id", "unknown")
+        title = task.get("title", "Untitled")
+        action_type = triage.suggested_action_type or "other"
+
+        logger.info(f"Routing {task_id} to lightweight executor (action_type={action_type})")
+
+        try:
+            result = await execute_lightweight(
+                task=task,
+                call_tool=self.call_tool,
+                list_tools=self.list_tools,
+                model=self.config.lightweight_model,
+            )
+
+            if result.success:
+                # Complete the task in TaskManager
+                try:
+                    await self.call_tool("complete_task", {"task_id": task_id})
+                except Exception as e:
+                    logger.warning(f"Failed to complete task in TM: {e}")
+
+                # Store output as agent note
+                note = f"Lightweight execution ({result.turns_used} turns):\n{result.output[:500]}"
+                try:
+                    await self.call_tool(
+                        "add_agent_note",
+                        {"task_id": task_id, "note": note},
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to add agent note: {e}")
+
+                # Accumulate context for subsequent tasks
+                self.context.research_notes[task_id] = result.output[:1000]
+
+                self.report.tasks_processed.append(
+                    ProcessedTask(
+                        external_id=task_id,
+                        title=title,
+                        triage_verdict=triage.verdict,
+                        confidence=triage.confidence,
+                        outcome="completed",
+                        notes=f"Lightweight ({action_type}, {result.turns_used} turns)",
+                        estimated_hours=triage.estimated_hours,
+                    )
+                )
+                self.context.completed_ids.append(task_id)
+
+            else:
+                error_msg = result.error or "Lightweight execution failed"
+                try:
+                    await self.call_tool(
+                        "set_agent_status",
+                        {
+                            "task_id": task_id,
+                            "status": "blocked",
+                            "blocking_reason": error_msg[:200],
+                        },
+                    )
+                    if result.output:
+                        await self.call_tool(
+                            "add_agent_note",
+                            {
+                                "task_id": task_id,
+                                "note": f"Partial output:\n{result.output[:500]}",
+                            },
+                        )
+                except Exception as e:
+                    logger.warning(f"Failed to update task status: {e}")
+
+                self.report.tasks_processed.append(
+                    ProcessedTask(
+                        external_id=task_id,
+                        title=title,
+                        triage_verdict=triage.verdict,
+                        confidence=triage.confidence,
+                        outcome="failed",
+                        error=error_msg,
+                        estimated_hours=triage.estimated_hours,
+                    )
+                )
+                self.context.failed_ids.append(task_id)
+
+        except Exception as e:
+            logger.error(f"Lightweight execution failed for {task_id}: {e}")
             try:
                 await self.call_tool(
                     "set_agent_status",

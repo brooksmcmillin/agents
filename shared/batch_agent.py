@@ -100,6 +100,19 @@ class BatchAgent(ABC):
             raise RuntimeError("call_tool() can only be used inside execute()")
         return await self._client.call_tool(name, arguments or {})
 
+    async def list_tools(self) -> list[dict[str, Any]]:
+        """List available tools from the remote MCP server.
+
+        Returns:
+            List of tool schema dicts with name, description, and inputSchema.
+
+        Raises:
+            RuntimeError: If not connected (call within ``execute()``).
+        """
+        if self._client is None:
+            raise RuntimeError("list_tools() can only be used inside execute()")
+        return await self._client.list_tools()
+
     @abstractmethod
     async def execute(self) -> None:
         """Run the batch job logic.

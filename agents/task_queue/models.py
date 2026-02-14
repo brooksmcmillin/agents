@@ -71,6 +71,7 @@ class TaskQueueConfig:
     triage_model: str = "haiku"
     research_model: str = "haiku"
     worker_model: str = "sonnet"
+    lightweight_model: str = "sonnet"
 
     # Task filtering
     task_ids: list[str] = field(default_factory=list)  # Specific task IDs to process
