@@ -1,6 +1,6 @@
 # MCP Tools Reference
 
-The MCP server exposes **40 tools** across 11 categories (defined in `packages/agent-framework/agent_framework/tools/`).
+The MCP server exposes **51 tools** across 14 categories (defined in `packages/agent-framework/agent_framework/tools/`).
 
 ## Web Analysis Tools (2 tools)
 - `fetch_web_content` - Fetch web content as clean markdown for LLM reading and analysis

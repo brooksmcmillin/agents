@@ -102,14 +102,9 @@ def _parse_subtasks(raw_text: str, parent: Task) -> list[Task]:
     Raises:
         PlanningError: If the response cannot be parsed as valid JSON subtasks.
     """
-    # Strip markdown code fences if present
-    text = raw_text.strip()
-    if text.startswith("```"):
-        # Remove opening fence (possibly with language tag)
-        text = text.split("\n", 1)[1] if "\n" in text else text[3:]
-    if text.endswith("```"):
-        text = text[:-3]
-    text = text.strip()
+    from shared.json_parsing import strip_markdown_fences
+
+    text = strip_markdown_fences(raw_text)
 
     try:
         items: list[dict[str, Any]] = json.loads(text)

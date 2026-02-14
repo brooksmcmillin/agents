@@ -191,12 +191,9 @@ def _parse_review_result(reviewer_name: str, raw_text: str) -> ReviewResult:
     Returns:
         ReviewResult parsed from the response.
     """
-    text = raw_text.strip()
-    if text.startswith("```"):
-        text = text.split("\n", 1)[1] if "\n" in text else text[3:]
-    if text.endswith("```"):
-        text = text[:-3]
-    text = text.strip()
+    from shared.json_parsing import strip_markdown_fences
+
+    text = strip_markdown_fences(raw_text)
 
     try:
         data: dict[str, Any] = json.loads(text)

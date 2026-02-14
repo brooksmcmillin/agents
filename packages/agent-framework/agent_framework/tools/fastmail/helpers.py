@@ -185,6 +185,45 @@ def _handle_jmap_error(error: Exception, operation: str) -> dict[str, Any]:
     }
 
 
+async def _resolve_mailbox_id(
+    client: Any, mailbox_role: str
+) -> tuple[str | None, dict[str, Any] | None]:
+    """Resolve a mailbox role (inbox, sent, drafts, etc.) to its JMAP mailbox ID.
+
+    Args:
+        client: JMAPClient instance (must have _ensure_session() already called)
+        mailbox_role: The mailbox role to look up (e.g., "inbox", "sent", "trash")
+
+    Returns:
+        Tuple of (mailbox_id, error_response).
+        On success: (mailbox_id, None)
+        On failure: (None, error_dict)
+    """
+    mailbox_response = await client._call(
+        [
+            [
+                "Mailbox/query",
+                {
+                    "accountId": client.account_id,
+                    "filter": {"role": mailbox_role},
+                },
+                "find-mailbox",
+            ]
+        ]
+    )
+
+    responses = mailbox_response.get("methodResponses", [])
+    if responses and responses[0][0] == "Mailbox/query":
+        ids = responses[0][1].get("ids", [])
+        if ids:
+            return ids[0], None
+
+    return None, {
+        "status": "error",
+        "message": f"No mailbox found with role: {mailbox_role}",
+    }
+
+
 def _format_email_summary(email: dict[str, Any]) -> dict[str, Any]:
     """Format an email for summary display."""
     return {
