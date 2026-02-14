@@ -24,42 +24,30 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Collect previous review comments
-        id: previous
+      - name: Minimize previous review comment
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           PR_NUMBER=${{ github.event.pull_request.number }}
           REPO=${{ github.repository }}
+          MARKER="<!-- claude-code-review -->"
 
-          # Fetch previous bot comments on this PR (issue comments)
-          ISSUE_COMMENTS=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+          # Find the most recent comment containing our marker
+          COMMENT_NODE_ID=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
             --paginate \
-            --jq '[.[] | select(.user.type == "Bot") | {body: .body, created_at: .created_at}]' 2>/dev/null || echo "[]")
+            --jq "[.[] | select(.body | contains(\"${MARKER}\"))] | last | .node_id // empty" 2>/dev/null)
 
-          # Fetch previous bot review comments (inline comments)
-          REVIEW_COMMENTS=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/comments" \
-            --paginate \
-            --jq '[.[] | select(.user.type == "Bot") | {body: .body, path: .path, created_at: .created_at}]' 2>/dev/null || echo "[]")
-
-          ISSUE_COUNT=$(echo "$ISSUE_COMMENTS" | jq 'length')
-          REVIEW_COUNT=$(echo "$REVIEW_COMMENTS" | jq 'length')
-
-          echo "issue_comment_count=${ISSUE_COUNT}" >> "$GITHUB_OUTPUT"
-          echo "review_comment_count=${REVIEW_COUNT}" >> "$GITHUB_OUTPUT"
-
-          # Write to files (avoids output size limits)
-          echo "$ISSUE_COMMENTS" > /tmp/previous_issue_comments.json
-          echo "$REVIEW_COMMENTS" > /tmp/previous_review_comments.json
-
-          # Create a merged summary for the prompt (truncate to 50k chars)
-          {
-            echo "=== PREVIOUS PR COMMENTS (${ISSUE_COUNT} comments) ==="
-            echo "$ISSUE_COMMENTS" | jq -r '.[] | "--- Comment from \(.created_at) ---\n\(.body)\n"'
-            echo ""
-            echo "=== PREVIOUS INLINE REVIEW COMMENTS (${REVIEW_COUNT} comments) ==="
-            echo "$REVIEW_COMMENTS" | jq -r '.[] | "--- Comment on \(.path) from \(.created_at) ---\n\(.body)\n"'
-          } | head -c 50000 > /tmp/previous_comments_summary.txt
+          if [ -n "$COMMENT_NODE_ID" ]; then
+            echo "Minimizing previous code review comment: $COMMENT_NODE_ID"
+            gh api graphql -f query='
+              mutation {
+                minimizeComment(input: {subjectId: "'"$COMMENT_NODE_ID"'", classifier: OUTDATED}) {
+                  minimizedComment { isMinimized }
+                }
+              }' 2>/dev/null || echo "Warning: failed to minimize comment"
+          else
+            echo "No previous code review comment found"
+          fi
 
       - name: Run Claude Code Review
         uses: anthropics/claude-code-action@v1
@@ -69,24 +57,43 @@ jobs:
           prompt: |
             You are a code reviewer. Review this pull request for code quality, correctness, and maintainability.
 
-            ## CRITICAL: Avoid Duplicate Feedback
+            ## Comment Marker
 
-            There have been ${{ steps.previous.outputs.issue_comment_count }} previous PR comments and ${{ steps.previous.outputs.review_comment_count }} previous inline review comments from bots on this PR.
+            You MUST start your review comment with exactly this HTML comment on its own line:
+            `<!-- claude-code-review -->`
 
-            Before writing your review, you MUST read all existing review comments on this PR to understand what feedback has already been given. Use these commands:
+            This marker is used to track and manage review comments across pushes. Do not omit it.
+
+            ## Reading Previous Feedback
+
+            Before writing your review, read all existing bot comments on this PR (including minimized ones) to understand what was previously flagged:
 
             ```
             gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" --paginate --jq '.[] | select(.user.type == "Bot") | "\n--- Comment from \(.created_at) ---\n\(.body)"'
             gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/comments" --paginate --jq '.[] | select(.user.type == "Bot") | "\n--- Comment on \(.path) from \(.created_at) ---\n\(.body)"'
             ```
 
-            After reading previous comments, follow these rules strictly:
+            ## Formatting Rules
 
-            1. **Do NOT repeat** issues, suggestions, or feedback that were already raised in previous comments — even if they are still present in the code. Assume the author has seen them.
-            2. **Briefly acknowledge** previously flagged issues that have been FIXED (e.g., "Previously flagged X has been resolved.").
-            3. **Only raise issues that are NEW** — either in newly added/changed code, or genuinely new problems not covered by any prior comment.
-            4. If all previous issues are addressed and no new issues exist, keep your review very short (e.g., "All previously flagged issues have been resolved. Latest changes look good.").
-            5. Never re-explain or re-describe an issue that a previous comment already covers, even with different wording.
+            Compare the current code against previously flagged issues and categorize:
+
+            - **Previously flagged + now fixed** → show with ~~strikethrough~~ and a "Fixed" note
+            - **Previously flagged + still present** → reference briefly without re-explaining
+            - **New issues** → standard formatting with full explanation
+
+            Structure your review using these sections (omit any section that has no items):
+
+            ### Resolved
+            Items previously flagged that are now fixed, shown with ~~strikethrough~~. Example:
+            - ~~Missing error handling in `parse_config()`~~ — Fixed
+
+            ### Still Open
+            Previously flagged items that remain unaddressed. Reference only, no re-explanation.
+
+            ### New Issues
+            Newly discovered problems with full explanation.
+
+            If everything is clean and there are no issues in any category, post a short "All clear" message (still include the marker).
 
             ## Review Focus Areas
             - Correctness: logic errors, edge cases, error handling
@@ -107,29 +114,30 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Collect previous review comments
-        id: previous
+      - name: Minimize previous review comment
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           PR_NUMBER=${{ github.event.pull_request.number }}
           REPO=${{ github.repository }}
+          MARKER="<!-- claude-security-review -->"
 
-          # Fetch previous bot comments on this PR (issue comments)
-          ISSUE_COMMENTS=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+          # Find the most recent comment containing our marker
+          COMMENT_NODE_ID=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
             --paginate \
-            --jq '[.[] | select(.user.type == "Bot") | {body: .body, created_at: .created_at}]' 2>/dev/null || echo "[]")
+            --jq "[.[] | select(.body | contains(\"${MARKER}\"))] | last | .node_id // empty" 2>/dev/null)
 
-          # Fetch previous bot review comments (inline comments)
-          REVIEW_COMMENTS=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/comments" \
-            --paginate \
-            --jq '[.[] | select(.user.type == "Bot") | {body: .body, path: .path, created_at: .created_at}]' 2>/dev/null || echo "[]")
-
-          ISSUE_COUNT=$(echo "$ISSUE_COMMENTS" | jq 'length')
-          REVIEW_COUNT=$(echo "$REVIEW_COMMENTS" | jq 'length')
-
-          echo "issue_comment_count=${ISSUE_COUNT}" >> "$GITHUB_OUTPUT"
-          echo "review_comment_count=${REVIEW_COUNT}" >> "$GITHUB_OUTPUT"
+          if [ -n "$COMMENT_NODE_ID" ]; then
+            echo "Minimizing previous security review comment: $COMMENT_NODE_ID"
+            gh api graphql -f query='
+              mutation {
+                minimizeComment(input: {subjectId: "'"$COMMENT_NODE_ID"'", classifier: OUTDATED}) {
+                  minimizedComment { isMinimized }
+                }
+              }' 2>/dev/null || echo "Warning: failed to minimize comment"
+          else
+            echo "No previous security review comment found"
+          fi
 
       - name: Run Claude Security Review
         uses: anthropics/claude-code-action@v1
@@ -139,24 +147,43 @@ jobs:
           prompt: |
             You are a security reviewer. Review this pull request for security vulnerabilities and concerns.
 
-            ## CRITICAL: Avoid Duplicate Feedback
+            ## Comment Marker
 
-            There have been ${{ steps.previous.outputs.issue_comment_count }} previous PR comments and ${{ steps.previous.outputs.review_comment_count }} previous inline review comments from bots on this PR.
+            You MUST start your review comment with exactly this HTML comment on its own line:
+            `<!-- claude-security-review -->`
 
-            Before writing your review, you MUST read all existing review comments on this PR to understand what feedback has already been given. Use these commands:
+            This marker is used to track and manage review comments across pushes. Do not omit it.
+
+            ## Reading Previous Feedback
+
+            Before writing your review, read all existing bot comments on this PR (including minimized ones) to understand what was previously flagged:
 
             ```
             gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" --paginate --jq '.[] | select(.user.type == "Bot") | "\n--- Comment from \(.created_at) ---\n\(.body)"'
             gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/comments" --paginate --jq '.[] | select(.user.type == "Bot") | "\n--- Comment on \(.path) from \(.created_at) ---\n\(.body)"'
             ```
 
-            After reading previous comments, follow these rules strictly:
+            ## Formatting Rules
 
-            1. **Do NOT repeat** security issues or concerns that were already raised in previous comments — even if they are still present in the code. Assume the author has seen them.
-            2. **Briefly acknowledge** previously flagged vulnerabilities that have been FIXED (e.g., "Previously flagged SQL injection risk in X has been resolved.").
-            3. **Only raise issues that are NEW** — either in newly added/changed code, or genuinely new security concerns not covered by any prior comment.
-            4. If all previous security issues are addressed and no new issues exist, keep your review very short (e.g., "All previously flagged security issues have been resolved. No new concerns in latest changes.").
-            5. Never re-explain or re-describe a security issue that a previous comment already covers, even with different wording.
+            Compare the current code against previously flagged issues and categorize:
+
+            - **Previously flagged + now fixed** → show with ~~strikethrough~~ and a "Fixed" note
+            - **Previously flagged + still present** → reference briefly without re-explaining
+            - **New issues** → standard formatting with full explanation
+
+            Structure your review using these sections (omit any section that has no items):
+
+            ### Resolved
+            Items previously flagged that are now fixed, shown with ~~strikethrough~~. Example:
+            - ~~SQL injection risk in `query_users()`~~ — Fixed
+
+            ### Still Open
+            Previously flagged items that remain unaddressed. Reference only, no re-explanation.
+
+            ### New Issues
+            Newly discovered problems with full explanation.
+
+            If everything is clean and there are no issues in any category, post a short "All clear" message (still include the marker).
 
             ## Security Review Focus Areas
             - Injection vulnerabilities (SQL, command, XSS, template injection)
