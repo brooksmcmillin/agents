@@ -1,0 +1,147 @@
+#!/usr/bin/env python3
+"""CLI entry point for the task queue runner.
+
+Usage:
+    uv run python bin/run-task-queue                    # Full run
+    uv run python bin/run-task-queue 123                 # Process specific task
+    uv run python bin/run-task-queue 123 456             # Process multiple tasks
+    uv run python bin/run-task-queue 123 --dry-run       # Triage specific task
+    uv run python bin/run-task-queue --dry-run           # Preview triage
+    uv run python bin/run-task-queue --max-tasks 5       # Limit
+    uv run python bin/run-task-queue --no-overdue        # Today only
+    uv run python bin/run-task-queue --repo URL          # For code tasks
+    uv run python bin/run-task-queue --no-review         # Skip review gates
+"""
+
+import argparse
+import asyncio
+import os
+import sys
+
+# Add project root to path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from agents.task_queue.models import TaskQueueConfig
+from agents.task_queue.runner import TaskQueueRunner
+
+
+def parse_args() -> TaskQueueConfig:
+    """Parse CLI arguments into a TaskQueueConfig."""
+    parser = argparse.ArgumentParser(
+        description="Run the task queue processor.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+    uv run python bin/run-task-queue                        # Process all due tasks
+    uv run python bin/run-task-queue 123                     # Process task 123 only
+    uv run python bin/run-task-queue 123 456 --dry-run       # Triage specific tasks
+    uv run python bin/run-task-queue --dry-run               # Preview without executing
+    uv run python bin/run-task-queue --max-tasks 3           # Process at most 3 tasks
+    uv run python bin/run-task-queue --repo https://github.com/user/repo  # For code tasks
+""",
+    )
+
+    parser.add_argument(
+        "task_ids",
+        nargs="*",
+        help="Specific task IDs to process (e.g., 123 task_456)",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Triage tasks but don't execute anything",
+    )
+    parser.add_argument(
+        "--max-tasks",
+        type=int,
+        default=20,
+        help="Maximum number of tasks to process (default: 20)",
+    )
+    parser.add_argument(
+        "--no-overdue",
+        action="store_true",
+        help="Skip overdue tasks, only process today's",
+    )
+    parser.add_argument(
+        "--no-priority-bump",
+        action="store_true",
+        help="Don't bump overdue task priorities",
+    )
+    parser.add_argument(
+        "--triage-model",
+        default="haiku",
+        help="Model for triage classification (default: haiku)",
+    )
+    parser.add_argument(
+        "--worker-model",
+        default="sonnet",
+        help="Model for code execution workers (default: sonnet)",
+    )
+    parser.add_argument(
+        "--research-model",
+        default="haiku",
+        help="Model for research summarization (default: haiku)",
+    )
+    parser.add_argument(
+        "--repo",
+        default=None,
+        help="Git repository URL for code tasks",
+    )
+    parser.add_argument(
+        "--no-review",
+        action="store_true",
+        help="Skip code and security review gates",
+    )
+    parser.add_argument(
+        "--slack-webhook",
+        default=None,
+        help="Slack webhook URL for notifications",
+    )
+    parser.add_argument(
+        "--email-report",
+        action="store_true",
+        help="Send email summary report",
+    )
+    parser.add_argument(
+        "--mcp-url",
+        default=None,
+        help="MCP server URL (default: from env or built-in default)",
+    )
+
+    args = parser.parse_args()
+
+    return TaskQueueConfig(
+        mcp_url=args.mcp_url,
+        task_ids=args.task_ids or [],
+        dry_run=args.dry_run,
+        max_tasks=args.max_tasks,
+        triage_model=args.triage_model,
+        research_model=args.research_model,
+        worker_model=args.worker_model,
+        include_overdue=not args.no_overdue,
+        priority_bump_overdue=not args.no_priority_bump,
+        enable_code_review=not args.no_review,
+        enable_security_review=not args.no_review,
+        git_repo_url=args.repo,
+        slack_webhook_url=args.slack_webhook,
+        send_email_report=args.email_report,
+    )
+
+
+async def main() -> None:
+    """Main entry point."""
+    config = parse_args()
+
+    try:
+        runner = TaskQueueRunner(config)
+        await runner.run()
+    except RuntimeError as e:
+        print(f"\nError: {e}", file=sys.stderr)
+        sys.exit(1)
+    except KeyboardInterrupt:
+        print("\nInterrupted.")
+        sys.exit(130)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

@@ -42,6 +42,14 @@ KNOWN_MODELS = frozenset(
 )
 
 
+# Short name -> full Anthropic model ID mapping
+MODEL_ALIASES: dict[str, str] = {
+    "haiku": "claude-haiku-4-5-20251001",
+    "sonnet": "claude-sonnet-4-5-20250929",
+    "opus": "claude-opus-4-6",
+}
+
+
 def validate_model_name(model: str) -> str:
     """Validate a model name against known values.
 
@@ -57,6 +65,16 @@ def validate_model_name(model: str) -> str:
     if model not in KNOWN_MODELS:
         raise ValueError(f"Unknown model: {model!r}. Known models: {sorted(KNOWN_MODELS)}")
     return model
+
+
+def resolve_model(model: str) -> str:
+    """Resolve a short model name to a full Anthropic API model ID.
+
+    Validates the model name, then maps short names (haiku, sonnet, opus)
+    to their full IDs. Full IDs pass through unchanged.
+    """
+    validate_model_name(model)
+    return MODEL_ALIASES.get(model, model)
 
 
 def validate_git_ref(ref: str, label: str = "git ref") -> str:

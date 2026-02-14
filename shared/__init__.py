@@ -41,6 +41,7 @@ from .constants import (
     HTTP_CLIENT_TOOLS,
     MEMORY_TOOLS,
     RAG_TOOLS,
+    WEB_RESEARCH_TOOLS,
 )
 from .env_utils import check_env_vars, env_file_exists
 from .logging_config import setup_logging
@@ -65,6 +66,7 @@ __all__ = [
     "MEMORY_TOOLS",
     "RAG_TOOLS",
     "SSRFValidator",
+    "WEB_RESEARCH_TOOLS",
     "check_env_vars",
     "create_simple_agent",
     "env_file_exists",

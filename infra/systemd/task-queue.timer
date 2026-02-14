@@ -1,0 +1,10 @@
+[Unit]
+Description=Run task queue every 4 hours during waking hours
+
+[Timer]
+# Run at 8am, 12pm, 4pm, 8pm
+OnCalendar=*-*-* 08,12,16,20:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

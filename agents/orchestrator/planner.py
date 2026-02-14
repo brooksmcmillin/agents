@@ -13,7 +13,7 @@ from typing import Any
 
 from anthropic import AsyncAnthropic
 
-from .models import AutonomyTier, Task, validate_model_name
+from .models import AutonomyTier, Task, resolve_model
 from .prompts import PLANNER_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
@@ -47,7 +47,7 @@ async def plan_task(
     Raises:
         PlanningError: If the LLM response cannot be parsed as valid subtasks.
     """
-    validate_model_name(model)
+    model_id = resolve_model(model)
 
     client = AsyncAnthropic(api_key=api_key or os.getenv("ANTHROPIC_API_KEY"))
     try:
@@ -69,7 +69,7 @@ async def plan_task(
         logger.info(f"Planning task {task.id}: {task.title}")
 
         response = await client.messages.create(
-            model=model,
+            model=model_id,
             max_tokens=4096,
             system=system_prompt,
             messages=[{"role": "user", "content": user_message}],
