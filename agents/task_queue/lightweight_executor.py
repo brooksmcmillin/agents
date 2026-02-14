@@ -38,6 +38,18 @@ Rules:
 - When done, provide a clear summary of what was accomplished
 """
 
+COMPLETION_CHECK_PROMPT = """\
+You are evaluating whether a task execution agent successfully completed its \
+assigned task. Read the task description and the agent's final output, then \
+determine if the task was actually completed.
+
+Respond with exactly one of:
+- COMPLETED — the agent accomplished what the task asked for
+- FAILED — the agent could not complete the task, hit errors, or explicitly \
+said it couldn't do it
+
+Just the single word, nothing else."""
+
 
 @dataclass
 class LightweightResult:
@@ -68,6 +80,37 @@ def _extract_text(content: list[Any]) -> str:
         if isinstance(block, TextBlock):
             parts.append(block.text)
     return "\n".join(parts)
+
+
+async def _verify_completion(
+    client: AsyncAnthropic,
+    task_title: str,
+    task_description: str,
+    agent_output: str,
+) -> bool:
+    """Ask a fast model whether the agent actually completed the task.
+
+    Returns True if completed, False if the output indicates failure.
+    """
+    user_msg = (
+        f"Task: {task_title}\n"
+        f"Description: {task_description or '(none)'}\n\n"
+        f"Agent output:\n{agent_output[:2000]}"
+    )
+    try:
+        response = await client.messages.create(
+            model=resolve_model("haiku"),
+            max_tokens=16,
+            system=COMPLETION_CHECK_PROMPT,
+            messages=[{"role": "user", "content": user_msg}],
+        )
+        verdict = _extract_text(response.content).strip().upper()
+        logger.info(f"Completion check verdict: {verdict}")
+        return verdict.startswith("COMPLETED")
+    except Exception as e:
+        logger.warning(f"Completion check failed, assuming completed: {e}")
+        # If the check itself fails, don't block — assume completed
+        return True
 
 
 async def execute_lightweight(
@@ -151,9 +194,21 @@ async def execute_lightweight(
             tool_use_blocks = [b for b in response.content if isinstance(b, ToolUseBlock)]
 
             if not tool_use_blocks:
-                # No tool calls — we're done
-                logger.info(f"Lightweight execution completed in {turns_used} turns")
-                return LightweightResult(success=True, output=last_text, turns_used=turns_used)
+                # No tool calls — agent is done. Verify it actually completed.
+                completed = await _verify_completion(
+                    client, task_title, task_description, last_text
+                )
+                if completed:
+                    logger.info(f"Lightweight execution completed in {turns_used} turns")
+                    return LightweightResult(success=True, output=last_text, turns_used=turns_used)
+                else:
+                    logger.warning(f"Lightweight execution for {task_id} did not complete the task")
+                    return LightweightResult(
+                        success=False,
+                        output=last_text,
+                        turns_used=turns_used,
+                        error="Agent did not complete the task",
+                    )
 
             # Append the assistant message
             messages.append({"role": "assistant", "content": response.content})  # type: ignore[arg-type]
@@ -192,12 +247,21 @@ async def execute_lightweight(
 
             messages.append({"role": "user", "content": tool_results})
 
-        # Exhausted max_turns
+        # Exhausted max_turns — verify what we have
         logger.warning(f"Lightweight execution hit max_turns ({max_turns})")
+        if last_text:
+            completed = await _verify_completion(client, task_title, task_description, last_text)
+            return LightweightResult(
+                success=completed,
+                output=last_text,
+                turns_used=turns_used,
+                error=None if completed else "Agent did not complete the task within max turns",
+            )
         return LightweightResult(
-            success=bool(last_text),
-            output=last_text or "Max turns reached without completion.",
+            success=False,
+            output="Max turns reached without completion.",
             turns_used=turns_used,
+            error="Max turns reached without output",
         )
 
     except Exception as e:
