@@ -35,8 +35,26 @@ from .triage import triage_task
 
 logger = logging.getLogger(__name__)
 
-# Max characters for comment content posted to tasks.
+# ---------------------------------------------------------------------------
+# Truncation limits
+#
+# Different contexts need different limits:
+#  - COMMENT_MAX_LENGTH: Final cap applied by _add_comment() on all task
+#    comments.  Individual sections are trimmed first so the composed comment
+#    stays readable (header + body fit in one chunk).
+#  - _OUTPUT_PREVIEW: Output/summary preview embedded in a comment.  Kept
+#    under COMMENT_MAX_LENGTH so the header text isn't lost.
+#  - _ERROR_PREVIEW: Error messages within a comment — shorter because they
+#    are typically paired with other sections.
+#  - _BLOCKING_REASON: The blocking_reason field in the set_agent_status MCP
+#    call.  This is a structured API field, not free-form comment text.
+#  - _AGENT_NOTE: Content passed to add_agent_note MCP calls.
+# ---------------------------------------------------------------------------
 COMMENT_MAX_LENGTH = 1000
+_OUTPUT_PREVIEW = 800
+_ERROR_PREVIEW = 300
+_BLOCKING_REASON = 200
+_AGENT_NOTE = 500
 
 
 def _normalize_task_id(task_id: str) -> str:
@@ -44,6 +62,18 @@ def _normalize_task_id(task_id: str) -> str:
     if not task_id.startswith("task_"):
         return f"task_{task_id}"
     return task_id
+
+
+def _is_transient_error(exc: Exception) -> bool:
+    """Return True if *exc* looks like a transient/network error.
+
+    Transient errors reset the task to ``pending_review`` so it is retried
+    on the next run, rather than ``blocked`` which requires manual intervention.
+    """
+    if isinstance(exc, (ConnectionError, TimeoutError, OSError)):
+        return True
+    msg = str(exc).lower()
+    return any(p in msg for p in ("timeout", "connection", "rate limit", "503", "502", "429"))
 
 
 class TaskQueueRunner(BatchAgent):
@@ -311,18 +341,21 @@ class TaskQueueRunner(BatchAgent):
             await self._triage_and_route(task, task_id, title)
         except Exception as e:
             logger.error(f"Triage/routing failed for {task_id}: {e}")
+            transient = _is_transient_error(e)
+            reset_status = "pending_review" if transient else "blocked"
+            reason_prefix = "Transient error, will retry" if transient else "Triage/routing error"
             try:
                 await self.call_tool(
                     "set_agent_status",
                     {
                         "task_id": task_id,
-                        "status": "blocked",
-                        "blocking_reason": f"Triage/routing error: {str(e)[:180]}",
+                        "status": reset_status,
+                        "blocking_reason": f"{reason_prefix}: {str(e)[:_BLOCKING_REASON]}",
                     },
                 )
             except Exception:
                 logger.debug("Failed to reset status for %s after triage failure", task_id)
-            await self._add_comment(task_id, f"Processing failed: {str(e)[:500]}")
+            await self._add_comment(task_id, f"Processing failed: {str(e)[:_ERROR_PREVIEW]}")
             self.report.tasks_processed.append(
                 ProcessedTask(
                     external_id=task_id,
@@ -460,7 +493,7 @@ class TaskQueueRunner(BatchAgent):
                 if root_result.branch_name:
                     completion_comment += f"\nBranch: `{root_result.branch_name}`"
                 if root_result.worker_output:
-                    output_preview = root_result.worker_output[:500]
+                    output_preview = root_result.worker_output[:_OUTPUT_PREVIEW]
                     completion_comment += f"\n\nOutput:\n{output_preview}"
                 await self._add_comment(task_id, completion_comment)
 
@@ -558,7 +591,7 @@ class TaskQueueRunner(BatchAgent):
                         {
                             "task_id": task_id,
                             "status": "blocked",
-                            "blocking_reason": error_msg[:200],
+                            "blocking_reason": error_msg[:_BLOCKING_REASON],
                         },
                     )
                     await self.call_tool(
@@ -568,7 +601,7 @@ class TaskQueueRunner(BatchAgent):
                 except Exception as e:
                     logger.warning(f"Failed to update task status: {e}")
 
-                await self._add_comment(task_id, f"Execution failed: {error_msg[:500]}")
+                await self._add_comment(task_id, f"Execution failed: {error_msg[:_ERROR_PREVIEW]}")
 
                 self.report.tasks_processed.append(
                     ProcessedTask(
@@ -591,13 +624,15 @@ class TaskQueueRunner(BatchAgent):
                     {
                         "task_id": task_id,
                         "status": "blocked",
-                        "blocking_reason": str(e)[:200],
+                        "blocking_reason": str(e)[:_BLOCKING_REASON],
                     },
                 )
             except Exception:
                 logger.debug("Failed to set blocked status for %s", task_id)
 
-            await self._add_comment(task_id, f"Execution failed with exception: {str(e)[:500]}")
+            await self._add_comment(
+                task_id, f"Execution failed with exception: {str(e)[:_ERROR_PREVIEW]}"
+            )
 
             self.report.tasks_processed.append(
                 ProcessedTask(
@@ -648,7 +683,7 @@ class TaskQueueRunner(BatchAgent):
                     logger.warning(f"Failed to complete task in TM: {e}")
 
                 # Store output as agent note
-                note = f"Lightweight execution ({result.turns_used} turns):\n{result.output[:500]}"
+                note = f"Lightweight execution ({result.turns_used} turns):\n{result.output[:_AGENT_NOTE]}"
                 try:
                     await self.call_tool(
                         "add_agent_note",
@@ -658,7 +693,7 @@ class TaskQueueRunner(BatchAgent):
                     logger.warning(f"Failed to add agent note: {e}")
 
                 # Comment with execution results
-                output_preview = result.output[:800] if result.output else "No output"
+                output_preview = result.output[:_OUTPUT_PREVIEW] if result.output else "No output"
                 await self._add_comment(
                     task_id,
                     f"Completed ({action_type}, {result.turns_used} turns):\n\n{output_preview}",
@@ -688,7 +723,7 @@ class TaskQueueRunner(BatchAgent):
                         {
                             "task_id": task_id,
                             "status": "blocked",
-                            "blocking_reason": error_msg[:200],
+                            "blocking_reason": error_msg[:_BLOCKING_REASON],
                         },
                     )
                     if result.output:
@@ -696,15 +731,15 @@ class TaskQueueRunner(BatchAgent):
                             "add_agent_note",
                             {
                                 "task_id": task_id,
-                                "note": f"Partial output:\n{result.output[:500]}",
+                                "note": f"Partial output:\n{result.output[:_AGENT_NOTE]}",
                             },
                         )
                 except Exception as e:
                     logger.warning(f"Failed to update task status: {e}")
 
-                fail_comment = f"Lightweight execution failed: {error_msg[:300]}"
+                fail_comment = f"Lightweight execution failed: {error_msg[:_ERROR_PREVIEW]}"
                 if result.output:
-                    fail_comment += f"\n\nPartial output:\n{result.output[:500]}"
+                    fail_comment += f"\n\nPartial output:\n{result.output[:_OUTPUT_PREVIEW]}"
                 await self._add_comment(task_id, fail_comment)
 
                 self.report.tasks_processed.append(
@@ -728,14 +763,14 @@ class TaskQueueRunner(BatchAgent):
                     {
                         "task_id": task_id,
                         "status": "blocked",
-                        "blocking_reason": str(e)[:200],
+                        "blocking_reason": str(e)[:_BLOCKING_REASON],
                     },
                 )
             except Exception:
                 logger.debug("Failed to set blocked status for %s", task_id)
 
             await self._add_comment(
-                task_id, f"Lightweight execution failed with exception: {str(e)[:500]}"
+                task_id, f"Lightweight execution failed with exception: {str(e)[:_ERROR_PREVIEW]}"
             )
 
             self.report.tasks_processed.append(
@@ -776,7 +811,9 @@ class TaskQueueRunner(BatchAgent):
             )
 
             # Comment with research findings
-            await self._add_comment(task_id, f"Pre-research findings:\n\n{summary[:1000]}")
+            await self._add_comment(
+                task_id, f"Pre-research findings:\n\n{summary[:_OUTPUT_PREVIEW]}"
+            )
 
             # Accumulate context for subsequent tasks
             self.context.research_notes[task_id] = summary
@@ -805,13 +842,13 @@ class TaskQueueRunner(BatchAgent):
                     {
                         "task_id": task_id,
                         "status": "blocked",
-                        "blocking_reason": f"Pre-research failed: {e}",
+                        "blocking_reason": f"Pre-research failed: {str(e)[:_BLOCKING_REASON]}",
                     },
                 )
             except Exception:
                 logger.debug("Failed to set blocked status for %s", task_id)
 
-            await self._add_comment(task_id, f"Pre-research failed: {str(e)[:500]}")
+            await self._add_comment(task_id, f"Pre-research failed: {str(e)[:_ERROR_PREVIEW]}")
 
             self.report.tasks_processed.append(
                 ProcessedTask(
@@ -845,13 +882,15 @@ class TaskQueueRunner(BatchAgent):
                 {
                     "task_id": task_id,
                     "status": "blocked",
-                    "blocking_reason": blocking_reason[:200],
+                    "blocking_reason": blocking_reason[:_BLOCKING_REASON],
                 },
             )
         except Exception as e:
             logger.warning(f"Failed to mark {task_id} as not actionable: {e}")
 
-        await self._add_comment(task_id, f"Not actionable by agent: {blocking_reason[:500]}")
+        await self._add_comment(
+            task_id, f"Not actionable by agent: {blocking_reason[:_ERROR_PREVIEW]}"
+        )
 
         self.report.tasks_processed.append(
             ProcessedTask(

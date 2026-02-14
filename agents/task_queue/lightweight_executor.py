@@ -26,6 +26,8 @@ ToolCaller = Callable[[str, dict[str, Any]], Coroutine[Any, Any, Any]]
 ToolLister = Callable[[], Coroutine[Any, Any, list[dict[str, Any]]]]
 
 # Max characters of agent output to include in the completion verification prompt.
+# This is deliberately larger than COMMENT_MAX_LENGTH in runner.py — it feeds a
+# Haiku call that evaluates whether the agent succeeded, not a task comment.
 VERIFY_OUTPUT_LIMIT = 4000
 
 LIGHTWEIGHT_SYSTEM_PROMPT = """\
