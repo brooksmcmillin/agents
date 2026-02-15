@@ -131,6 +131,7 @@ class Phase(str, Enum):
     PLAN = "plan"
     EXECUTE = "execute"
     REVIEW = "review"
+    PUBLISH = "publish"
     HUMAN_GATE = "human_gate"
     COMPLETE = "complete"
     FAILED = "failed"
@@ -208,6 +209,7 @@ class Task:
     # Results
     worker_output: str | None = None
     review_results: list[ReviewResult] = field(default_factory=list)
+    pr_url: str | None = None
     error: str | None = None
 
     # Metadata

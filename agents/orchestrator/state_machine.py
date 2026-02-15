@@ -3,10 +3,10 @@
 The orchestrator is a lightweight control plane that drives work through a
 deterministic state machine:
 
-    INGEST -> PLAN -> EXECUTE -> REVIEW -> COMPLETE
-                                   |          |
-                                   v          v
-                              HUMAN_GATE   FAILED
+    INGEST -> PLAN -> EXECUTE -> REVIEW -> PUBLISH -> COMPLETE
+                                   |          |          |
+                                   v          v          v
+                              HUMAN_GATE   FAILED     FAILED
                                    |
                                    v
                                 COMPLETE
@@ -40,7 +40,7 @@ from .models import (
 )
 from .planner import PlanningError, plan_task
 from .reviewers import run_code_review, run_security_review
-from .workers import dispatch_worker, ensure_workspace, get_workspace_diff
+from .workers import dispatch_worker, ensure_workspace, get_workspace_diff, push_and_create_pr
 
 logger = logging.getLogger(__name__)
 
@@ -207,7 +207,7 @@ class Orchestrator:
     async def _process_task(self, task: Task) -> None:
         """Process a single task through the full pipeline.
 
-        Pipeline: INGEST -> PLAN -> EXECUTE -> REVIEW -> COMPLETE/HUMAN_GATE
+        Pipeline: INGEST -> PLAN -> EXECUTE -> REVIEW -> PUBLISH -> COMPLETE/HUMAN_GATE
         """
         # INGEST: Validate and prepare
         async with self._lock:
@@ -270,6 +270,12 @@ class Orchestrator:
             # Check if we should create remediation tasks
             await self._handle_review_failure(task)
             return
+
+        # PUBLISH: Push branch and create PR (only for tasks with changes)
+        if task.branch_name and task.workspace_name:
+            async with self._lock:
+                self.state.phase = Phase.PUBLISH
+            await self._publish_task(task)
 
         # COMPLETE or HUMAN_GATE based on autonomy tier
         await self._finalize_task(task)
@@ -397,6 +403,34 @@ class Orchestrator:
             )
 
         return all_passed
+
+    async def _publish_task(self, task: Task) -> None:
+        """Push branch and create a PR for a completed task.
+
+        Best-effort: if push or PR creation fails, the task still proceeds
+        to finalization. The code is committed locally regardless.
+        """
+        try:
+            # Get diff summary for the PR body
+            diff = await get_workspace_diff(
+                task.workspace_name,  # type: ignore[arg-type]
+                task.branch_name,  # type: ignore[arg-type]
+                self.config,
+            )
+            # Use a short stat-like summary, not the full diff
+            diff_lines = diff.strip().splitlines()
+            diff_summary = "\n".join(diff_lines[:50]) if diff_lines else ""
+
+            pr_url = await push_and_create_pr(task, self.config, diff_summary=diff_summary)
+            task.pr_url = pr_url
+
+            if pr_url:
+                logger.info(f"Task {task.id} published: {pr_url}")
+            else:
+                logger.warning(f"Task {task.id}: push/PR creation returned no URL")
+        except Exception as e:
+            logger.error(f"Publish failed for task {task.id}: {e}")
+            # Non-fatal: task proceeds to finalization
 
     async def _handle_review_failure(self, task: Task) -> None:
         """Handle a task that failed review by creating remediation tasks.

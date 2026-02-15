@@ -244,6 +244,100 @@ async def dispatch_worker(
     )
 
 
+async def push_and_create_pr(
+    task: Task,
+    config: OrchestratorConfig,
+    diff_summary: str = "",
+) -> str | None:
+    """Push branch and create a PR via Claude Code.
+
+    This is a mechanical step — Claude Code runs git push and gh pr create.
+    Best-effort: returns the PR URL on success, None on failure.
+
+    Args:
+        task: The task with branch_name and workspace_name set.
+        config: Orchestrator configuration (provides base_branch).
+        diff_summary: Optional diff summary to include in the PR body.
+
+    Returns:
+        The PR URL, or None if push/PR creation failed.
+    """
+    if not task.workspace_name or not task.branch_name:
+        logger.warning(f"Task {task.id} missing workspace/branch for publish")
+        return None
+
+    validate_workspace_name(task.workspace_name)
+    validate_git_ref(task.branch_name, "branch name for publish")
+
+    safe_title = _sanitise_task_text(task.title, max_length=200)
+    safe_description = _sanitise_task_text(task.description, max_length=1000)
+
+    # Build PR body content for the prompt
+    body_diff = diff_summary[:2000] if diff_summary else ""
+    body_parts = [safe_description]
+
+    # Link back to the originating task
+    if task.external_id:
+        task_ref = f"Task: `{task.external_id}`"
+        taskmanager_url = os.environ.get("TASKMANAGER_URL", "").rstrip("/")
+        if taskmanager_url:
+            task_ref = f"Task: [{task.external_id}]({taskmanager_url}/task/{task.external_id})"
+        body_parts.append(task_ref)
+
+    if body_diff:
+        body_parts.append(f"## Changes\n\n```\n{body_diff}\n```")
+    pr_body = "\n\n".join(body_parts)
+
+    prompt = (
+        f"Push the current branch and create a pull request. "
+        f"Run these commands:\n\n"
+        f"1. `git push -u origin {shlex.quote(task.branch_name)}`\n"
+        f"2. Create a PR with `gh pr create`:\n"
+        f"   - Base branch: `{config.base_branch}`\n"
+        f"   - Title: {safe_title}\n\n"
+        f"Use the following as the PR body:\n\n{pr_body}\n\n"
+        f"If push or PR creation fails, report the error. "
+        f"Do NOT attempt to fix code or make additional commits."
+    )
+
+    logger.info(
+        f"Publishing task {task.id}: pushing {task.branch_name} "
+        f"and creating PR in workspace {task.workspace_name}"
+    )
+
+    result = await run_claude_code(
+        folder_name=task.workspace_name,
+        command=prompt,
+        timeout=120,
+        max_turns=5,
+        model=config.worker_model,
+    )
+
+    output = result.get("output", "")
+    if not result.get("success", False):
+        error = result.get("error_output") or result.get("error", "unknown")
+        logger.warning(f"Publish failed for task {task.id}: {error}")
+        return None
+
+    # Extract PR URL from output
+    pr_url = _extract_pr_url(output)
+    if pr_url:
+        logger.info(f"PR created for task {task.id}: {pr_url}")
+    else:
+        logger.warning(f"Push succeeded but no PR URL found in output for task {task.id}")
+
+    return pr_url
+
+
+def _extract_pr_url(output: str) -> str | None:
+    """Extract a GitHub PR URL from Claude Code output.
+
+    Looks for https://github.com/.../ pull/N patterns.
+    """
+    match = re.search(r"https://github\.com/[^\s\"'<>]+/pull/\d+", output)
+    return match.group(0) if match else None
+
+
 async def get_workspace_diff(
     workspace_name: str,
     branch_name: str,
@@ -332,7 +426,7 @@ async def get_workspace_diff(
         proc = await asyncio.create_subprocess_exec(
             "git",
             "diff",
-            "4b825dc642cb6eb9a060e54bf899d8e3b71d8631",
+            "4b825dc642cb6eb9a060e54bf899d8e3b71d8631",  # pragma: allowlist secret  # noqa: git empty tree SHA
             "HEAD",
             "--",
             cwd=str(workspace_path),
