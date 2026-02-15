@@ -8,6 +8,7 @@ Extends BatchAgent for MCP connectivity. Not an interactive agent.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -207,16 +208,10 @@ class TaskQueueRunner(BatchAgent):
             f"Processing order computed: {len(ordered_tasks)} tasks, {len(blocked)} blocked"
         )
 
-        # Phase 5: Process each task
-        processed_count = 0
+        # Phase 5a: Record blocked tasks (don't consume budget)
+        ready_tasks: list[dict] = []
         for task in ordered_tasks:
-            if processed_count >= self.config.max_tasks:
-                logger.info(f"Reached max_tasks limit ({self.config.max_tasks})")
-                break
-
             task_id = task.get("id", "unknown")
-
-            # Skip blocked tasks
             if task_id in blocked:
                 blockers = blocked[task_id]
                 logger.info(f"Skipping {task_id}: blocked by {blockers}")
@@ -231,10 +226,88 @@ class TaskQueueRunner(BatchAgent):
                     )
                 )
                 self.context.skipped_ids.append(task_id)
-                processed_count += 1
+            else:
+                ready_tasks.append(task)
+
+        # Limit to max_tasks budget
+        ready_tasks = ready_tasks[: self.config.max_tasks]
+
+        # Phase 5b: Parallel triage
+        available_tools = await self._get_available_tool_names()
+        semaphore = asyncio.Semaphore(self.config.concurrency)
+        triage_results = await asyncio.gather(
+            *(self._triage_single(task, available_tools, semaphore) for task in ready_tasks)
+        )
+
+        # Phase 5c: Sequential execution based on triage results
+        processed_count = 0
+        for task, triage, skip_reason in triage_results:
+            if processed_count >= self.config.max_tasks:
+                logger.info(f"Reached max_tasks limit ({self.config.max_tasks})")
+                break
+
+            task_id = task.get("id", "unknown")
+            title = task.get("title", "Untitled")
+
+            # Handle skipped tasks (don't consume budget)
+            if skip_reason:
+                self.report.tasks_processed.append(
+                    ProcessedTask(
+                        external_id=task_id,
+                        title=title,
+                        triage_verdict=TriageVerdict.SKIP_ALREADY_PROCESSING,
+                        confidence=1.0,
+                        outcome="skipped",
+                        notes=skip_reason,
+                    )
+                )
+                self.context.skipped_ids.append(task_id)
                 continue
 
-            await self._process_single_task(task)
+            # Handle triage failure
+            if triage is None:
+                continue  # Error already recorded in _triage_single
+
+            # Set in_progress and route
+            try:
+                await self.call_tool(
+                    "set_agent_status",
+                    {"task_id": task_id, "status": "in_progress"},
+                )
+            except Exception as e:
+                logger.warning(f"Failed to set in_progress for {task_id}: {e}")
+
+            try:
+                await self._route_triaged_task(task, task_id, title, triage)
+            except Exception as e:
+                logger.error(f"Routing failed for {task_id}: {e}")
+                transient = _is_transient_error(e)
+                reset_status = "pending_review" if transient else "blocked"
+                reason_prefix = "Transient error, will retry" if transient else "Routing error"
+                try:
+                    await self.call_tool(
+                        "set_agent_status",
+                        {
+                            "task_id": task_id,
+                            "status": reset_status,
+                            "blocking_reason": f"{reason_prefix}: {str(e)[:_BLOCKING_REASON]}",
+                        },
+                    )
+                except Exception:
+                    logger.debug("Failed to reset status for %s after routing failure", task_id)
+                await self._add_comment(task_id, f"Processing failed: {str(e)[:_ERROR_PREVIEW]}")
+                self.report.tasks_processed.append(
+                    ProcessedTask(
+                        external_id=task_id,
+                        title=title,
+                        triage_verdict=triage.verdict,
+                        confidence=triage.confidence,
+                        outcome="failed",
+                        error=str(e),
+                    )
+                )
+                self.context.failed_ids.append(task_id)
+
             processed_count += 1
 
         # Phase 6: Send notification
@@ -352,102 +425,88 @@ class TaskQueueRunner(BatchAgent):
                 logger.warning(f"Failed to fetch dependencies for {task_id}: {e}")
         return dependencies
 
-    async def _process_single_task(self, task: dict) -> None:
-        """Process a single task through triage and routing."""
+    async def _get_available_tool_names(self) -> list[str]:
+        """Fetch tool names from the MCP server for triage awareness."""
+        try:
+            tools = await self.list_tools()
+            names = [t.get("name", "") for t in tools if t.get("name")]
+            logger.info(f"Discovered {len(names)} available tools for triage")
+            return names
+        except Exception as e:
+            logger.warning(f"Failed to list tools for triage: {e}")
+            return []
+
+    async def _triage_single(
+        self,
+        task: dict,
+        available_tools: list[str],
+        semaphore: asyncio.Semaphore,
+    ) -> tuple[dict, TriageResult | None, str]:
+        """Triage a single task under the concurrency semaphore.
+
+        Returns:
+            (task, triage_result, skip_reason) — if skip_reason is non-empty,
+            the task should be skipped. If triage_result is None and skip_reason
+            is empty, triage failed (error already logged).
+        """
         task_id = task.get("id", "unknown")
         title = task.get("title", "Untitled")
 
-        # Skip if already processing
+        # Skip checks (no shared state mutation)
         agent_status = task.get("agent_status")
-        if agent_status in ("in_progress", "completed"):
-            logger.info(f"Skipping {task_id}: already {agent_status}")
-            self.report.tasks_processed.append(
-                ProcessedTask(
-                    external_id=task_id,
-                    title=title,
-                    triage_verdict=TriageVerdict.SKIP_ALREADY_PROCESSING,
-                    confidence=1.0,
-                    outcome="skipped",
-                    notes=f"Already {agent_status}",
-                )
-            )
-            self.context.skipped_ids.append(task_id)
-            return
+        if agent_status == "completed":
+            return (task, None, f"Already {agent_status}")
 
-        # Skip if task already has subtasks (previously decomposed)
+        if agent_status == "in_progress":
+            logger.warning(
+                f"Task {task_id} has stale agent_status=in_progress "
+                f"(likely from a crashed previous run), proceeding to triage"
+            )
+
         existing_subtasks = task.get("subtasks") or []
         if existing_subtasks:
             subtask_info = [
                 f"{s.get('id', '?')}: {s.get('title', '')}" for s in existing_subtasks[:5]
             ]
-            logger.info(
-                f"Skipping {task_id}: already has {len(existing_subtasks)} subtasks: {subtask_info}"
+            return (
+                task,
+                None,
+                f"Already decomposed into {len(existing_subtasks)} subtasks: {subtask_info}",
             )
-            self.report.tasks_processed.append(
-                ProcessedTask(
-                    external_id=task_id,
-                    title=title,
-                    triage_verdict=TriageVerdict.SKIP_ALREADY_PROCESSING,
-                    confidence=1.0,
-                    outcome="skipped",
-                    notes=f"Already decomposed into {len(existing_subtasks)} subtasks: {subtask_info}",
-                )
-            )
-            self.context.skipped_ids.append(task_id)
-            return
 
-        # Mark as in_progress
-        try:
-            await self.call_tool(
-                "set_agent_status",
-                {"task_id": task_id, "status": "in_progress"},
-            )
-        except Exception as e:
-            logger.warning(f"Failed to set in_progress for {task_id}: {e}")
-
-        # Triage and route — reset status on unexpected failure so the task
-        # doesn't stay stuck in in_progress indefinitely.
-        try:
-            await self._triage_and_route(task, task_id, title)
-        except Exception as e:
-            logger.error(f"Triage/routing failed for {task_id}: {e}")
-            transient = _is_transient_error(e)
-            reset_status = "pending_review" if transient else "blocked"
-            reason_prefix = "Transient error, will retry" if transient else "Triage/routing error"
+        # Triage LLM call (safe to run concurrently — creates own client)
+        async with semaphore:
             try:
-                await self.call_tool(
-                    "set_agent_status",
-                    {
-                        "task_id": task_id,
-                        "status": reset_status,
-                        "blocking_reason": f"{reason_prefix}: {str(e)[:_BLOCKING_REASON]}",
-                    },
+                accumulated_context = self.context.get_related_context(
+                    title, task.get("description", "")
                 )
-            except Exception:
-                logger.debug("Failed to reset status for %s after triage failure", task_id)
-            await self._add_comment(task_id, f"Processing failed: {str(e)[:_ERROR_PREVIEW]}")
-            self.report.tasks_processed.append(
-                ProcessedTask(
-                    external_id=task_id,
-                    title=title,
-                    triage_verdict=TriageVerdict.NOT_ACTIONABLE,
-                    confidence=0.0,
-                    outcome="failed",
-                    error=str(e),
+                triage = await triage_task(
+                    task=task,
+                    available_tools=available_tools,
+                    accumulated_context=accumulated_context,
+                    model=self.config.triage_model,
                 )
-            )
-            self.context.failed_ids.append(task_id)
+                return (task, triage, "")
+            except Exception as e:
+                logger.error(f"Triage failed for {task_id}: {e}")
+                # Record failure directly — no shared state risk since we append atomically
+                self.report.tasks_processed.append(
+                    ProcessedTask(
+                        external_id=task_id,
+                        title=title,
+                        triage_verdict=TriageVerdict.NOT_ACTIONABLE,
+                        confidence=0.0,
+                        outcome="failed",
+                        error=f"Triage error: {e}",
+                    )
+                )
+                self.context.failed_ids.append(task_id)
+                return (task, None, "")
 
-    async def _triage_and_route(self, task: dict, task_id: str, title: str) -> None:
-        """Run triage and route the task to the appropriate executor."""
-        accumulated_context = self.context.get_related_context(title, task.get("description", ""))
-        triage = await triage_task(
-            task=task,
-            available_tools=[],  # We don't enumerate tools here
-            accumulated_context=accumulated_context,
-            model=self.config.triage_model,
-        )
-
+    async def _route_triaged_task(
+        self, task: dict, task_id: str, title: str, triage: TriageResult
+    ) -> None:
+        """Route a pre-triaged task to the appropriate executor."""
         # Classify in TaskManager if unclassified
         if not task.get("action_type") and triage.suggested_action_type:
             try:
@@ -657,12 +716,11 @@ class TaskQueueRunner(BatchAgent):
                         title=title,
                         triage_verdict=triage.verdict,
                         confidence=triage.confidence,
-                        outcome="completed",
+                        outcome="partial",
                         notes=note,
                         orchestrator_task_id=root_result.id,
                     )
                 )
-                self.context.completed_ids.append(task_id)
 
             else:
                 # Actually failed

@@ -83,6 +83,9 @@ class TaskQueueConfig:
     enable_security_review: bool = True
     git_repo_url: str | None = None
 
+    # Concurrency
+    concurrency: int = 5  # Max parallel triage calls
+
     # Notifications
     slack_webhook_url: str | None = None
     send_email_report: bool = False
@@ -260,7 +263,9 @@ class ProcessedTask:
     title: str
     triage_verdict: TriageVerdict
     confidence: float
-    outcome: str = ""  # "completed", "failed", "researched", "blocked", "skipped", "needs_human"
+    outcome: str = (
+        ""  # "completed", "partial", "failed", "researched", "blocked", "skipped", "needs_human"
+    )
     notes: str = ""
     estimated_hours: float | None = None
     error: str | None = None
@@ -299,6 +304,10 @@ class RunReport:
         return sum(1 for t in self.tasks_processed if t.outcome == "needs_human")
 
     @property
+    def partial_count(self) -> int:
+        return sum(1 for t in self.tasks_processed if t.outcome == "partial")
+
+    @property
     def skipped_count(self) -> int:
         return sum(1 for t in self.tasks_processed if t.outcome == "skipped")
 
@@ -316,6 +325,7 @@ class RunReport:
             f"  Fetched: {self.total_fetched}",
             f"  Processed: {len(self.tasks_processed)}",
             f"  Completed: {self.completed_count}",
+            f"  Partial: {self.partial_count}",
             f"  Needs human: {self.needs_human_count}",
             f"  Failed: {self.failed_count}",
             f"  Researched: {self.researched_count}",
@@ -348,6 +358,8 @@ class RunReport:
 
         if self.completed_count:
             parts.append(f":white_check_mark: Completed: {self.completed_count}")
+        if self.partial_count:
+            parts.append(f":hourglass: Partial: {self.partial_count}")
         if self.needs_human_count:
             parts.append(f":hand: Needs human: {self.needs_human_count}")
         if self.researched_count:
