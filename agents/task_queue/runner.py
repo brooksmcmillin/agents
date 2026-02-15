@@ -12,6 +12,7 @@ import json
 import logging
 import os
 from datetime import date
+from pathlib import Path
 
 from agent_framework.tools import send_slack_message
 
@@ -50,8 +51,8 @@ logger = logging.getLogger(__name__)
 #    call.  This is a structured API field, not free-form comment text.
 #  - _AGENT_NOTE: Content passed to add_agent_note MCP calls.
 # ---------------------------------------------------------------------------
-COMMENT_MAX_LENGTH = 1000
-_OUTPUT_PREVIEW = 800
+COMMENT_MAX_LENGTH = 2000
+_OUTPUT_PREVIEW = 1800
 _ERROR_PREVIEW = 300
 _BLOCKING_REASON = 200
 _AGENT_NOTE = 500
@@ -88,6 +89,9 @@ class TaskQueueRunner(BatchAgent):
         6. Send batch notification
     """
 
+    _repo_map: dict[str, str] = {}
+    _repo_map_loaded: bool = False
+
     def __init__(self, config: TaskQueueConfig | None = None) -> None:
         self.config = config or TaskQueueConfig()
         super().__init__(mcp_url=self.config.mcp_url)
@@ -96,6 +100,68 @@ class TaskQueueRunner(BatchAgent):
 
     def get_name(self) -> str:
         return "TaskQueueRunner"
+
+    @classmethod
+    def _load_repo_map(cls) -> dict[str, str]:
+        """Load and cache the category-to-repo-URL mapping from repo_map.json.
+
+        Keys are normalized to lowercase for case-insensitive lookup.
+        """
+        if not cls._repo_map_loaded:
+            map_path = Path(__file__).parent / "repo_map.json"
+            try:
+                raw = json.loads(map_path.read_text())
+                cls._repo_map = {k.lower(): v for k, v in raw.items()}
+            except (FileNotFoundError, json.JSONDecodeError) as e:
+                logger.warning(f"Failed to load repo_map.json: {e}")
+                cls._repo_map = {}
+            cls._repo_map_loaded = True
+        return cls._repo_map
+
+    async def _resolve_repo_url(self, task: dict) -> str | None:
+        """Resolve a git repo URL for a task based on its category.
+
+        Checks the task's category against repo_map.json (case-insensitive),
+        then falls back to the parent task's category, then to the CLI --repo flag.
+        """
+        repo_map = self._load_repo_map()
+
+        def _lookup(category: str) -> str | None:
+            key = category.strip().lower()
+            return repo_map.get(key)
+
+        # Check task category
+        category = task.get("category") or ""
+        if category:
+            url = _lookup(category)
+            if url:
+                logger.debug(f"Resolved repo from task category '{category}'")
+                return url
+            logger.info(f"Category '{category}' not in repo_map")
+
+        # Check parent task category
+        parent_id = task.get("parent_id")
+        if parent_id:
+            try:
+                result = await self.call_tool("get_task", {"task_id": parent_id})
+                data = json.loads(result) if isinstance(result, str) else result
+                parent_task = data.get("task", data)
+                parent_category = parent_task.get("category") or ""
+                if parent_category:
+                    url = _lookup(parent_category)
+                    if url:
+                        logger.debug(f"Resolved repo from parent category '{parent_category}'")
+                        return url
+                    logger.debug(f"Parent category '{parent_category}' not in repo_map")
+            except Exception as e:
+                logger.debug(f"Failed to fetch parent task {parent_id}: {e}")
+
+        # Fall back to CLI --repo flag
+        if self.config.git_repo_url:
+            return self.config.git_repo_url
+
+        logger.info(f"No repo resolved for task {task.get('id', '?')} (category='{category}')")
+        return None
 
     async def _add_comment(self, task_id: str, content: str) -> None:
         """Add a comment to a task, logging failures without raising."""
@@ -311,8 +377,12 @@ class TaskQueueRunner(BatchAgent):
         # Skip if task already has subtasks (previously decomposed)
         existing_subtasks = task.get("subtasks") or []
         if existing_subtasks:
-            subtask_titles = [s.get("title", "") for s in existing_subtasks[:5]]
-            logger.info(f"Skipping {task_id}: already has {len(existing_subtasks)} subtasks")
+            subtask_info = [
+                f"{s.get('id', '?')}: {s.get('title', '')}" for s in existing_subtasks[:5]
+            ]
+            logger.info(
+                f"Skipping {task_id}: already has {len(existing_subtasks)} subtasks: {subtask_info}"
+            )
             self.report.tasks_processed.append(
                 ProcessedTask(
                     external_id=task_id,
@@ -320,7 +390,7 @@ class TaskQueueRunner(BatchAgent):
                     triage_verdict=TriageVerdict.SKIP_ALREADY_PROCESSING,
                     confidence=1.0,
                     outcome="skipped",
-                    notes=f"Already decomposed into {len(existing_subtasks)} subtasks: {subtask_titles}",
+                    notes=f"Already decomposed into {len(existing_subtasks)} subtasks: {subtask_info}",
                 )
             )
             self.context.skipped_ids.append(task_id)
@@ -404,10 +474,18 @@ class TaskQueueRunner(BatchAgent):
             triage_comment += f"\nEstimated hours: {triage.estimated_hours}"
         await self._add_comment(task_id, triage_comment)
 
+        # Resolve repo URL for this task
+        repo_url = await self._resolve_repo_url(task)
+        if repo_url:
+            logger.info(f"Resolved repo for {task_id}: {repo_url}")
+
         # Dry run: log and reset
         if self.config.dry_run:
+            use_lw = self._should_use_lightweight(triage, repo_url)
+            executor = "lightweight" if use_lw else f"orchestrator ({repo_url})"
             logger.info(
-                f"[DRY RUN] {task_id}: {triage.verdict.value} (confidence={triage.confidence:.0%})"
+                f"[DRY RUN] {task_id}: {triage.verdict.value} "
+                f"(confidence={triage.confidence:.0%}, executor={executor})"
             )
             self.report.tasks_processed.append(
                 ProcessedTask(
@@ -416,7 +494,7 @@ class TaskQueueRunner(BatchAgent):
                     triage_verdict=triage.verdict,
                     confidence=triage.confidence,
                     outcome="skipped",
-                    notes=f"Dry run. {triage.reasoning}",
+                    notes=f"Dry run. Executor: {executor}. {triage.reasoning}",
                     estimated_hours=triage.estimated_hours,
                 )
             )
@@ -433,10 +511,10 @@ class TaskQueueRunner(BatchAgent):
         # Route by verdict
         match triage.verdict:
             case TriageVerdict.FULLY_EXECUTABLE:
-                if self._should_use_lightweight(triage):
+                if self._should_use_lightweight(triage, repo_url):
                     await self._execute_lightweight_task(task, triage)
                 else:
-                    await self._execute_task(task, triage)
+                    await self._execute_task(task, triage, repo_url=repo_url)
             case TriageVerdict.PRE_RESEARCH_ONLY:
                 await self._pre_research_task(task, triage)
             case TriageVerdict.NOT_ACTIONABLE:
@@ -444,7 +522,9 @@ class TaskQueueRunner(BatchAgent):
             case _:
                 logger.warning(f"Unexpected triage verdict: {triage.verdict}")
 
-    async def _execute_task(self, task: dict, triage: TriageResult) -> None:
+    async def _execute_task(
+        self, task: dict, triage: TriageResult, *, repo_url: str | None = None
+    ) -> None:
         """Execute a task via the orchestrator state machine."""
         task_id = task.get("id", "unknown")
         title = task.get("title", "Untitled")
@@ -465,7 +545,7 @@ class TaskQueueRunner(BatchAgent):
             )
             orch = Orchestrator(
                 config=orch_config,
-                git_repo_url=self.config.git_repo_url,
+                git_repo_url=repo_url,
             )
 
             # Add task and run
@@ -490,6 +570,8 @@ class TaskQueueRunner(BatchAgent):
 
                 # Comment with completion details
                 completion_comment = "Task completed via orchestrator."
+                if root_result.pr_url:
+                    completion_comment += f"\nPR: {root_result.pr_url}"
                 if root_result.branch_name:
                     completion_comment += f"\nBranch: `{root_result.branch_name}`"
                 if root_result.worker_output:
@@ -646,16 +728,16 @@ class TaskQueueRunner(BatchAgent):
             )
             self.context.failed_ids.append(task_id)
 
-    def _should_use_lightweight(self, triage: TriageResult) -> bool:
+    def _should_use_lightweight(self, triage: TriageResult, repo_url: str | None) -> bool:
         """Determine if a task should use the lightweight executor.
 
-        Returns True for non-code tasks, or code tasks without a configured repo.
+        Returns True for non-code tasks, or code tasks without a resolved repo.
         """
         action = triage.suggested_action_type
         if action != "code":
             return True
-        # Code task but no repo configured — can't use orchestrator
-        if not self.config.git_repo_url:
+        # Code task but no repo resolved — can't use orchestrator
+        if not repo_url:
             return True
         return False
 
@@ -738,6 +820,11 @@ class TaskQueueRunner(BatchAgent):
                     logger.warning(f"Failed to update task status: {e}")
 
                 fail_comment = f"Lightweight execution failed: {error_msg[:_ERROR_PREVIEW]}"
+                if action_type == "code":
+                    fail_comment += (
+                        "\n\nThis is a code task but no git repository was resolved. "
+                        "Set the task category to a known project or specify --repo."
+                    )
                 if result.output:
                     fail_comment += f"\n\nPartial output:\n{result.output[:_OUTPUT_PREVIEW]}"
                 await self._add_comment(task_id, fail_comment)
