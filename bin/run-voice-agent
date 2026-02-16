@@ -40,7 +40,7 @@ from agents.security_researcher.main import SecurityResearcherAgent  # noqa: E40
 from agents.task_manager.main import TaskManagerAgent  # noqa: E402
 from shared import DEFAULT_MCP_SERVER_URL, ENV_MCP_SERVER_URL  # noqa: E402
 
-# Registry of available agents (same as run_agent.py)
+# Registry of available agents (same as bin/run-agent)
 AGENTS: dict[str, tuple[type, dict | None]] = {
     "chatbot": (ChatbotAgent, None),
     "pr": (PRAgent, None),

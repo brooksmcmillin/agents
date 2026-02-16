@@ -119,7 +119,7 @@ To make a new agent available for voice mode:
 Example:
 
 ```python
-# In both run_agent.py and run_voice_agent.py
+# In both bin/run-agent and bin/run-voice-agent
 AGENTS: dict[str, tuple[type, dict | None]] = {
     # ... existing agents ...
     "your_agent": (YourAgent, None),

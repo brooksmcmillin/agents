@@ -310,6 +310,17 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+
+def _validate_cors_origin(origin: str) -> bool:
+    """Validate a CORS origin string.
+
+    Rejects wildcards, empty strings, and non-http(s) schemes.
+    """
+    if not origin or origin == "*":
+        return False
+    return origin.startswith(("http://", "https://"))
+
+
 # Configure CORS for web UI
 # Use explicit localhost origins plus any configured extras (even in dev mode)
 allow_origins = [
@@ -319,7 +330,12 @@ allow_origins = [
     "http://127.0.0.1:8080",  # Production (IP)
 ]
 if extra_origins := os.getenv("CORS_ALLOWED_ORIGINS"):
-    allow_origins.extend(origin.strip() for origin in extra_origins.split(",") if origin.strip())
+    for origin in extra_origins.split(","):
+        origin = origin.strip()
+        if origin and _validate_cors_origin(origin):
+            allow_origins.append(origin)
+        elif origin:
+            logger.warning("Ignoring invalid CORS origin: %s", origin)
 
 app.add_middleware(
     CORSMiddleware,
@@ -385,6 +401,18 @@ async def verify_api_key(
         _api_key.encode("utf-8"),
     ):
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
+
+def _verify_ws_api_key(websocket: WebSocket) -> bool:
+    """Verify API key for WebSocket connections.
+
+    Checks `api_key` query parameter against the configured API_KEY.
+    Returns True if no API_KEY is configured (same as HTTP behavior).
+    """
+    if not _api_key:
+        return True
+    ws_key = websocket.query_params.get("api_key", "")
+    return secrets.compare_digest(ws_key.encode("utf-8"), _api_key.encode("utf-8"))
 
 
 # ---------------------------------------------------------------------------
@@ -1077,6 +1105,10 @@ async def claude_code_websocket(websocket: WebSocket, session_id: str) -> None:
     - {"type": "resize", "rows": 40, "cols": 120}
     - {"type": "abort"}
     """
+    if not _verify_ws_api_key(websocket):
+        await websocket.close(code=4001, reason="Invalid or missing API key")
+        return
+
     await websocket.accept()
 
     session = claude_code_mgr.get_session(session_id)

@@ -391,8 +391,13 @@ class TestAnalyzeWebsiteIntegration:
             await analyze_website("file:///etc/passwd", "seo")
 
     @pytest.mark.asyncio
+    @patch(
+        "agent_framework.tools.web_analyzer.SSRFValidator.validate_request_with_redirects",
+        new_callable=AsyncMock,
+        return_value=(True, "http://example.com/"),
+    )
     @patch("httpx.AsyncClient.get")
-    async def test_handles_http_errors_gracefully(self, mock_get):
+    async def test_handles_http_errors_gracefully(self, mock_get, _mock_ssrf):
         """Test that HTTP errors are handled gracefully."""
         import httpx
 
@@ -402,8 +407,13 @@ class TestAnalyzeWebsiteIntegration:
             await analyze_website("http://example.com/", "seo")
 
     @pytest.mark.asyncio
+    @patch(
+        "agent_framework.tools.web_analyzer.SSRFValidator.validate_request_with_redirects",
+        new_callable=AsyncMock,
+        return_value=(True, "http://example.com/"),
+    )
     @patch("httpx.AsyncClient.get")
-    async def test_handles_timeout_gracefully(self, mock_get):
+    async def test_handles_timeout_gracefully(self, mock_get, _mock_ssrf):
         """Test that timeout is handled gracefully."""
         import httpx
 
@@ -413,8 +423,13 @@ class TestAnalyzeWebsiteIntegration:
             await analyze_website("http://example.com/", "seo")
 
     @pytest.mark.asyncio
+    @patch(
+        "agent_framework.tools.web_analyzer.SSRFValidator.validate_request_with_redirects",
+        new_callable=AsyncMock,
+        return_value=(True, "http://example.com/"),
+    )
     @patch("httpx.AsyncClient.get")
-    async def test_handles_invalid_html(self, mock_get):
+    async def test_handles_invalid_html(self, mock_get, _mock_ssrf):
         """Test handling of completely invalid HTML."""
         mock_response = AsyncMock()
         mock_response.text = "Not HTML at all <<>><>><"
@@ -427,8 +442,13 @@ class TestAnalyzeWebsiteIntegration:
         assert isinstance(result, dict)
 
     @pytest.mark.asyncio
+    @patch(
+        "agent_framework.tools.web_analyzer.SSRFValidator.validate_request_with_redirects",
+        new_callable=AsyncMock,
+        return_value=(True, "http://example.com/"),
+    )
     @patch("httpx.AsyncClient.get")
-    async def test_handles_empty_response(self, mock_get):
+    async def test_handles_empty_response(self, mock_get, _mock_ssrf):
         """Test handling of empty HTTP response."""
         mock_response = AsyncMock()
         mock_response.text = ""
@@ -441,8 +461,13 @@ class TestAnalyzeWebsiteIntegration:
             await analyze_website("http://example.com/", "seo")
 
     @pytest.mark.asyncio
+    @patch(
+        "agent_framework.tools.web_analyzer.SSRFValidator.validate_request_with_redirects",
+        new_callable=AsyncMock,
+        return_value=(True, "http://example.com/"),
+    )
     @patch("httpx.AsyncClient.get")
-    async def test_handles_huge_html_document(self, mock_get):
+    async def test_handles_huge_html_document(self, mock_get, _mock_ssrf):
         """Test handling of extremely large HTML documents."""
         huge_html = "<html><body>" + ("<p>Content</p>" * 100000) + "</body></html>"
         mock_response = AsyncMock()
@@ -456,8 +481,13 @@ class TestAnalyzeWebsiteIntegration:
         assert isinstance(result, dict)
 
     @pytest.mark.asyncio
+    @patch(
+        "agent_framework.tools.web_analyzer.SSRFValidator.validate_request_with_redirects",
+        new_callable=AsyncMock,
+        return_value=(True, "http://example.com/"),
+    )
     @patch("httpx.AsyncClient.get")
-    async def test_analyzes_seo_focus(self, mock_get):
+    async def test_analyzes_seo_focus(self, mock_get, _mock_ssrf):
         """Test SEO-focused analysis."""
         html = """
         <html>
@@ -479,8 +509,13 @@ class TestAnalyzeWebsiteIntegration:
         assert result["analysis_type"] == "seo"
 
     @pytest.mark.asyncio
+    @patch(
+        "agent_framework.tools.web_analyzer.SSRFValidator.validate_request_with_redirects",
+        new_callable=AsyncMock,
+        return_value=(True, "http://example.com/"),
+    )
     @patch("httpx.AsyncClient.get")
-    async def test_analyzes_tone_focus(self, mock_get):
+    async def test_analyzes_tone_focus(self, mock_get, _mock_ssrf):
         """Test tone-focused analysis."""
         html = "<html><body><p>This is great content with excellent examples!</p></body></html>"
         mock_response = AsyncMock()
