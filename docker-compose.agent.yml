@@ -1,0 +1,49 @@
+# docker-compose.agent.yml — Run a single agent in isolation.
+#
+# Usage:
+#   # Build and run the chatbot agent:
+#   AGENT_NAME=chatbot docker compose -f docker-compose.agent.yml up --build
+#
+#   # Run the security researcher on a different port:
+#   AGENT_NAME=security_researcher AGENT_PORT=9090 docker compose -f docker-compose.agent.yml up --build
+#
+#   # One-shot mode (process a message and exit):
+#   AGENT_NAME=chatbot AGENT_MODE=oneshot MESSAGE="Hello!" docker compose -f docker-compose.agent.yml up --build
+#
+# AGENT_NAME must be the directory name under agents/ (underscored form):
+#   chatbot, code_analysis, events, pr_agent, red_team,
+#   task_manager, security_researcher, business_advisor
+
+services:
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+      args:
+        AGENT_NAME: ${AGENT_NAME:?Set AGENT_NAME to an agent directory name (e.g. chatbot)}
+    container_name: agent-${AGENT_NAME}
+    env_file:
+      - .env
+    environment:
+      AGENT_NAME: ${AGENT_NAME}
+      AGENT_MODE: ${AGENT_MODE:-api}
+      MESSAGE: ${MESSAGE:-}
+    ports:
+      - "${AGENT_PORT:-8080}:8080"
+    volumes:
+      # Persist logs and memories outside the container
+      - agent_logs:/app/logs
+      - agent_memories:/app/memories
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 0"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
+
+volumes:
+  agent_logs:
+    driver: local
+  agent_memories:
+    driver: local
