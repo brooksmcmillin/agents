@@ -52,13 +52,20 @@ class TokenStore:
     - In production, consider using a proper secret management service
     """
 
-    def __init__(self, storage_path: Path, encryption_key: str | None = None) -> None:
+    def __init__(
+        self,
+        storage_path: Path,
+        encryption_key: str | None = None,
+        require_encryption: bool = False,
+    ) -> None:
         """
         Initialize token store.
 
         Args:
             storage_path: Directory to store token files
             encryption_key: Optional encryption key (base64-encoded Fernet key)
+            require_encryption: If True, raise RuntimeError when encryption
+                cannot be established. Use in production deployments.
         """
         self.storage_path = storage_path
         self.storage_path.mkdir(parents=True, exist_ok=True)
@@ -73,9 +80,14 @@ class TokenStore:
                 self.cipher = Fernet(encryption_key.encode())
                 logger.info("Token encryption enabled")
             except Exception as e:
+                if require_encryption:
+                    raise RuntimeError(f"Encryption required but failed to initialize: {e}")
                 logger.warning(
                     "Failed to initialize encryption: %s. Tokens will be stored unencrypted.", e
                 )
+
+        if require_encryption and self.cipher is None:
+            raise RuntimeError("Encryption required but no key could be generated or loaded.")
 
     def _load_or_generate_key(self) -> str | None:
         """Load existing encryption key or generate and persist a new one."""
@@ -94,7 +106,7 @@ class TokenStore:
             except Exception:
                 os.close(fd)
                 raise
-            logger.info("Auto-generated token encryption key at %s", key_file)
+            logger.info("Auto-generated token encryption key (stored at %s)", key_file)
             return key
         except Exception as e:
             logger.warning("Failed to auto-generate encryption key: %s", e)
