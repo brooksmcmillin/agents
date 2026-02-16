@@ -14,7 +14,6 @@ from fastapi.testclient import TestClient
 # Mock the database before importing the server
 with patch.dict(os.environ, {"DATABASE_URL": ""}):
     from api.server import (
-        _sanitize_for_log,
         _sanitize_log_input,
         _validate_cors_origin,
         app,
@@ -325,22 +324,6 @@ class TestSanitizeLogInput:
         assert _sanitize_log_input("hello world") == "hello world"
 
 
-class TestSanitizeForLog:
-    """Tests for _sanitize_for_log."""
-
-    def test_removes_newlines(self):
-        assert "\n" not in _sanitize_for_log("line1\nline2")
-
-    def test_removes_carriage_returns(self):
-        assert "\r" not in _sanitize_for_log("line1\rline2")
-
-    def test_removes_null_bytes(self):
-        assert "\x00" not in _sanitize_for_log("test\x00value")
-
-    def test_normal_text_unchanged(self):
-        assert _sanitize_for_log("hello world") == "hello world"
-
-
 class TestCorsOriginValidation:
     """Tests for _validate_cors_origin."""
 
@@ -364,43 +347,50 @@ class TestCorsOriginValidation:
 
 
 class TestWebSocketAuth:
-    """Tests for WebSocket authentication."""
+    """Tests for WebSocket message-based authentication.
+
+    When API_KEY is configured, clients must send {"type": "auth", "api_key": "..."}
+    as their first message after connecting. Credentials never appear in the URL,
+    avoiding leakage via server logs, browser history, or proxy logs.
+    """
 
     def test_ws_accepts_when_no_api_key_configured(self, client):
-        """WebSocket should accept when no API_KEY is set."""
+        """WebSocket should work without auth message when no API_KEY is set."""
         with patch("api.server._api_key", None):
-            # Without a real session, we expect 4004 (session not found) not 4001
+            # No auth message needed; connection proceeds to session lookup (4004)
             with client.websocket_connect("/ws/claude-code/fake-session"):
-                # Server should accept then close with 4004 (no session)
-                pass  # pragma: no cover - websocket closes immediately
-            # If we get here without 4001, auth passed
+                pass  # pragma: no cover - closes with 4004 (no session)
 
-    def test_ws_rejects_missing_api_key(self, client):
-        """WebSocket should reject when API_KEY is set but no key provided."""
+    def test_ws_rejects_missing_auth_message(self, client):
+        """WebSocket should reject when API_KEY is set but no auth message sent."""
         with patch("api.server._api_key", "secret-key"):
             from starlette.websockets import WebSocketDisconnect
 
             with pytest.raises(WebSocketDisconnect) as exc_info:
-                with client.websocket_connect("/ws/claude-code/fake-session"):
-                    pass  # pragma: no cover
+                with client.websocket_connect("/ws/claude-code/fake-session") as ws:
+                    # Send a non-auth message as first message
+                    ws.send_json({"type": "input", "text": "hello"})
+                    ws.receive_json()  # Should get close frame
             assert exc_info.value.code == 4001
 
     def test_ws_rejects_wrong_api_key(self, client):
-        """WebSocket should reject when wrong API key provided."""
+        """WebSocket should reject when wrong API key in auth message."""
         with patch("api.server._api_key", "secret-key"):
             from starlette.websockets import WebSocketDisconnect
 
             with pytest.raises(WebSocketDisconnect) as exc_info:
-                with client.websocket_connect("/ws/claude-code/fake-session?api_key=wrong"):
-                    pass  # pragma: no cover
+                with client.websocket_connect("/ws/claude-code/fake-session") as ws:
+                    ws.send_json({"type": "auth", "api_key": "wrong-key"})
+                    ws.receive_json()
             assert exc_info.value.code == 4001
 
-    def test_ws_accepts_valid_api_key(self, client):
-        """WebSocket should accept when correct API key provided."""
+    def test_ws_accepts_valid_auth_message(self, client):
+        """WebSocket should accept when correct API key sent in auth message."""
         with patch("api.server._api_key", "secret-key"):
-            # Should pass auth but then get 4004 for missing session
-            with client.websocket_connect("/ws/claude-code/fake-session?api_key=secret-key"):
-                pass  # Auth passed; session not found closes it
+            # Should pass auth, then close with 4004 (session not found)
+            with client.websocket_connect("/ws/claude-code/fake-session") as ws:
+                ws.send_json({"type": "auth", "api_key": "secret-key"})
+                # Connection proceeds past auth; server will close with 4004
 
 
 @pytest.mark.asyncio
