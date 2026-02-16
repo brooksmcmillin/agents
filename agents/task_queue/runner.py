@@ -251,6 +251,9 @@ class TaskQueueRunner(BatchAgent):
 
             # Handle unexpected exceptions from gather
             if isinstance(result, BaseException):
+                if i >= len(ready_tasks):
+                    logger.error(f"Triage gather exception at index {i}: {result}")
+                    continue
                 fallback_task = ready_tasks[i]
                 fb_id = fallback_task.get("id", "unknown")
                 fb_title = fallback_task.get("title", "Untitled")
@@ -354,6 +357,12 @@ class TaskQueueRunner(BatchAgent):
                 self.context.failed_ids.append(task_id)
 
             processed_count += 1
+
+        # Cleanup per-run tracking state
+        if self._triage_errors:
+            logger.warning(f"Orphaned triage errors: {list(self._triage_errors.keys())}")
+            self._triage_errors.clear()
+        self._stale_in_progress.clear()
 
         # Phase 6: Send notification
         self.report.completed_at = _utcnow()
