@@ -133,6 +133,7 @@ async def execute_lightweight(
     model: str = "sonnet",
     api_key: str | None = None,
     max_turns: int = 15,
+    on_progress: Callable[[int, list[str]], None] | None = None,
 ) -> LightweightResult:
     """Execute a non-code task using direct Claude API calls with MCP tools.
 
@@ -146,6 +147,7 @@ async def execute_lightweight(
         model: Claude model short name or full ID.
         api_key: Anthropic API key (falls back to env var).
         max_turns: Maximum agentic loop iterations.
+        on_progress: Optional callback(turn_number, tool_names) called each turn.
 
     Returns:
         LightweightResult with success status and output.
@@ -205,6 +207,14 @@ async def execute_lightweight(
 
             # Check if there are tool use blocks
             tool_use_blocks = [b for b in response.content if isinstance(b, ToolUseBlock)]
+
+            # Report progress
+            if on_progress:
+                tool_names = [b.name for b in tool_use_blocks]
+                try:
+                    on_progress(turns_used, tool_names)
+                except Exception:  # nosec B110
+                    pass  # Progress callbacks must never disrupt execution
 
             if not tool_use_blocks:
                 # No tool calls — agent is done. Verify it actually completed.

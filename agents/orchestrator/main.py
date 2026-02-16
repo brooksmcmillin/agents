@@ -117,7 +117,7 @@ def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
         description="Task-driven agentic orchestrator. Decomposes tasks, "
-        "dispatches Claude Code workers, and runs review gates.",
+        "dispatches Claude Code workers, and publishes PRs.",
     )
 
     parser.add_argument(
@@ -190,12 +190,6 @@ def parse_args() -> argparse.Namespace:
         "--dry-run",
         action="store_true",
         help="Plan only, don't execute workers",
-    )
-
-    parser.add_argument(
-        "--no-review",
-        action="store_true",
-        help="Skip review gates",
     )
 
     parser.add_argument(
@@ -277,8 +271,6 @@ async def run_orchestrator(args: argparse.Namespace) -> int:
     # Build config
     config = OrchestratorConfig(
         worker_model=args.worker_model,
-        enable_code_review=not args.no_review,
-        enable_security_review=not args.no_review,
     )
 
     # Create orchestrator
@@ -364,8 +356,6 @@ async def run_orchestrator(args: argparse.Namespace) -> int:
     logger.info(f"Tasks processed: {len(processed)}")
     logger.info(f"Status counts: {summary['status_counts']}")
     logger.info(f"Worker turns used: {summary['state']['total_worker_turns']}")
-    logger.info(f"Reviews passed: {summary['state']['total_review_passes']}")
-    logger.info(f"Reviews failed: {summary['state']['total_review_failures']}")
     logger.info("=" * 60)
 
     # Print detailed results
@@ -380,10 +370,6 @@ async def run_orchestrator(args: argparse.Namespace) -> int:
         logger.info(f"  [{status_icon}] {task.title} ({task.status.value})")
         if task.error:
             logger.info(f"      Error: {task.error}")
-        for review in task.review_results:
-            logger.info(
-                f"      Review ({review.reviewer}): {review.verdict.value} - {review.summary[:80]}"
-            )
 
     # Exit code: 0 if all completed, 1 if any failed
     failed_count = summary["status_counts"].get("failed", 0)

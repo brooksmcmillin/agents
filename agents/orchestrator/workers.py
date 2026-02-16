@@ -154,6 +154,75 @@ async def ensure_workspace(
     return workspace_name
 
 
+async def _auto_commit_if_needed(task: Task) -> None:
+    """Commit uncommitted changes left by a worker as a safety net.
+
+    Workers are instructed to commit, but if they don't, this ensures
+    their work isn't lost before review and publish stages.
+    """
+    if not task.workspace_name:
+        return
+
+    workspaces_dir = os.environ.get(
+        "CLAUDE_CODE_WORKSPACES_DIR",
+        str(Path.home() / ".claude_code_workspaces"),
+    )
+    workspace_path = Path(workspaces_dir) / task.workspace_name
+
+    if not workspace_path.is_dir():
+        return
+
+    try:
+        # Check for uncommitted changes (staged + unstaged + untracked)
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            "status",
+            "--porcelain",
+            cwd=str(workspace_path),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
+        status_output = stdout.decode("utf-8", errors="replace").strip()
+
+        if not status_output:
+            return  # Nothing to commit
+
+        logger.warning(f"Worker for task {task.id} left uncommitted changes, auto-committing")
+
+        # Stage all and commit
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            "add",
+            "-A",
+            cwd=str(workspace_path),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await asyncio.wait_for(proc.communicate(), timeout=10)
+
+        safe_title = _sanitise_task_text(task.title, max_length=100)
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            "commit",
+            "-m",
+            f"{safe_title}\n\nAuto-committed by orchestrator",
+            cwd=str(workspace_path),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10)
+
+        if proc.returncode == 0:
+            logger.info(f"Auto-committed changes for task {task.id}")
+        else:
+            stderr_text = stderr.decode("utf-8", errors="replace")
+            logger.warning(f"Auto-commit failed for task {task.id}: {stderr_text}")
+
+    except Exception as e:
+        logger.warning(f"Auto-commit check failed for task {task.id}: {e}")
+
+
 async def dispatch_worker(
     task: Task,
     config: OrchestratorConfig,
@@ -234,6 +303,10 @@ async def dispatch_worker(
 
     if not success:
         logger.warning(f"Worker for task {task.id} failed: exit_code={exit_code}, error={error}")
+
+    # Safety net: if worker succeeded but forgot to commit, auto-commit
+    if success:
+        await _auto_commit_if_needed(task)
 
     return WorkerResult(
         success=success,

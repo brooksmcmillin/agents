@@ -401,7 +401,7 @@ class TaskQueueRunner(BatchAgent):
                 # get_task wraps task data inside a "task" key
                 task_data = data.get("task", data)
                 tasks.append(task_data)
-                logger.info(f"Fetched task {task_id}: {data.get('title', '')[:60]}")
+                logger.info(f"Fetched task {task_id}: {task_data.get('title', '')[:60]}")
             except Exception as e:
                 logger.error(f"Failed to fetch {task_id}: {e}")
         return tasks
@@ -621,6 +621,18 @@ class TaskQueueRunner(BatchAgent):
         use_lw = self._should_use_lightweight(triage, repo_url)
         executor = "lightweight" if use_lw else "orchestrator"
 
+        # Warn when a code task falls back to lightweight due to missing repo
+        if triage.suggested_action_type == "code" and not repo_url:
+            category = task.get("category", "")
+            warning = (
+                f"Code task but no repository resolved (category='{category}'). "
+                f"Falling back to lightweight executor. "
+                f"Set the task category to a known project in repo_map.json or use --repo."
+            )
+            logger.warning(f"{task_id}: {warning}")
+            print(f"  WARNING: {task_id}: {warning}")
+            await self._add_comment(task_id, f"Warning: {warning}")
+
         # Dry run: log and reset
         if self.config.dry_run:
             logger.info(
@@ -680,13 +692,16 @@ class TaskQueueRunner(BatchAgent):
             # should split into atomic subtasks and execute them.
             orch_config = OrchestratorConfig(
                 worker_model=self.config.worker_model,
-                enable_code_review=self.config.enable_code_review,
-                enable_security_review=self.config.enable_security_review,
                 max_subtask_depth=1,
             )
             orch = Orchestrator(
                 config=orch_config,
                 git_repo_url=repo_url,
+            )
+            orch.on_progress(
+                lambda phase, _title, detail="", _tid=task_id: print(
+                    f"    {_tid}: [{phase}] {detail}" if detail else f"    {_tid}: [{phase}]"
+                )
             )
 
             # Add task and run
@@ -696,8 +711,7 @@ class TaskQueueRunner(BatchAgent):
             # Sync subtasks to TaskManager only if at least one subtask succeeded
             subtasks = orch.get_subtasks(orch_task.id)
             any_subtask_succeeded = any(
-                st.status.value in ("completed", "in_progress", "in_review", "awaiting_human")
-                for st in subtasks
+                st.status.value in ("completed", "in_progress", "awaiting_human") for st in subtasks
             )
             if any_subtask_succeeded:
                 await self._sync_subtasks_to_taskmanager(task_id, orch, orch_task)
@@ -779,7 +793,7 @@ class TaskQueueRunner(BatchAgent):
                         branch_name=root_result.branch_name,
                     )
                 )
-            elif root_result.status.value in ("in_progress", "planning", "in_review"):
+            elif root_result.status.value in ("in_progress", "planning"):
                 # Orchestrator ran out of steps but task isn't done yet.
                 # This is normal for large tasks — subtasks were written back.
                 summary = orch.get_status_summary()
@@ -905,11 +919,17 @@ class TaskQueueRunner(BatchAgent):
         logger.info(f"Routing {task_id} to lightweight executor (action_type={action_type})")
 
         try:
+
+            def _lw_progress(turn: int, tool_names: list[str], _tid: str = task_id) -> None:
+                tools_str = ", ".join(tool_names) if tool_names else "thinking"
+                print(f"    {_tid}: [turn {turn}] {tools_str}")
+
             result = await execute_lightweight(
                 task=task,
                 call_tool=self.call_tool,
                 list_tools=self.list_tools,
                 model=self.config.lightweight_model,
+                on_progress=_lw_progress,
             )
 
             if result.success:

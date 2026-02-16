@@ -44,8 +44,8 @@ would help gather context (even for not_actionable, context may help the human).
 
 Autonomy tiers:
 1 = Fully autonomous (research, reviews - low risk)
-2 = Execute and notify (data entry, documents, emails - medium risk)
-3 = Execute and wait for approval (code changes - higher risk)
+2 = Execute and notify (code changes, data entry, documents, emails - the system has code review gates)
+3 = Execute and wait for approval (destructive operations, infrastructure changes)
 4 = Never autonomous (purchases, calls - requires human)
 """
 
