@@ -72,12 +72,13 @@ class TestTokenStore:
     """Tests for the TokenStore class."""
 
     def test_token_store_initialization(self, temp_dir: Path):
-        """Test TokenStore initialization creates storage directory."""
+        """Test TokenStore initialization creates storage directory and auto-generates key."""
         storage_path = temp_dir / "test_tokens"
         store = TokenStore(storage_path=storage_path)
 
         assert storage_path.exists()
-        assert store.cipher is None  # No encryption by default
+        assert store.cipher is not None  # Auto-generates encryption key
+        assert (storage_path / ".encryption.key").exists()
 
     def test_token_store_with_encryption(self, temp_dir: Path):
         """Test TokenStore initialization with encryption key."""

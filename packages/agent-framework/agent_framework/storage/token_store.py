@@ -63,18 +63,42 @@ class TokenStore:
         self.storage_path = storage_path
         self.storage_path.mkdir(parents=True, exist_ok=True)
 
-        # Initialize encryption if key is provided
+        # Initialize encryption -- auto-generate key if none provided
         self.cipher: Fernet | None = None
+        if not encryption_key:
+            encryption_key = self._load_or_generate_key()
+
         if encryption_key:
             try:
                 self.cipher = Fernet(encryption_key.encode())
                 logger.info("Token encryption enabled")
             except Exception as e:
                 logger.warning(
-                    f"Failed to initialize encryption: {e}. Tokens will be stored unencrypted."
+                    "Failed to initialize encryption: %s. Tokens will be stored unencrypted.", e
                 )
-        else:
-            logger.warning("No encryption key provided. Tokens will be stored unencrypted.")
+
+    def _load_or_generate_key(self) -> str | None:
+        """Load existing encryption key or generate and persist a new one."""
+        key_file = self.storage_path / ".encryption.key"
+        try:
+            if key_file.exists():
+                return key_file.read_text().strip()
+            key = Fernet.generate_key().decode()
+            # Write with restricted permissions from the start
+            import os
+
+            fd = os.open(key_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            try:
+                with os.fdopen(fd, "w") as f:
+                    f.write(key)
+            except Exception:
+                os.close(fd)
+                raise
+            logger.info("Auto-generated token encryption key at %s", key_file)
+            return key
+        except Exception as e:
+            logger.warning("Failed to auto-generate encryption key: %s", e)
+            return None
 
     def _get_token_path(self, platform: str, user_id: str = "default") -> Path:
         """Get file path for storing token."""

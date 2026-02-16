@@ -12,7 +12,7 @@ This project demonstrates production-ready patterns for building LLM-powered age
 
 - **Multiple Agents** - 12 specialized agents including chatbot, PR assistant, security researcher, business advisor, task manager, code reviewer, email intake, notifier, orchestrator, red team, events, and code analysis
 - **Web UI** - Modern React interface for chatting with agents via persistent conversations
-- **Shared MCP Tools** - 51 tools including web analysis, memory, RAG document search, email management, HTTP client, filesystem, Claude Code, and communication
+- **Shared MCP Tools** - 50 tools including web analysis, memory, RAG document search, email management, HTTP client, filesystem, Claude Code, and communication
 - **Hot Reload** - Edit tools without restarting agents
 - **OAuth Infrastructure** - Ready for real API integration
 - **Remote MCP Support** - Deploy tools separately from agents
@@ -139,7 +139,7 @@ while not done:
 ## Available Agents
 
 ### Chatbot
-General-purpose AI assistant with access to all 51 MCP tools:
+General-purpose AI assistant with access to all 50 MCP tools:
 - Web content analysis and research
 - Persistent memory across conversations
 - RAG document search (requires PostgreSQL + OpenAI)
@@ -248,7 +248,7 @@ See [webui/README.md](webui/README.md) for detailed documentation.
 
 ## MCP Tools
 
-The MCP server exposes **51 tools** across 14 categories to agents:
+The MCP server exposes **50 tools** across 14 categories to agents:
 
 ### Web Analysis (2 tools)
 - `fetch_web_content` - Fetch and read web content as clean markdown for analysis
@@ -274,7 +274,7 @@ Memory persists across conversations (default: `memories/memories.json`, optiona
 - `delete_document` - Delete document by ID
 - `get_rag_stats` - Get RAG system statistics (total docs, chunks, DB size)
 
-### Email Management - FastMail (8 tools)
+### Email Management - FastMail (9 tools)
 *Requires FastMail API token and account ID*
 
 - `list_mailboxes` - List all mailboxes
@@ -282,6 +282,7 @@ Memory persists across conversations (default: `memories/memories.json`, optiona
 - `get_email` - Get single email by ID
 - `search_emails` - Search emails by query
 - `send_email` - Send an email with to/cc/bcc/subject/body
+- `send_agent_report` - Send report/notification from agent to admin
 - `move_email` - Move email to different mailbox
 - `update_email_flags` - Update email flags (seen, flagged)
 - `delete_email` - Delete an email permanently
@@ -295,7 +296,7 @@ Memory persists across conversations (default: `memories/memories.json`, optiona
 ### Content Suggestions (1 tool)
 - `suggest_content_topics` - Generate content topic ideas (currently mock data)
 
-**Total: 51 tools** available to agents via MCP. See [GUIDES.md](docs/GUIDES.md) for detailed usage guides and [agent-framework documentation](packages/agent-framework/) for technical details.
+**Plus:** HTTP Client (7 tools), Markdown Files (4 tools), Filesystem (4 tools), Claude Code (5 tools), Twilio SMS (5 tools). **Total: 50 tools** available to agents via MCP. See [docs/tools.md](docs/tools.md) for complete reference and [GUIDES.md](docs/GUIDES.md) for usage guides.
 
 ## Project Structure
 
@@ -401,7 +402,7 @@ See [CLAUDE.md](CLAUDE.md#adding-new-agents) for detailed instructions.
 **Working Now:**
 - Full agentic loop with Claude Sonnet 4.5
 - 12 agents with specialized capabilities
-- 51 MCP tools (web, memory, RAG, email, HTTP client, filesystem, Claude Code, communication)
+- 50 MCP tools (web, memory, RAG, email, HTTP client, filesystem, Claude Code, communication)
 - Real web scraping and content analysis
 - RAG document search with semantic similarity
 - FastMail email integration
