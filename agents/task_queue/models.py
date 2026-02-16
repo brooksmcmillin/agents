@@ -97,6 +97,7 @@ class TaskContext:
 
     research_notes: dict[str, str] = field(default_factory=dict)  # task_id -> notes
     completed_ids: list[str] = field(default_factory=list)
+    partial_ids: list[str] = field(default_factory=list)
     failed_ids: list[str] = field(default_factory=list)
     skipped_ids: list[str] = field(default_factory=list)
 

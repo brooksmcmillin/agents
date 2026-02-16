@@ -98,6 +98,8 @@ class TaskQueueRunner(BatchAgent):
         super().__init__(mcp_url=self.config.mcp_url)
         self.context = TaskContext()
         self.report = RunReport(dry_run=self.config.dry_run)
+        self._triage_errors: dict[str, str] = {}  # task_id -> error msg from parallel triage
+        self._stale_in_progress: set[str] = set()  # task IDs with stale in_progress status
 
     def get_name(self) -> str:
         return "TaskQueueRunner"
@@ -236,18 +238,56 @@ class TaskQueueRunner(BatchAgent):
         available_tools = await self._get_available_tool_names()
         semaphore = asyncio.Semaphore(self.config.concurrency)
         triage_results = await asyncio.gather(
-            *(self._triage_single(task, available_tools, semaphore) for task in ready_tasks)
+            *(self._triage_single(task, available_tools, semaphore) for task in ready_tasks),
+            return_exceptions=True,
         )
 
         # Phase 5c: Sequential execution based on triage results
         processed_count = 0
-        for task, triage, skip_reason in triage_results:
+        for i, result in enumerate(triage_results):
             if processed_count >= self.config.max_tasks:
                 logger.info(f"Reached max_tasks limit ({self.config.max_tasks})")
                 break
 
+            # Handle unexpected exceptions from gather
+            if isinstance(result, BaseException):
+                fallback_task = ready_tasks[i]
+                fb_id = fallback_task.get("id", "unknown")
+                fb_title = fallback_task.get("title", "Untitled")
+                logger.error(f"Triage crashed for {fb_id}: {result}")
+                self.report.tasks_processed.append(
+                    ProcessedTask(
+                        external_id=fb_id,
+                        title=fb_title,
+                        triage_verdict=TriageVerdict.NOT_ACTIONABLE,
+                        confidence=0.0,
+                        outcome="failed",
+                        error=f"Triage crash: {result}",
+                    )
+                )
+                self.context.failed_ids.append(fb_id)
+                continue
+
+            task, triage, skip_reason = result
+
             task_id = task.get("id", "unknown")
             title = task.get("title", "Untitled")
+
+            # Handle triage errors (recorded here, not inside _triage_single)
+            if triage is None and not skip_reason:
+                # _triage_single returned a failure — record it sequentially
+                self.report.tasks_processed.append(
+                    ProcessedTask(
+                        external_id=task_id,
+                        title=title,
+                        triage_verdict=TriageVerdict.NOT_ACTIONABLE,
+                        confidence=0.0,
+                        outcome="failed",
+                        error=self._triage_errors.pop(task_id, "Triage failed"),
+                    )
+                )
+                self.context.failed_ids.append(task_id)
+                continue
 
             # Handle skipped tasks (don't consume budget)
             if skip_reason:
@@ -264,9 +304,14 @@ class TaskQueueRunner(BatchAgent):
                 self.context.skipped_ids.append(task_id)
                 continue
 
-            # Handle triage failure
-            if triage is None:
-                continue  # Error already recorded in _triage_single
+            assert triage is not None  # narrowed by continue paths above
+
+            # Notify task about stale status recovery
+            if task_id in self._stale_in_progress:
+                await self._add_comment(
+                    task_id,
+                    "Found stale in_progress status (likely from crashed run). Re-triaging task.",
+                )
 
             # Set in_progress and route
             try:
@@ -462,6 +507,7 @@ class TaskQueueRunner(BatchAgent):
                 f"Task {task_id} has stale agent_status=in_progress "
                 f"(likely from a crashed previous run), proceeding to triage"
             )
+            self._stale_in_progress.add(task_id)
 
         existing_subtasks = task.get("subtasks") or []
         if existing_subtasks:
@@ -489,18 +535,8 @@ class TaskQueueRunner(BatchAgent):
                 return (task, triage, "")
             except Exception as e:
                 logger.error(f"Triage failed for {task_id}: {e}")
-                # Record failure directly — no shared state risk since we append atomically
-                self.report.tasks_processed.append(
-                    ProcessedTask(
-                        external_id=task_id,
-                        title=title,
-                        triage_verdict=TriageVerdict.NOT_ACTIONABLE,
-                        confidence=0.0,
-                        outcome="failed",
-                        error=f"Triage error: {e}",
-                    )
-                )
-                self.context.failed_ids.append(task_id)
+                # Store error for Phase 5c to record sequentially
+                self._triage_errors[task_id] = f"Triage error: {e}"
                 return (task, None, "")
 
     async def _route_triaged_task(
@@ -721,6 +757,7 @@ class TaskQueueRunner(BatchAgent):
                         orchestrator_task_id=root_result.id,
                     )
                 )
+                self.context.partial_ids.append(task_id)
 
             else:
                 # Actually failed

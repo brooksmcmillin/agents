@@ -91,7 +91,7 @@ Examples:
         "--concurrency",
         type=int,
         default=5,
-        help="Max parallel triage calls (default: 5)",
+        help="Max parallel triage calls (default: 5, max: 50)",
     )
     parser.add_argument(
         "--repo",
@@ -120,6 +120,9 @@ Examples:
     )
 
     args = parser.parse_args()
+
+    if args.concurrency < 1 or args.concurrency > 50:
+        parser.error("--concurrency must be between 1 and 50")
 
     return TaskQueueConfig(
         mcp_url=args.mcp_url,
