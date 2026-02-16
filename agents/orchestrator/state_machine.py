@@ -198,6 +198,15 @@ class Orchestrator:
                 processed.append(task)
                 count += 1
 
+            # Fail-fast: stop if the same error keeps repeating
+            if self.state.consecutive_identical_errors >= 2:
+                logger.warning(
+                    f"Stopping: {self.state.consecutive_identical_errors} consecutive "
+                    f"identical worker errors: {self.state.last_worker_error!r}"
+                )
+                self.queue.clear()
+                break
+
         logger.info(
             f"Orchestrator run complete: {len(processed)} tasks processed, "
             f"{self.state.tasks_completed} completed, {self.state.tasks_failed} failed"
@@ -342,11 +351,29 @@ class Orchestrator:
                 task.status = TaskStatus.FAILED
                 task.error = result.error or "Worker execution failed"
                 logger.warning(f"Worker failed for task {task.id}: {task.error}")
+                async with self._lock:
+                    error_key = task.error
+                    if error_key == self.state.last_worker_error:
+                        self.state.consecutive_identical_errors += 1
+                    else:
+                        self.state.last_worker_error = error_key
+                        self.state.consecutive_identical_errors = 1
+            else:
+                async with self._lock:
+                    self.state.last_worker_error = None
+                    self.state.consecutive_identical_errors = 0
 
         except Exception as e:
             task.status = TaskStatus.FAILED
             task.error = str(e)
             logger.error(f"Execution failed for task {task.id}: {e}")
+            async with self._lock:
+                error_key = str(e)
+                if error_key == self.state.last_worker_error:
+                    self.state.consecutive_identical_errors += 1
+                else:
+                    self.state.last_worker_error = error_key
+                    self.state.consecutive_identical_errors = 1
 
     async def _review_task(self, task: Task) -> bool:
         """Run review gates on a completed task.

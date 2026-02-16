@@ -195,6 +195,7 @@ class TaskQueueRunner(BatchAgent):
 
         self.report.total_fetched = len(tasks)
         logger.info(f"Fetched {len(tasks)} actionable tasks")
+        print(f"Fetched {len(tasks)} actionable tasks")
 
         # Phase 2: Bump overdue priorities
         if self.config.priority_bump_overdue:
@@ -209,6 +210,7 @@ class TaskQueueRunner(BatchAgent):
         logger.info(
             f"Processing order computed: {len(ordered_tasks)} tasks, {len(blocked)} blocked"
         )
+        print(f"Processing order: {len(ordered_tasks)} ready, {len(blocked)} blocked")
 
         # Phase 5a: Record blocked tasks (don't consume budget)
         ready_tasks: list[dict] = []
@@ -235,6 +237,7 @@ class TaskQueueRunner(BatchAgent):
         ready_tasks = ready_tasks[: self.config.max_tasks]
 
         # Phase 5b: Parallel triage
+        print(f"Triaging {len(ready_tasks)} tasks...")
         available_tools = await self._get_available_tool_names()
         semaphore = asyncio.Semaphore(self.config.concurrency)
         triage_results = await asyncio.gather(
@@ -325,6 +328,7 @@ class TaskQueueRunner(BatchAgent):
             except Exception as e:
                 logger.warning(f"Failed to set in_progress for {task_id}: {e}")
 
+            task_start = _utcnow()
             try:
                 await self._route_triaged_task(task, task_id, title, triage)
             except Exception as e:
@@ -355,6 +359,18 @@ class TaskQueueRunner(BatchAgent):
                     )
                 )
                 self.context.failed_ids.append(task_id)
+            finally:
+                # Stamp timing and print outcome regardless of success/failure
+                task_duration = (_utcnow() - task_start).total_seconds()
+                if self.report.tasks_processed:
+                    last = self.report.tasks_processed[-1]
+                    if last.external_id == task_id:
+                        last.started_at = task_start
+                        last.duration_seconds = task_duration
+                        outcome_msg = f"  {task_id}: {last.outcome} ({task_duration:.1f}s)"
+                        if last.outcome == "partial" and last.notes:
+                            outcome_msg += f" - {last.notes[:80]}"
+                        print(outcome_msg)
 
             processed_count += 1
 
@@ -455,6 +471,7 @@ class TaskQueueRunner(BatchAgent):
                     )
                     task["priority"] = "high"
                     logger.info(f"Bumped priority of overdue task {task_id} to high")
+                    print(f"  Bumped {task_id} priority: {priority} -> high (due {due_date})")
                     await self._add_comment(
                         task_id,
                         f"Priority bumped from {priority} to high (task is overdue, due {due_date})",
@@ -541,6 +558,7 @@ class TaskQueueRunner(BatchAgent):
                     accumulated_context=accumulated_context,
                     model=self.config.triage_model,
                 )
+                print(f"  {task_id}: {triage.verdict.value} ({triage.confidence:.0%})")
                 return (task, triage, "")
             except Exception as e:
                 logger.error(f"Triage failed for {task_id}: {e}")
@@ -583,10 +601,12 @@ class TaskQueueRunner(BatchAgent):
         if repo_url:
             logger.info(f"Resolved repo for {task_id}: {repo_url}")
 
+        # Determine executor for logging
+        use_lw = self._should_use_lightweight(triage, repo_url)
+        executor = "lightweight" if use_lw else "orchestrator"
+
         # Dry run: log and reset
         if self.config.dry_run:
-            use_lw = self._should_use_lightweight(triage, repo_url)
-            executor = "lightweight" if use_lw else f"orchestrator ({repo_url})"
             logger.info(
                 f"[DRY RUN] {task_id}: {triage.verdict.value} "
                 f"(confidence={triage.confidence:.0%}, executor={executor})"
@@ -613,9 +633,10 @@ class TaskQueueRunner(BatchAgent):
             return
 
         # Route by verdict
+        print(f"  {task_id} -> {executor}")
         match triage.verdict:
             case TriageVerdict.FULLY_EXECUTABLE:
-                if self._should_use_lightweight(triage, repo_url):
+                if use_lw:
                     await self._execute_lightweight_task(task, triage)
                 else:
                     await self._execute_task(task, triage, repo_url=repo_url)
@@ -736,9 +757,13 @@ class TaskQueueRunner(BatchAgent):
                 # Orchestrator ran out of steps but task isn't done yet.
                 # This is normal for large tasks — subtasks were written back.
                 summary = orch.get_status_summary()
+                status_counts = summary["status_counts"]
+                completed_subtasks = status_counts.get("completed", 0)
+                total_subtasks = summary["total_tasks"]
                 note = (
                     f"Orchestrator partially complete: "
-                    f"{summary['status_counts']}. "
+                    f"{completed_subtasks}/{total_subtasks} subtasks done "
+                    f"({status_counts}). "
                     f"Subtasks written to TaskManager."
                 )
                 try:
