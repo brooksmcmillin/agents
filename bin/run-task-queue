@@ -88,6 +88,12 @@ Examples:
         help="Model for lightweight non-code task execution (default: sonnet)",
     )
     parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=5,
+        help="Max parallel triage calls (default: 5, max: 50)",
+    )
+    parser.add_argument(
         "--repo",
         default=None,
         help="Git repository URL for code tasks",
@@ -115,11 +121,15 @@ Examples:
 
     args = parser.parse_args()
 
+    if args.concurrency < 1 or args.concurrency > 50:
+        parser.error("--concurrency must be between 1 and 50")
+
     return TaskQueueConfig(
         mcp_url=args.mcp_url,
         task_ids=args.task_ids or [],
         dry_run=args.dry_run,
         max_tasks=args.max_tasks,
+        concurrency=args.concurrency,
         triage_model=args.triage_model,
         research_model=args.research_model,
         worker_model=args.worker_model,
