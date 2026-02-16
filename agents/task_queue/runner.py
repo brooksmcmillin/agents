@@ -359,25 +359,18 @@ class TaskQueueRunner(BatchAgent):
                     )
                 )
                 self.context.failed_ids.append(task_id)
-
-            # Stamp timing on whichever ProcessedTask was just appended
-            task_duration = (_utcnow() - task_start).total_seconds()
-            if self.report.tasks_processed:
-                last = self.report.tasks_processed[-1]
-                if last.external_id == task_id:
-                    last.started_at = task_start
-                    last.duration_seconds = task_duration
-
-            # Print outcome
-            if self.report.tasks_processed:
-                last = self.report.tasks_processed[-1]
-                if last.external_id == task_id:
-                    outcome_msg = f"  {task_id}: {last.outcome}"
-                    if last.duration_seconds is not None:
-                        outcome_msg += f" ({last.duration_seconds:.1f}s)"
-                    if last.outcome == "partial" and last.notes:
-                        outcome_msg += f" - {last.notes[:80]}"
-                    print(outcome_msg)
+            finally:
+                # Stamp timing and print outcome regardless of success/failure
+                task_duration = (_utcnow() - task_start).total_seconds()
+                if self.report.tasks_processed:
+                    last = self.report.tasks_processed[-1]
+                    if last.external_id == task_id:
+                        last.started_at = task_start
+                        last.duration_seconds = task_duration
+                        outcome_msg = f"  {task_id}: {last.outcome} ({task_duration:.1f}s)"
+                        if last.outcome == "partial" and last.notes:
+                            outcome_msg += f" - {last.notes[:80]}"
+                        print(outcome_msg)
 
             processed_count += 1
 
