@@ -57,8 +57,7 @@ async def main() -> None:
     agent_class = AGENT_CLASSES.get(agent_name)
     if agent_class is None:
         print(
-            f"ERROR: Unknown agent '{agent_name}'. "
-            f"Available: {', '.join(sorted(AGENT_CLASSES))}",
+            f"ERROR: Unknown agent '{agent_name}'. Available: {', '.join(sorted(AGENT_CLASSES))}",
             file=sys.stderr,
         )
         sys.exit(1)
