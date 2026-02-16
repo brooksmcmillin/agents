@@ -13,7 +13,7 @@
 #   TAG             Image tag (default: "latest")
 #   AGENT_MODE      Runtime mode: cli, oneshot, api (default: "api")
 #   ENV_FILE        Path to .env file (default: ".env")
-#   DOCKER_ARGS     Extra args passed to `docker run`
+#   DOCKER_ARGS     Extra args passed to `docker run` (space-separated string)
 #
 set -euo pipefail
 
@@ -22,9 +22,19 @@ REGISTRY="${REGISTRY:-agents}"
 TAG="${TAG:-latest}"
 AGENT_MODE="${AGENT_MODE:-api}"
 ENV_FILE="${ENV_FILE:-.env}"
-DOCKER_ARGS="${DOCKER_ARGS:-}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+# Extra docker-run flags — stored as an array so spaces in values are safe.
+# Set via: DOCKER_ARGS=("--memory=512m" "--cpus=1") before sourcing, or
+# pass them after "--" on the command line (not yet implemented).
+if [[ -n "${DOCKER_ARGS:-}" ]]; then
+    # If someone exported DOCKER_ARGS as a plain string, split on whitespace
+    # into an array.  This preserves backward compat while being explicit.
+    read -ra DOCKER_EXTRA_ARGS <<< "${DOCKER_ARGS}"
+else
+    DOCKER_EXTRA_ARGS=()
+fi
 
 # ── Agent registry (must match bin/run-agent AGENTS dict) ────────────────────
 KNOWN_AGENTS=(
@@ -140,23 +150,32 @@ cmd_run() {
         docker rm -f "$container_name" >/dev/null 2>&1 || true
     fi
 
-    local run_flags="-d --name ${container_name} -p 8080:8080"
-    run_flags+=" -e AGENT_NAME=${agent}"
-    run_flags+=" -e AGENT_MODE=${AGENT_MODE}"
+    # Build the argument list as a proper array — no unquoted expansions.
+    local -a run_args=(
+        -d
+        --name "$container_name"
+        -p "8080:8080"
+        -e "AGENT_NAME=${agent}"
+        -e "AGENT_MODE=${AGENT_MODE}"
+    )
 
     if [ -n "${MESSAGE:-}" ]; then
-        run_flags+=" -e MESSAGE=${MESSAGE}"
+        run_args+=(-e "MESSAGE=${MESSAGE}")
     fi
 
     if [ -f "$ENV_FILE" ]; then
-        run_flags+=" --env-file ${ENV_FILE}"
+        run_args+=(--env-file "$ENV_FILE")
     else
         echo "WARNING: ${ENV_FILE} not found. Container may be missing required env vars." >&2
     fi
 
-    # shellcheck disable=SC2086
+    # Append any extra user-supplied flags.
+    if [ ${#DOCKER_EXTRA_ARGS[@]} -gt 0 ]; then
+        run_args+=("${DOCKER_EXTRA_ARGS[@]}")
+    fi
+
     echo "==> Running ${img} as ${container_name} (mode: ${AGENT_MODE})"
-    docker run ${run_flags} ${DOCKER_ARGS} "$img"
+    docker run "${run_args[@]}" "$img"
     echo "==> Container ${container_name} started"
     echo "    Logs: docker logs -f ${container_name}"
     if [ "$AGENT_MODE" = "api" ]; then
@@ -178,9 +197,21 @@ cmd_deploy() {
 CMD="$1"; shift
 
 case "$CMD" in
-    build|push|run|deploy)
-        [ $# -lt 1 ] && die "${CMD} requires an agent name. Run '$0 list'."
-        "$( echo "cmd_${CMD}" )" "$1"
+    build)
+        [ $# -lt 1 ] && die "build requires an agent name. Run '$0 list'."
+        cmd_build "$1"
+        ;;
+    push)
+        [ $# -lt 1 ] && die "push requires an agent name. Run '$0 list'."
+        cmd_push "$1"
+        ;;
+    run)
+        [ $# -lt 1 ] && die "run requires an agent name. Run '$0 list'."
+        cmd_run "$1"
+        ;;
+    deploy)
+        [ $# -lt 1 ] && die "deploy requires an agent name. Run '$0 list'."
+        cmd_deploy "$1"
         ;;
     list)
         cmd_list

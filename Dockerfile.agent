@@ -12,8 +12,15 @@ FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 ARG AGENT_NAME
 ARG AGENT_MODULE=""
 
-# Fail fast if AGENT_NAME wasn't provided
-RUN if [ -z "$AGENT_NAME" ]; then echo "ERROR: --build-arg AGENT_NAME is required" && exit 1; fi
+# Validate AGENT_NAME: must be non-empty and contain only lowercase letters,
+# digits, and underscores.  This prevents path-traversal (../) and other
+# injection via the build arg.
+RUN if [ -z "$AGENT_NAME" ]; then \
+        echo "ERROR: --build-arg AGENT_NAME is required" && exit 1; \
+    fi && \
+    if ! echo "$AGENT_NAME" | grep -qE '^[a-z][a-z0-9_]*$'; then \
+        echo "ERROR: AGENT_NAME must match ^[a-z][a-z0-9_]*$ (got '$AGENT_NAME')" && exit 1; \
+    fi
 
 WORKDIR /app
 
@@ -39,8 +46,12 @@ COPY mcp_server ./mcp_server
 # The specific agent
 COPY agents/${AGENT_NAME} ./agents/${AGENT_NAME}
 
-# Entrypoint script
+# CLI runner (used by cli mode)
+COPY bin ./bin
+
+# Entrypoint and oneshot helper
 COPY deploy/entrypoint.sh ./entrypoint.sh
+COPY deploy/oneshot.py ./deploy/oneshot.py
 RUN chmod +x entrypoint.sh
 
 # Create runtime directories
