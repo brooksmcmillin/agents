@@ -558,7 +558,8 @@ class TaskQueueRunner(BatchAgent):
                     accumulated_context=accumulated_context,
                     model=self.config.triage_model,
                 )
-                print(f"  {task_id}: {triage.verdict.value} ({triage.confidence:.0%})")
+                hours_str = f", ~{triage.estimated_hours:.1f}h" if triage.estimated_hours else ""
+                print(f"  {task_id}: {triage.verdict.value} ({triage.confidence:.0%}{hours_str})")
                 return (task, triage, "")
             except Exception as e:
                 logger.error(f"Triage failed for {task_id}: {e}")
@@ -570,6 +571,21 @@ class TaskQueueRunner(BatchAgent):
         self, task: dict, task_id: str, title: str, triage: TriageResult
     ) -> None:
         """Route a pre-triaged task to the appropriate executor."""
+        # Reconcile estimated_hours: prefer existing task value, write back triage estimate if missing
+        task_estimate = task.get("estimated_hours")
+        if task_estimate is not None:
+            triage.estimated_hours = float(task_estimate)
+            logger.info(f"Using existing estimated_hours={task_estimate} for {task_id}")
+        elif triage.estimated_hours is not None:
+            try:
+                await self.call_tool(
+                    "update_task",
+                    {"task_id": task_id, "estimated_hours": triage.estimated_hours},
+                )
+                logger.info(f"Wrote triage estimate ({triage.estimated_hours}h) to {task_id}")
+            except Exception as e:
+                logger.warning(f"Failed to write estimated_hours for {task_id}: {e}")
+
         # Classify in TaskManager if unclassified
         if not task.get("action_type") and triage.suggested_action_type:
             try:
@@ -677,8 +693,18 @@ class TaskQueueRunner(BatchAgent):
             orch.add_task(orch_task)
             results = await orch.run(max_tasks=10)
 
-            # Always sync subtasks to TaskManager (even if execution failed)
-            await self._sync_subtasks_to_taskmanager(task_id, orch, orch_task)
+            # Sync subtasks to TaskManager only if at least one subtask succeeded
+            subtasks = orch.get_subtasks(orch_task.id)
+            any_subtask_succeeded = any(
+                st.status.value in ("completed", "in_progress", "in_review", "awaiting_human")
+                for st in subtasks
+            )
+            if any_subtask_succeeded:
+                await self._sync_subtasks_to_taskmanager(task_id, orch, orch_task)
+            elif subtasks:
+                logger.info(
+                    f"Skipping subtask sync for {task_id}: all {len(subtasks)} subtasks failed"
+                )
 
             # Determine outcome
             if not results:
@@ -1176,6 +1202,7 @@ class TaskQueueRunner(BatchAgent):
             tags=mcp_task.get("tags", []),
             category=mcp_task.get("category", ""),
             external_id=mcp_task.get("id"),
+            estimated_hours=triage.estimated_hours,
         )
 
     async def _send_batch_notification(self) -> None:

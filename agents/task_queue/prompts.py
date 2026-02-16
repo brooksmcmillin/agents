@@ -23,7 +23,7 @@ Respond with a JSON object (no markdown fences):
   "verdict": "fully_executable" | "pre_research_only" | "not_actionable",
   "confidence": 0.0-1.0,
   "reasoning": "Brief explanation of classification",
-  "estimated_hours": null or float,
+  "estimated_hours": float (REQUIRED - always estimate how many hours this would take a developer, e.g. 0.5, 1.0, 4.0),
   "suggested_action_type": "research" | "code" | "email" | "document" | "review" | "data_entry" | "other" | null,
   "suggested_autonomy_tier": 1-4 or null,
   "suggested_dependencies": [],

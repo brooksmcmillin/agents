@@ -300,6 +300,7 @@ class Orchestrator:
         - They're already subtasks at max depth
         - They're already decomposed (have subtask_ids)
         - Their description is very short (likely already atomic)
+        - Their estimated hours are at or below the threshold (small enough to do in one shot)
         """
         if task.depth >= self.config.max_subtask_depth:
             return False
@@ -307,6 +308,16 @@ class Orchestrator:
             return False
         # Short descriptions suggest atomic tasks
         if len(task.description) < 100:
+            return False
+        # Small tasks don't need decomposition
+        if (
+            task.estimated_hours is not None
+            and task.estimated_hours <= self.config.decompose_threshold_hours
+        ):
+            logger.info(
+                f"Skipping decomposition for {task.id}: "
+                f"estimated {task.estimated_hours}h <= {self.config.decompose_threshold_hours}h threshold"
+            )
             return False
         return True
 

@@ -212,6 +212,9 @@ class Task:
     pr_url: str | None = None
     error: str | None = None
 
+    # Estimation
+    estimated_hours: float | None = None
+
     # Metadata
     created_at: datetime = field(default_factory=_utcnow)
     started_at: datetime | None = None
@@ -236,7 +239,8 @@ class Task:
 class OrchestratorConfig:
     """Configuration for the orchestrator."""
 
-    # Recursion and task limits
+    # Decomposition
+    decompose_threshold_hours: float = 4.0  # Skip decomposition for tasks estimated ≤ this
     max_subtask_depth: int = 3
     max_subtasks_per_task: int = 6
     max_remediation_tasks: int = 3
