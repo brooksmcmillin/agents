@@ -1,0 +1,70 @@
+# Per-agent Dockerfile — builds a minimal image for a single agent.
+#
+# Usage:
+#   docker build -f Dockerfile.agent --build-arg AGENT_NAME=chatbot -t agents/chatbot .
+#   docker run --env-file .env agents/chatbot
+#
+# The image contains only the agent-framework package, the shared utilities,
+# the MCP server, and the specific agent directory — nothing else.
+
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+
+ARG AGENT_NAME
+ARG AGENT_MODULE=""
+
+# Validate AGENT_NAME: must be non-empty and contain only lowercase letters,
+# digits, and underscores.  This prevents path-traversal (../) and other
+# injection via the build arg.
+RUN if [ -z "$AGENT_NAME" ]; then \
+        echo "ERROR: --build-arg AGENT_NAME is required" && exit 1; \
+    fi && \
+    if ! echo "$AGENT_NAME" | grep -qE '^[a-z][a-z0-9_]*$'; then \
+        echo "ERROR: AGENT_NAME must match ^[a-z][a-z0-9_]*$ (got '$AGENT_NAME')" && exit 1; \
+    fi
+
+WORKDIR /app
+
+# System dependencies (minimal — only what's needed at runtime)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# --- Dependency layer (cached unless pyproject.toml / lockfile change) ---
+COPY pyproject.toml uv.lock ./
+COPY packages/agent-framework ./packages/agent-framework
+
+RUN uv sync --frozen --no-dev
+
+# --- Application layer ---
+# Shared utilities (agent_factory, constants, runner, etc.)
+COPY shared ./shared
+
+# MCP server (needed for local stdio tool calls)
+COPY mcp_server ./mcp_server
+
+# The specific agent
+COPY agents/${AGENT_NAME} ./agents/${AGENT_NAME}
+
+# CLI runner (used by cli mode)
+COPY bin ./bin
+
+# Entrypoint and oneshot helper
+COPY deploy/entrypoint.sh ./entrypoint.sh
+COPY deploy/oneshot.py ./deploy/oneshot.py
+RUN chmod +x entrypoint.sh
+
+# Create runtime directories
+RUN mkdir -p logs memories .data
+
+# Bake the agent name into the image so entrypoint.sh can find it
+ENV AGENT_NAME=${AGENT_NAME}
+ENV AGENT_MODULE=${AGENT_MODULE}
+
+# REST API mode exposes this port; CLI mode ignores it
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD curl -sf http://localhost:8080/health || exit 0
+
+ENTRYPOINT ["./entrypoint.sh"]

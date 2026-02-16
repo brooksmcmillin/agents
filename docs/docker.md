@@ -241,6 +241,106 @@ docker system prune -a
 docker volume prune
 ```
 
+## Per-Agent Deployment
+
+Deploy a single agent as its own lightweight container, independent of the
+full monolith. This is useful for running one agent on a different server,
+scaling agents independently, or keeping images small.
+
+### Files
+
+| File | Purpose |
+|------|---------|
+| `Dockerfile.agent` | Multi-stage Dockerfile that copies only one agent |
+| `docker-compose.agent.yml` | Compose file for running a single agent |
+| `deploy/deploy-agent.sh` | CLI script to build, push, and run agent images |
+| `deploy/entrypoint.sh` | Container entrypoint with mode switching |
+
+### Quick Start
+
+```bash
+# Build and run the chatbot agent as an API server
+AGENT_NAME=chatbot docker compose -f docker-compose.agent.yml up --build
+
+# Or use the deploy script directly
+./deploy/deploy-agent.sh build chatbot
+./deploy/deploy-agent.sh run chatbot
+
+# List available agents
+./deploy/deploy-agent.sh list
+```
+
+### Runtime Modes
+
+Set `AGENT_MODE` to control how the agent runs inside the container:
+
+| Mode | Description |
+|------|-------------|
+| `api` (default) | Starts the FastAPI REST server on port 8080 |
+| `cli` | Interactive terminal session |
+| `oneshot` | Processes `MESSAGE` env var and exits |
+
+```bash
+# API mode (default)
+AGENT_NAME=chatbot docker compose -f docker-compose.agent.yml up --build
+
+# One-shot mode
+AGENT_NAME=chatbot AGENT_MODE=oneshot MESSAGE="Summarize today's news" \
+    docker compose -f docker-compose.agent.yml up --build
+```
+
+### Pushing to a Registry
+
+```bash
+# Push to a custom registry
+REGISTRY=ghcr.io/myorg TAG=v1.0 ./deploy/deploy-agent.sh build chatbot
+REGISTRY=ghcr.io/myorg TAG=v1.0 ./deploy/deploy-agent.sh push chatbot
+
+# Full pipeline: build + push + run
+REGISTRY=ghcr.io/myorg TAG=v1.0 ./deploy/deploy-agent.sh deploy security
+```
+
+### Running on a Remote Server
+
+After pushing to a registry, pull and run on any Docker host:
+
+```bash
+# On the remote server
+docker pull ghcr.io/myorg/chatbot:v1.0
+
+docker run -d \
+    --name agent-chatbot \
+    --env-file .env \
+    -e AGENT_MODE=api \
+    -p 8080:8080 \
+    ghcr.io/myorg/chatbot:v1.0
+```
+
+### What's Included in the Image
+
+Each per-agent image contains only:
+- `packages/agent-framework/` — core Agent class, MCP client, tools
+- `shared/` — agent factory, constants, runner utilities
+- `mcp_server/` — local MCP server for stdio tool calls
+- `agents/<name>/` — the specific agent code and prompts
+
+Everything else (other agents, web UI, frontend, tests, docs) is excluded.
+
+### Agent Name Mapping
+
+The deploy script maps CLI names to directory names:
+
+| CLI name | Directory |
+|----------|-----------|
+| `chatbot` | `agents/chatbot/` |
+| `code-analysis` | `agents/code_analysis/` |
+| `events` | `agents/events/` |
+| `pr` | `agents/pr_agent/` |
+| `red-team` | `agents/red_team/` |
+| `tasks` | `agents/task_manager/` |
+| `security` | `agents/security_researcher/` |
+| `business` | `agents/business_advisor/` |
+
 ## Production Considerations
 
 ### Security
