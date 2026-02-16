@@ -272,6 +272,8 @@ class ProcessedTask:
     error: str | None = None
     orchestrator_task_id: str | None = None
     branch_name: str | None = None
+    started_at: datetime | None = None
+    duration_seconds: float | None = None
 
 
 @dataclass
@@ -341,7 +343,8 @@ class RunReport:
                 verdict = t.triage_verdict.value
                 conf = f"{t.confidence:.0%}"
                 status = t.outcome or "pending"
-                line = f"  [{status:>10}] {t.title[:60]:<60} ({verdict}, {conf})"
+                timing = f" ({t.duration_seconds:.1f}s)" if t.duration_seconds is not None else ""
+                line = f"  [{status:>10}] {t.title[:60]:<60} ({verdict}, {conf}){timing}"
                 if t.error:
                     line += f"\n             Error: {t.error[:100]}"
                 lines.append(line)
@@ -371,6 +374,15 @@ class RunReport:
             parts.append(f":x: Failed: {self.failed_count}")
         if self.skipped_count:
             parts.append(f":fast_forward: Skipped: {self.skipped_count}")
+
+        # Show partial tasks with notes
+        partial = [t for t in self.tasks_processed if t.outcome == "partial"]
+        if partial:
+            parts.append("")
+            parts.append("*Partial (needs follow-up):*")
+            for t in partial[:5]:
+                note = t.notes[:80] if t.notes else "No details"
+                parts.append(f"• {t.title[:50]}: {note}")
 
         # Show failed tasks with errors
         failed = [t for t in self.tasks_processed if t.outcome == "failed"]

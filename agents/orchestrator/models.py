@@ -306,6 +306,8 @@ class OrchestratorState:
     total_review_passes: int = 0
     total_review_failures: int = 0
     started_at: datetime | None = None
+    last_worker_error: str | None = None
+    consecutive_identical_errors: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize for logging/observability."""

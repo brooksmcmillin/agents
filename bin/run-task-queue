@@ -15,6 +15,7 @@ Usage:
 
 import argparse
 import asyncio
+import logging
 import os
 import sys
 
@@ -23,6 +24,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from agents.task_queue.models import TaskQueueConfig
 from agents.task_queue.runner import TaskQueueRunner
+
+# Suppress noisy httpx INFO logs (connection lifecycle, redirects, etc.)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 def parse_args() -> TaskQueueConfig:
