@@ -52,29 +52,79 @@ class TokenStore:
     - In production, consider using a proper secret management service
     """
 
-    def __init__(self, storage_path: Path, encryption_key: str | None = None) -> None:
+    def __init__(
+        self,
+        storage_path: Path,
+        encryption_key: str | None = None,
+        require_encryption: bool = False,
+    ) -> None:
         """
         Initialize token store.
 
         Args:
             storage_path: Directory to store token files
             encryption_key: Optional encryption key (base64-encoded Fernet key)
+            require_encryption: If True, raise RuntimeError when encryption
+                cannot be established. Use in production deployments.
         """
         self.storage_path = storage_path
         self.storage_path.mkdir(parents=True, exist_ok=True)
 
-        # Initialize encryption if key is provided
+        # Initialize encryption -- auto-generate key if none provided
         self.cipher: Fernet | None = None
+        if not encryption_key:
+            encryption_key = self._load_or_generate_key()
+
         if encryption_key:
             try:
+                if len(encryption_key) != 44:
+                    raise ValueError(
+                        f"Invalid encryption key length: {len(encryption_key)} (expected 44)"
+                    )
                 self.cipher = Fernet(encryption_key.encode())
                 logger.info("Token encryption enabled")
             except Exception as e:
+                if require_encryption:
+                    raise RuntimeError(f"Encryption required but failed to initialize: {e}")
                 logger.warning(
-                    f"Failed to initialize encryption: {e}. Tokens will be stored unencrypted."
+                    "Failed to initialize encryption: %s. Tokens will be stored unencrypted.", e
                 )
-        else:
-            logger.warning("No encryption key provided. Tokens will be stored unencrypted.")
+
+        if require_encryption and self.cipher is None:
+            raise RuntimeError("Encryption required but no key could be generated or loaded.")
+
+    def _load_or_generate_key(self) -> str | None:
+        """Load existing encryption key or generate and persist a new one.
+
+        Uses O_EXCL for atomic file creation to prevent race conditions
+        when multiple processes start simultaneously.
+        """
+        import os
+
+        key_file = self.storage_path / ".encryption.key"
+        try:
+            if key_file.exists():
+                return key_file.read_text().strip()
+            key = Fernet.generate_key().decode()
+            # O_EXCL ensures atomic creation — if another process created the
+            # file between our exists() check and now, we get FileExistsError
+            # and fall through to read their key instead.
+            try:
+                fd = os.open(key_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            except FileExistsError:
+                return key_file.read_text().strip()
+            try:
+                with os.fdopen(fd, "w") as f:
+                    f.write(key)
+            except Exception:
+                os.close(fd)
+                raise
+            # nosem: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
+            logger.info("Auto-generated token encryption key (stored at %s)", key_file)
+            return key
+        except Exception as e:
+            logger.warning("Failed to auto-generate encryption key: %s", e)
+            return None
 
     def _get_token_path(self, platform: str, user_id: str = "default") -> Path:
         """Get file path for storing token."""

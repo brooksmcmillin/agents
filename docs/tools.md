@@ -1,6 +1,6 @@
 # MCP Tools Reference
 
-The MCP server exposes **51 tools** across 14 categories (defined in `packages/agent-framework/agent_framework/tools/`).
+The MCP server exposes **50 tools** across 13 categories (defined in `packages/agent-framework/agent_framework/tools/`).
 
 ## Web Analysis Tools (2 tools)
 - `fetch_web_content` - Fetch web content as clean markdown for LLM reading and analysis
@@ -66,11 +66,28 @@ The MCP server exposes **51 tools** across 14 categories (defined in `packages/a
 
 **See:** `docs/CLAUDE_CODE_TOOLS.md` for comprehensive documentation and examples.
 
+## HTTP Client Tools (7 tools)
+*Requires `REDTEAM_ALLOWED_TARGETS` env var (fail-secure: denied when unset)*
+- `http_request` - Make HTTP requests with full control over method, headers, cookies, and body
+- `http_session_login` - POST credentials to a login endpoint and store session cookies
+- `http_upload_file` - Upload files via multipart form data (max 10 MB, base64-encoded)
+- `http_inspect_headers` - Analyze response headers for security configuration (CSP, HSTS, CORS, cookie attributes)
+- `http_fuzz_parameter` - Send parameter variations to detect injection vulnerabilities
+- `http_check_rate_limit` - Send rapid identical requests to test rate limiting
+- `http_clear_session` - Clear a named session's cookies and state
+
+## Markdown File Tools (4 tools)
+- `list_markdown_files` - List markdown files in agent workspace
+- `read_markdown_file` - Read markdown file contents
+- `write_markdown_file` - Write/create markdown file contents
+- `delete_markdown_file` - Delete a markdown file
+
 ## Filesystem Tools (4 tools)
-- `read_file` - Read file contents from agent workspaces
-- `write_file` - Write file contents to agent workspaces
-- `list_directory` - List directory contents in agent workspaces
-- `search_files` - Search for files by name pattern in agent workspaces
+*Requires `FILESYSTEM_ALLOWED_DIRS` env var (fail-secure: denied when unset)*
+- `read_file` - Read file contents with line numbers (cat -n style)
+- `list_directory` - List directory entries with type and size
+- `glob_files` - Search for files by glob pattern
+- `grep_files` - Search file contents by regex pattern with ReDoS protection
 
 ## Tool Usage Examples
 

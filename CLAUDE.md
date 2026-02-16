@@ -115,13 +115,13 @@ uv run python -m mcp_server.server
 
 ## Current State
 
-**Working:** Full agentic loop (Claude Sonnet 4.5), 12 agents, 51 MCP tools, web scraping, RAG search, FastMail email, Twilio SMS, persistent memory, hot reload, OAuth infrastructure, REST API, Web UI, Langfuse observability.
+**Working:** Full agentic loop (Claude Sonnet 4.5), 12 agents, 50 MCP tools, web scraping, RAG search, FastMail email, Twilio SMS, persistent memory, hot reload, OAuth infrastructure, REST API, Web UI, Langfuse observability.
 
 **Needs work:** Social media tools use mock data, rate limiting, multi-user support, security hardening for public deployments.
 
 ## Extended Documentation
 
-- [docs/tools.md](docs/tools.md) - MCP tools reference (all 51 tools + usage examples)
+- [docs/tools.md](docs/tools.md) - MCP tools reference (all 50 tools + usage examples)
 - [docs/api.md](docs/api.md) - REST API endpoints and database schema
 - [docs/oauth.md](docs/oauth.md) - OAuth infrastructure setup
 - [docs/observability.md](docs/observability.md) - Langfuse tracing and monitoring

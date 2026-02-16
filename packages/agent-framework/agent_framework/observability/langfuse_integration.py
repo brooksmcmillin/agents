@@ -361,7 +361,7 @@ def start_trace(
 
 @contextmanager
 def observe_tool_call(
-    trace: TraceContext,
+    trace: TraceContext,  # noqa: ARG001 — kept for API compatibility
     tool_name: str,
     arguments: dict[str, Any],
     metadata: dict[str, Any] | None = None,
