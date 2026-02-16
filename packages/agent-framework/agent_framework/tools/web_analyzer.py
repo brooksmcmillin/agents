@@ -519,203 +519,196 @@ def _analyze_engagement(
     }
 
 
-async def analyze_website(
-    url: str,
-    analysis_type: Literal["tone", "seo", "engagement"],
-) -> dict[str, Any]:
-    """
-    Fetch and analyze web content.
-
-    This tool analyzes a website or blog post for various characteristics
-    including tone, SEO optimization, and engagement potential.
+async def _validate_and_fetch(url: str) -> str:
+    """Validate URL and fetch HTML content with SSRF-safe redirect handling.
 
     Args:
-        url: The URL to analyze
-        analysis_type: Type of analysis to perform
-            - "tone": Analyze writing style and tone
-            - "seo": Analyze SEO optimization
-            - "engagement": Analyze engagement potential
+        url: The URL to fetch.
 
     Returns:
-        Dictionary containing analysis results and recommendations
+        The HTML content of the page.
 
     Raises:
-        ValueError: If URL is invalid or analysis_type is unsupported
-        httpx.HTTPError: If website cannot be fetched
+        ValueError: If URL is invalid, blocked by SSRF, or too many redirects.
     """
-    logger.info(f"Analyzing website: {url} (type: {analysis_type})")
-
-    # Validate URL format
     if not url.startswith(("http://", "https://")):
         raise ValueError(f"Invalid URL: {url}")
 
-    # SSRF protection: validate URL before fetching
     is_safe, reason = SSRFValidator.is_safe_url(url)
     if not is_safe:
         raise ValueError(f"URL rejected for security reasons: {reason}")
 
+    is_allowed, result = await SSRFValidator.validate_request_with_redirects(
+        url, max_redirects=HTTP.max_redirects
+    )
+    if not is_allowed:
+        if result.startswith("Request failed:"):
+            raise ValueError(f"Failed to fetch URL: {result}")
+        raise ValueError(f"URL rejected for security reasons: {result}")
+    final_url = result
+
+    async with httpx.AsyncClient(timeout=HTTP.timeout_seconds) as client:
+        response = await client.get(final_url)
+        response.raise_for_status()
+        return response.text
+
+
+def _build_tone_result(
+    url: str,
+    soup: BeautifulSoup,
+    text: str,
+    readability: dict[str, Any],
+) -> dict[str, Any]:
+    """Build tone analysis result with recommendations."""
+    tone_analysis = _analyze_tone(text, readability)
+
+    paragraphs = soup.find_all("p")
+    sample_excerpts = []
+    for p in paragraphs[: TONE.sample_paragraphs]:
+        p_text = p.get_text().strip()
+        if len(p_text) > TONE.min_paragraph_length:
+            sample_excerpts.append(
+                {
+                    "text": p_text[: TONE.excerpt_max_length] + "..."
+                    if len(p_text) > TONE.excerpt_max_length
+                    else p_text,
+                    "tone_label": tone_analysis["formality_level"],
+                }
+            )
+
+    recommendations: list[str] = []
+    if readability["avg_sentence_length"] > TONE.long_sentence_threshold:
+        recommendations.append("Consider shortening sentences for better readability")
+    if tone_analysis["emotional_markers"]["enthusiasm"] < TONE.low_enthusiasm_threshold:
+        recommendations.append("Add more engaging language to capture reader interest")
+    if tone_analysis["emotional_markers"]["authority"] > TONE.high_authority_threshold:
+        recommendations.append("Balance authoritative tone with more accessible language")
+
+    return {
+        "url": url,
+        "analysis_type": "tone",
+        "analyzed_at": datetime.now(UTC).isoformat(),
+        "results": tone_analysis,
+        "recommendations": recommendations or ["Content tone is well-balanced"],
+        "sample_excerpts": sample_excerpts,
+    }
+
+
+def _build_seo_result(
+    url: str,
+    soup: BeautifulSoup,
+    text: str,
+    _readability: dict[str, Any],
+) -> dict[str, Any]:
+    """Build SEO analysis result with recommendations."""
+    seo_analysis = _analyze_seo(soup, text)
+
+    recommendations: list[str] = []
+    if seo_analysis["title_optimization"]["length"] < SEO.title_min_good:
+        recommendations.append(
+            f"Lengthen page title to {SEO.title_min_good}-{SEO.title_max_good} characters for better SEO"
+        )
+    elif seo_analysis["title_optimization"]["length"] > SEO.title_max_good:
+        recommendations.append(f"Shorten page title to under {SEO.title_max_good} characters")
+
+    if not seo_analysis["meta_description"]["present"]:
+        recommendations.append(
+            f"Add a meta description ({SEO.meta_min_good}-{SEO.meta_max_good} characters)"
+        )
+    elif seo_analysis["meta_description"]["length"] < SEO.meta_min_good:
+        recommendations.append(
+            f"Expand meta description to {SEO.meta_min_good}-{SEO.meta_max_good} characters"
+        )
+
+    if seo_analysis["headings"]["h1_count"] == 0:
+        recommendations.append("Add an H1 heading to improve SEO structure")
+    elif seo_analysis["headings"]["h1_count"] > 1:
+        recommendations.append("Use only one H1 heading per page")
+
+    if seo_analysis["content_quality"]["word_count"] < SEO.words_min_recommended:
+        recommendations.append(
+            f"Increase content length to {SEO.words_min_recommended}+ words for better ranking"
+        )
+
+    images_without_alt = len([img for img in soup.find_all("img") if not img.get("alt")])
+    if images_without_alt > 0:
+        recommendations.append(f"Add alt text to {images_without_alt} images for better SEO")
+
+    return {
+        "url": url,
+        "analysis_type": "seo",
+        "analyzed_at": datetime.now(UTC).isoformat(),
+        "results": seo_analysis,
+        "recommendations": recommendations or ["SEO is well-optimized"],
+    }
+
+
+def _build_engagement_result(
+    url: str,
+    soup: BeautifulSoup,
+    text: str,
+    readability: dict[str, Any],
+) -> dict[str, Any]:
+    """Build engagement analysis result with recommendations."""
+    engagement_analysis = _analyze_engagement(soup, text, readability)
+
+    recommendations: list[str] = []
+    if engagement_analysis["engagement_elements"]["image_count"] == 0:
+        recommendations.append("Add images to make content more visually appealing")
+    if engagement_analysis["engagement_elements"]["video_count"] == 0:
+        recommendations.append("Consider adding video content to increase engagement")
+    if not engagement_analysis["content_structure"]["has_bullet_points"]:
+        recommendations.append("Use bullet points to break up text and improve scannability")
+    if engagement_analysis["engagement_elements"]["cta_count"] < ENGAGEMENT.cta_min:
+        recommendations.append("Add clear calls-to-action throughout the content")
+    if readability["flesch_reading_ease"] < ENGAGEMENT.simplify_threshold:
+        recommendations.append("Simplify language to improve readability")
+
+    return {
+        "url": url,
+        "analysis_type": "engagement",
+        "analyzed_at": datetime.now(UTC).isoformat(),
+        "results": engagement_analysis,
+        "recommendations": recommendations or ["Content is highly engaging"],
+    }
+
+
+_ANALYSIS_BUILDERS = {
+    "tone": _build_tone_result,
+    "seo": _build_seo_result,
+    "engagement": _build_engagement_result,
+}
+
+
+async def analyze_website(
+    url: str,
+    analysis_type: Literal["tone", "seo", "engagement"],
+) -> dict[str, Any]:
+    """Fetch and analyze web content.
+
+    Args:
+        url: The URL to analyze.
+        analysis_type: Type of analysis — "tone", "seo", or "engagement".
+
+    Returns:
+        Dictionary containing analysis results and recommendations.
+    """
+    logger.info(f"Analyzing website: {url} (type: {analysis_type})")
+
+    builder = _ANALYSIS_BUILDERS.get(analysis_type)
+    if builder is None:
+        raise ValueError(f"Unsupported analysis type: {analysis_type}")
+
     try:
-        # Fetch the webpage (without automatic redirect following for security)
-        async with httpx.AsyncClient(
-            timeout=HTTP.timeout_seconds, follow_redirects=False
-        ) as client:
-            response = await client.get(url)
+        html_content = await _validate_and_fetch(url)
 
-            # Handle redirects manually with SSRF validation
-            redirects_followed = 0
-            while (
-                response.status_code in (301, 302, 303, 307, 308)
-                and redirects_followed < HTTP.max_redirects
-            ):
-                redirect_url = response.headers.get("Location")
-                if not redirect_url:
-                    raise ValueError("Redirect without Location header")
-
-                # Validate redirect target
-                is_safe, reason = SSRFValidator.is_safe_url(redirect_url)
-                if not is_safe:
-                    raise ValueError(f"Redirect rejected for security reasons: {reason}")
-
-                response = await client.get(redirect_url)
-                redirects_followed += 1
-
-            if redirects_followed >= HTTP.max_redirects:
-                raise ValueError(f"Too many redirects (>{HTTP.max_redirects})")
-
-            response.raise_for_status()
-            html_content = response.text
-
-        # Parse HTML
         soup = BeautifulSoup(html_content, "lxml")
-
-        # Extract clean text content
         text = _extract_text_content(soup)
-
         if not text.strip():
             raise ValueError("No text content found on the page")
 
-        # Calculate readability metrics (used by all analysis types)
         readability = _calculate_readability(text)
-
-        # Perform analysis based on type
-        if analysis_type == "tone":
-            tone_analysis = _analyze_tone(text, readability)
-
-            # Extract sample excerpts from first few paragraphs
-            paragraphs = soup.find_all("p")
-            sample_excerpts = []
-            for p in paragraphs[: TONE.sample_paragraphs]:
-                p_text = p.get_text().strip()
-                if len(p_text) > TONE.min_paragraph_length:
-                    sample_excerpts.append(
-                        {
-                            "text": p_text[: TONE.excerpt_max_length] + "..."
-                            if len(p_text) > TONE.excerpt_max_length
-                            else p_text,
-                            "tone_label": tone_analysis["formality_level"],
-                        }
-                    )
-
-            # Generate recommendations
-            recommendations = []
-            if readability["avg_sentence_length"] > TONE.long_sentence_threshold:
-                recommendations.append("Consider shortening sentences for better readability")
-            if tone_analysis["emotional_markers"]["enthusiasm"] < TONE.low_enthusiasm_threshold:
-                recommendations.append("Add more engaging language to capture reader interest")
-            if tone_analysis["emotional_markers"]["authority"] > TONE.high_authority_threshold:
-                recommendations.append("Balance authoritative tone with more accessible language")
-
-            result = {
-                "url": url,
-                "analysis_type": "tone",
-                "analyzed_at": datetime.now(UTC).isoformat(),
-                "results": tone_analysis,
-                "recommendations": recommendations
-                if recommendations
-                else ["Content tone is well-balanced"],
-                "sample_excerpts": sample_excerpts,
-            }
-
-        elif analysis_type == "seo":
-            seo_analysis = _analyze_seo(soup, text)
-
-            # Generate recommendations
-            recommendations = []
-            if seo_analysis["title_optimization"]["length"] < SEO.title_min_good:
-                recommendations.append(
-                    f"Lengthen page title to {SEO.title_min_good}-{SEO.title_max_good} characters for better SEO"
-                )
-            elif seo_analysis["title_optimization"]["length"] > SEO.title_max_good:
-                recommendations.append(
-                    f"Shorten page title to under {SEO.title_max_good} characters"
-                )
-
-            if not seo_analysis["meta_description"]["present"]:
-                recommendations.append(
-                    f"Add a meta description ({SEO.meta_min_good}-{SEO.meta_max_good} characters)"
-                )
-            elif seo_analysis["meta_description"]["length"] < SEO.meta_min_good:
-                recommendations.append(
-                    f"Expand meta description to {SEO.meta_min_good}-{SEO.meta_max_good} characters"
-                )
-
-            if seo_analysis["headings"]["h1_count"] == 0:
-                recommendations.append("Add an H1 heading to improve SEO structure")
-            elif seo_analysis["headings"]["h1_count"] > 1:
-                recommendations.append("Use only one H1 heading per page")
-
-            if seo_analysis["content_quality"]["word_count"] < SEO.words_min_recommended:
-                recommendations.append(
-                    f"Increase content length to {SEO.words_min_recommended}+ words for better ranking"
-                )
-
-            # Check for images with alt text
-            images_without_alt = len([img for img in soup.find_all("img") if not img.get("alt")])
-            if images_without_alt > 0:
-                recommendations.append(
-                    f"Add alt text to {images_without_alt} images for better SEO"
-                )
-
-            result = {
-                "url": url,
-                "analysis_type": "seo",
-                "analyzed_at": datetime.now(UTC).isoformat(),
-                "results": seo_analysis,
-                "recommendations": recommendations
-                if recommendations
-                else ["SEO is well-optimized"],
-            }
-
-        elif analysis_type == "engagement":
-            engagement_analysis = _analyze_engagement(soup, text, readability)
-
-            # Generate recommendations
-            recommendations = []
-            if engagement_analysis["engagement_elements"]["image_count"] == 0:
-                recommendations.append("Add images to make content more visually appealing")
-            if engagement_analysis["engagement_elements"]["video_count"] == 0:
-                recommendations.append("Consider adding video content to increase engagement")
-            if not engagement_analysis["content_structure"]["has_bullet_points"]:
-                recommendations.append(
-                    "Use bullet points to break up text and improve scannability"
-                )
-            if engagement_analysis["engagement_elements"]["cta_count"] < ENGAGEMENT.cta_min:
-                recommendations.append("Add clear calls-to-action throughout the content")
-            if readability["flesch_reading_ease"] < ENGAGEMENT.simplify_threshold:
-                recommendations.append("Simplify language to improve readability")
-
-            result = {
-                "url": url,
-                "analysis_type": "engagement",
-                "analyzed_at": datetime.now(UTC).isoformat(),
-                "results": engagement_analysis,
-                "recommendations": recommendations
-                if recommendations
-                else ["Content is highly engaging"],
-            }
-
-        else:
-            raise ValueError(f"Unsupported analysis type: {analysis_type}")
+        result = builder(url, soup, text, readability)
 
         logger.info(f"Successfully analyzed {url}")
         return result

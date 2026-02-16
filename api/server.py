@@ -310,6 +310,17 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+
+def _validate_cors_origin(origin: str) -> bool:
+    """Validate a CORS origin string.
+
+    Rejects wildcards, empty strings, and non-http(s) schemes.
+    """
+    if not origin or origin == "*":
+        return False
+    return origin.startswith(("http://", "https://"))
+
+
 # Configure CORS for web UI
 # Use explicit localhost origins plus any configured extras (even in dev mode)
 allow_origins = [
@@ -319,7 +330,12 @@ allow_origins = [
     "http://127.0.0.1:8080",  # Production (IP)
 ]
 if extra_origins := os.getenv("CORS_ALLOWED_ORIGINS"):
-    allow_origins.extend(origin.strip() for origin in extra_origins.split(",") if origin.strip())
+    for origin in extra_origins.split(","):
+        origin = origin.strip()
+        if origin and _validate_cors_origin(origin):
+            allow_origins.append(origin)
+        elif origin:
+            logger.warning("Ignoring invalid CORS origin: %s", origin)
 
 app.add_middleware(
     CORSMiddleware,
@@ -385,6 +401,29 @@ async def verify_api_key(
         _api_key.encode("utf-8"),
     ):
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
+
+async def _authenticate_websocket(websocket: WebSocket) -> bool:
+    """Authenticate a WebSocket connection via initial message exchange.
+
+    If API_KEY is not configured, returns True immediately (auth disabled).
+    Otherwise, waits for an auth message: {"type": "auth", "api_key": "..."}.
+    The client must send this as its first message after connecting.
+
+    Uses constant-time comparison to prevent timing attacks.
+    Credentials never appear in query strings, avoiding leakage via
+    server logs, browser history, referrer headers, or proxy logs.
+    """
+    if not _api_key:
+        return True
+    try:
+        data = await asyncio.wait_for(websocket.receive_json(), timeout=10.0)
+    except (TimeoutError, Exception):
+        return False
+    if not isinstance(data, dict) or data.get("type") != "auth":
+        return False
+    ws_key = data.get("api_key", "")
+    return secrets.compare_digest(str(ws_key).encode("utf-8"), _api_key.encode("utf-8"))
 
 
 # ---------------------------------------------------------------------------
@@ -1076,8 +1115,17 @@ async def claude_code_websocket(websocket: WebSocket, session_id: str) -> None:
     - {"type": "permission", "approved": true/false}
     - {"type": "resize", "rows": 40, "cols": 120}
     - {"type": "abort"}
+
+    Authentication (when API_KEY is configured):
+    The first message after connecting MUST be: {"type": "auth", "api_key": "..."}
+    If auth fails or times out (10s), the connection is closed with code 4001.
+    When API_KEY is not configured, no auth message is required.
     """
     await websocket.accept()
+
+    if not await _authenticate_websocket(websocket):
+        await websocket.close(code=4001, reason="Invalid or missing API key")
+        return
 
     session = claude_code_mgr.get_session(session_id)
     if session is None:
@@ -1215,11 +1263,6 @@ def _validate_twilio_signature(url: str, params: dict[str, str], signature: str)
     return hmac.compare_digest(expected_b64, signature)
 
 
-def _sanitize_for_log(value: str) -> str:
-    """Strip control characters from user input to prevent log injection."""
-    return value.replace("\n", "").replace("\r", "").replace("\x00", "")
-
-
 @app.post("/webhooks/sms/incoming")
 async def handle_incoming_sms(request: Request) -> Response:
     """
@@ -1243,9 +1286,9 @@ async def handle_incoming_sms(request: Request) -> Response:
     """
     # Parse form data and sanitize for safe logging
     form = await request.form()
-    from_phone = _sanitize_for_log(str(form.get("From", "")))
-    to_phone = _sanitize_for_log(str(form.get("To", "")))
-    message_body = _sanitize_for_log(str(form.get("Body", "")))
+    from_phone = _sanitize_log_input(str(form.get("From", "")))
+    to_phone = _sanitize_log_input(str(form.get("To", "")))
+    message_body = _sanitize_log_input(str(form.get("Body", "")))
 
     logger.info(f"Incoming SMS from {from_phone} to {to_phone}")
 

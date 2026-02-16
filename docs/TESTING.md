@@ -154,13 +154,13 @@ By default, workspaces are stored in `~/.claude_code_workspaces/`. Set `CLAUDE_C
 
 ```bash
 # Run an agent with a one-line test
-echo "test message" | uv run python run_agent.py chatbot
+echo "test message" | uv run python bin/run-agent chatbot
 
 # Run with timeout to avoid hanging
-timeout 30s uv run python run_agent.py chatbot <<< "test"
+timeout 30s uv run python bin/run-agent chatbot <<< "test"
 
 # Run and check logs
-uv run python run_agent.py chatbot
+uv run python bin/run-agent chatbot
 # Then check: ~/.agents/logs/agent_YYYY-MM-DD.log
 ```
 
@@ -292,7 +292,7 @@ Before committing changes or reporting issues:
 
 - [ ] Memory operations work: `uv run python scripts/testing/test_memory.py stats`
 - [ ] MCP server starts: `uv run python -m mcp_server.server` (Ctrl+C to stop)
-- [ ] Agent starts: `timeout 10s uv run python run_agent.py chatbot <<< "test"`
+- [ ] Agent starts: `timeout 10s uv run python bin/run-agent chatbot <<< "test"`
 - [ ] Check logs for errors: `tail ~/.agents/logs/agent_$(date +%Y-%m-%d).log`
 - [ ] Environment variables set: `grep -E "(ANTHROPIC|MEMORY)_" .env`
 
@@ -312,7 +312,7 @@ time uv run python scripts/testing/test_memory.py stats
 
 ```bash
 # Time a simple agent interaction
-time echo "hello" | uv run python run_agent.py chatbot
+time echo "hello" | uv run python bin/run-agent chatbot
 
 # First message includes tool discovery overhead
 # Subsequent messages in same session are faster
@@ -337,7 +337,7 @@ echo "MEMORY_BACKEND=file" >> .env
 **Solution:** Ensure running from project root:
 ```bash
 cd /home/brooks/build/agents
-uv run python run_agent.py chatbot
+uv run python bin/run-agent chatbot
 ```
 
 ### Issue: Package name collision (e.g., `mcp` module not found)
@@ -381,7 +381,7 @@ MEMORY_BACKEND=database DATABASE_URL=postgresql://... uv run python scripts/test
 uv run python scripts/testing/test_memory.py save session_test "Value from script" --importance 9
 
 # Start agent and check if it can retrieve it
-uv run python run_agent.py chatbot
+uv run python bin/run-agent chatbot
 > "Do you remember the session_test memory?"
 ```
 

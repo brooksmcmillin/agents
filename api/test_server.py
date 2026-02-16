@@ -13,7 +13,12 @@ from fastapi.testclient import TestClient
 
 # Mock the database before importing the server
 with patch.dict(os.environ, {"DATABASE_URL": ""}):
-    from api.server import app
+    from api.server import (
+        _sanitize_log_input,
+        _validate_cors_origin,
+        app,
+        verify_api_key,
+    )
 
 
 @pytest.fixture
@@ -244,6 +249,148 @@ class TestMessageSending:
         assert "response" in data
         assert data["agent"] == "chatbot"
         assert "usage" in data
+
+
+class TestVerifyApiKey:
+    """Tests for the verify_api_key dependency."""
+
+    @pytest.mark.asyncio
+    async def test_allows_request_when_no_api_key_configured(self):
+        """When API_KEY env is not set, all requests pass."""
+        with patch("api.server._api_key", None):
+            await verify_api_key(credentials=None)  # Should not raise
+
+    @pytest.mark.asyncio
+    async def test_rejects_missing_credentials(self):
+        """When API_KEY is set but no credentials provided, reject."""
+        with patch("api.server._api_key", "secret-key"):
+            from fastapi import HTTPException
+
+            with pytest.raises(HTTPException) as exc_info:
+                await verify_api_key(credentials=None)
+            assert exc_info.value.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_rejects_invalid_key(self):
+        """When API_KEY is set and wrong key provided, reject."""
+        with patch("api.server._api_key", "secret-key"):
+            from fastapi import HTTPException
+            from fastapi.security import HTTPAuthorizationCredentials
+
+            creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="wrong-key")
+            with pytest.raises(HTTPException) as exc_info:
+                await verify_api_key(credentials=creds)
+            assert exc_info.value.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_accepts_valid_key(self):
+        """When API_KEY is set and correct key provided, allow."""
+        with patch("api.server._api_key", "secret-key"):
+            from fastapi.security import HTTPAuthorizationCredentials
+
+            creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="secret-key")
+            await verify_api_key(credentials=creds)  # Should not raise
+
+
+class TestSanitizeLogInput:
+    """Tests for _sanitize_log_input."""
+
+    def test_replaces_newlines(self):
+        assert "\\n" in _sanitize_log_input("line1\nline2")
+        assert "\n" not in _sanitize_log_input("line1\nline2")
+
+    def test_replaces_carriage_returns(self):
+        assert "\\r" in _sanitize_log_input("line1\rline2")
+        assert "\r" not in _sanitize_log_input("line1\rline2")
+
+    def test_removes_null_bytes(self):
+        result = _sanitize_log_input("before\x00after")
+        assert "\x00" not in result
+        assert "\\x00" in result
+
+    def test_removes_control_chars(self):
+        result = _sanitize_log_input("test\x01\x02\x03value")
+        assert "\x01" not in result
+        assert "\x02" not in result
+        assert "\x03" not in result
+
+    def test_preserves_tabs(self):
+        assert "\t" in _sanitize_log_input("col1\tcol2")
+
+    def test_preserves_unicode(self):
+        assert "hello" in _sanitize_log_input("hello 世界")
+
+    def test_normal_text_unchanged(self):
+        assert _sanitize_log_input("hello world") == "hello world"
+
+
+class TestCorsOriginValidation:
+    """Tests for _validate_cors_origin."""
+
+    def test_rejects_wildcard(self):
+        assert _validate_cors_origin("*") is False
+
+    def test_rejects_empty_string(self):
+        assert _validate_cors_origin("") is False
+
+    def test_rejects_ftp_scheme(self):
+        assert _validate_cors_origin("ftp://example.com") is False
+
+    def test_rejects_no_scheme(self):
+        assert _validate_cors_origin("example.com") is False
+
+    def test_accepts_http(self):
+        assert _validate_cors_origin("http://localhost:3000") is True
+
+    def test_accepts_https(self):
+        assert _validate_cors_origin("https://example.com") is True
+
+
+class TestWebSocketAuth:
+    """Tests for WebSocket message-based authentication.
+
+    When API_KEY is configured, clients must send {"type": "auth", "api_key": "..."}
+    as their first message after connecting. Credentials never appear in the URL,
+    avoiding leakage via server logs, browser history, or proxy logs.
+    """
+
+    def test_ws_accepts_when_no_api_key_configured(self, client):
+        """WebSocket should work without auth message when no API_KEY is set."""
+        with patch("api.server._api_key", None):
+            # No auth message needed; connection proceeds to session lookup (4004)
+            with client.websocket_connect("/ws/claude-code/fake-session"):
+                pass  # pragma: no cover - closes with 4004 (no session)
+
+    def test_ws_rejects_missing_auth_message(self, client):
+        """WebSocket should reject when API_KEY is set but no auth message sent."""
+        with patch("api.server._api_key", "secret-key"):
+            from starlette.websockets import WebSocketDisconnect
+
+            with pytest.raises(WebSocketDisconnect) as exc_info:
+                with client.websocket_connect("/ws/claude-code/fake-session") as ws:
+                    # Send a non-auth message as first message
+                    ws.send_json({"type": "input", "text": "hello"})
+                    ws.receive_json()  # Should get close frame
+            assert exc_info.value.code == 4001
+
+    def test_ws_rejects_wrong_api_key(self, client):
+        """WebSocket should reject when wrong API key in auth message."""
+        with patch("api.server._api_key", "secret-key"):
+            from starlette.websockets import WebSocketDisconnect
+
+            with pytest.raises(WebSocketDisconnect) as exc_info:
+                with client.websocket_connect("/ws/claude-code/fake-session") as ws:
+                    ws.send_json({"type": "auth", "api_key": "wrong-key"})
+                    ws.receive_json()
+            assert exc_info.value.code == 4001
+
+    def test_ws_accepts_valid_auth_message(self, client):
+        """WebSocket should accept when correct API key sent in auth message."""
+        with patch("api.server._api_key", "secret-key"):
+            # Should pass auth, then close with 4004 (session not found)
+            with client.websocket_connect("/ws/claude-code/fake-session") as ws:
+                ws.send_json({"type": "auth", "api_key": "secret-key"})
+                # Connection proceeds past auth; server will close with 4004
 
 
 @pytest.mark.asyncio
