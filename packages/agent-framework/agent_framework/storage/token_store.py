@@ -77,6 +77,10 @@ class TokenStore:
 
         if encryption_key:
             try:
+                if len(encryption_key) != 44:
+                    raise ValueError(
+                        f"Invalid encryption key length: {len(encryption_key)} (expected 44)"
+                    )
                 self.cipher = Fernet(encryption_key.encode())
                 logger.info("Token encryption enabled")
             except Exception as e:
@@ -90,22 +94,32 @@ class TokenStore:
             raise RuntimeError("Encryption required but no key could be generated or loaded.")
 
     def _load_or_generate_key(self) -> str | None:
-        """Load existing encryption key or generate and persist a new one."""
+        """Load existing encryption key or generate and persist a new one.
+
+        Uses O_EXCL for atomic file creation to prevent race conditions
+        when multiple processes start simultaneously.
+        """
+        import os
+
         key_file = self.storage_path / ".encryption.key"
         try:
             if key_file.exists():
                 return key_file.read_text().strip()
             key = Fernet.generate_key().decode()
-            # Write with restricted permissions from the start
-            import os
-
-            fd = os.open(key_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            # O_EXCL ensures atomic creation — if another process created the
+            # file between our exists() check and now, we get FileExistsError
+            # and fall through to read their key instead.
+            try:
+                fd = os.open(key_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            except FileExistsError:
+                return key_file.read_text().strip()
             try:
                 with os.fdopen(fd, "w") as f:
                     f.write(key)
             except Exception:
                 os.close(fd)
                 raise
+            # nosem: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
             logger.info("Auto-generated token encryption key (stored at %s)", key_file)
             return key
         except Exception as e:
