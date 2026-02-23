@@ -127,12 +127,15 @@ async def run_once(
         if not quiet:
             print(f"Running {agent_class.__name__}...\n")
 
-        response = await agent.process_message(message)
+        def _stream_delta(text: str) -> None:
+            sys.stdout.write(text)
+            sys.stdout.flush()
 
-        print(response)
+        await agent.process_message(message, on_text_delta=_stream_delta)
+        print()  # trailing newline after streamed output
 
         if not quiet:
-            print("\n---")
+            print("---")
             print(
                 f"Tokens: {agent.total_input_tokens:,} input, {agent.total_output_tokens:,} output"
             )

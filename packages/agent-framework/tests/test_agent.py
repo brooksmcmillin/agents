@@ -40,7 +40,7 @@ class TestAgentInitialization:
                 agent = ConcreteAgent().create()
 
                 assert agent.api_key == "test-api-key-12345"
-                assert agent.model == "claude-sonnet-4-5-20250929"
+                assert agent.model == "claude-sonnet-4-6"
                 assert agent.messages == []
                 assert agent.total_input_tokens == 0
                 assert agent.total_output_tokens == 0

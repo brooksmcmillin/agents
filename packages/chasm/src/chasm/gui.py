@@ -249,7 +249,7 @@ if __name__ == "__main__":
     # Create the voice agent
     agent = VoiceAgent(
         mcp_server_path=str(mcp_server_path),
-        model="claude-sonnet-4-20250514",
+        model="claude-sonnet-4-6",
         enable_web_search=False,  # Not useful for voice
         allowed_tools=[],  # No tools by default - add tools here if needed
     )
