@@ -127,12 +127,27 @@ async def run_once(
         if not quiet:
             print(f"Running {agent_class.__name__}...\n")
 
+        streamed = False
+
         def _stream_delta(text: str) -> None:
+            nonlocal streamed
+            streamed = True
             sys.stdout.write(text)
             sys.stdout.flush()
 
-        await agent.process_message(message, on_text_delta=_stream_delta)
-        print()  # trailing newline after streamed output
+        def _show_tool_status(tool_name: str) -> None:
+            nonlocal streamed
+            if streamed:
+                sys.stdout.write("\n")
+            sys.stdout.write(f"  [calling {tool_name}...]\n")
+            sys.stdout.flush()
+            streamed = False
+
+        await agent.process_message(
+            message, on_text_delta=_stream_delta, on_tool_start=_show_tool_status
+        )
+        if streamed:
+            print()  # trailing newline after streamed output
 
         if not quiet:
             print("---")

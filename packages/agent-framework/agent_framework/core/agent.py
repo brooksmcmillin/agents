@@ -784,10 +784,22 @@ class Agent(ABC):
                     sys.stdout.write(text)
                     sys.stdout.flush()
 
+                def _show_tool_status(tool_name: str) -> None:
+                    nonlocal first_token
+                    if not first_token:
+                        # Text was already streamed; move to a new line for the status
+                        sys.stdout.write("\n")
+                    else:
+                        sys.stdout.write("\n")
+                    sys.stdout.write(f"  [calling {tool_name}...]\n")
+                    sys.stdout.flush()
+                    first_token = True  # reset so next text chunk prints "Assistant: "
+
                 response = await self.process_message(
                     user_input,
                     session_id=cli_session_id,
                     on_text_delta=_stream_to_terminal,
+                    on_tool_start=_show_tool_status,
                 )
 
                 if not first_token:
@@ -812,6 +824,7 @@ class Agent(ABC):
         session_id: str | None = None,
         execution_context: ExecutionContext | None = None,
         on_text_delta: Callable[[str], None] | None = None,
+        on_tool_start: Callable[[str], None] | None = None,
     ) -> str:
         """
         Process a user message and return the agent's response.
@@ -834,6 +847,9 @@ class Agent(ABC):
             on_text_delta: Optional callback invoked with each text chunk as it
                 arrives from the streaming API. When provided, uses streaming;
                 when None, uses the standard blocking API call.
+            on_tool_start: Optional callback invoked when a tool call begins,
+                receiving the tool name. Useful for showing status indicators
+                between streaming text chunks during multi-turn tool use.
 
         Returns:
             The agent's response as a string
@@ -881,7 +897,9 @@ class Agent(ABC):
 
         exc_info: tuple | None = None
         try:
-            return await self._process_message_internal(user_message, trace_ctx, on_text_delta)
+            return await self._process_message_internal(
+                user_message, trace_ctx, on_text_delta, on_tool_start
+            )
         except BaseException:
             import sys
 
@@ -902,6 +920,7 @@ class Agent(ABC):
         user_message: str,
         trace_ctx,
         on_text_delta: Callable[[str], None] | None = None,
+        on_tool_start: Callable[[str], None] | None = None,
     ) -> str:
         """Internal message processing with observability context.
 
@@ -909,6 +928,7 @@ class Agent(ABC):
             user_message: The user's input message
             trace_ctx: Optional TraceContext for observability
             on_text_delta: Optional callback for streaming text deltas
+            on_tool_start: Optional callback invoked when a tool call begins
 
         Returns:
             The agent's response as a string
@@ -1043,6 +1063,8 @@ class Agent(ABC):
                     tool_results = []
                     for tool_call in tool_calls:
                         logger.info(f"Executing tool: {tool_call.name}")
+                        if on_tool_start is not None:
+                            on_tool_start(tool_call.name)
 
                         # Prepare tool input for observability (preserve non-dict inputs)
                         tool_input = (
