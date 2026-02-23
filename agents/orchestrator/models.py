@@ -35,7 +35,7 @@ KNOWN_MODELS = frozenset(
         "sonnet",
         "haiku",
         "opus",
-        "claude-sonnet-4-5-20250929",
+        "claude-sonnet-4-6",
         "claude-haiku-4-5-20251001",
         "claude-opus-4-6",
     }
@@ -45,7 +45,7 @@ KNOWN_MODELS = frozenset(
 # Short name -> full Anthropic model ID mapping
 MODEL_ALIASES: dict[str, str] = {
     "haiku": "claude-haiku-4-5-20251001",
-    "sonnet": "claude-sonnet-4-5-20250929",
+    "sonnet": "claude-sonnet-4-6",
     "opus": "claude-opus-4-6",
 }
 

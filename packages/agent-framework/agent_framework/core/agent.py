@@ -16,6 +16,7 @@ import os
 import select
 import sys
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TextIO, cast
 
@@ -332,7 +333,7 @@ class Agent(ABC):
     def __init__(
         self,
         api_key: str | None = None,
-        model: str = "claude-sonnet-4-5-20250929",
+        model: str = "claude-sonnet-4-6",
         mcp_server_path: str = "mcp_server/server.py",
         mcp_urls: list[str] | None = None,
         enable_web_search: bool = True,
@@ -772,11 +773,40 @@ class Agent(ABC):
                         print(f"✗ Failed to connect: {e}")
                     continue
 
-                # Process user message
-                response = await self.process_message(user_input, session_id=cli_session_id)
+                # Process user message with streaming output
+                first_token = True
 
-                # Display response
-                print(f"\nAssistant: {response}")
+                def _stream_to_terminal(text: str) -> None:
+                    nonlocal first_token
+                    if first_token:
+                        sys.stdout.write("\nAssistant: ")
+                        first_token = False
+                    sys.stdout.write(text)
+                    sys.stdout.flush()
+
+                def _show_tool_status(tool_name: str) -> None:
+                    nonlocal first_token
+                    if not first_token:
+                        # Text was already streamed; move to a new line for the status
+                        sys.stdout.write("\n")
+                    else:
+                        sys.stdout.write("\n")
+                    sys.stdout.write(f"  [calling {tool_name}...]\n")
+                    sys.stdout.flush()
+                    first_token = True  # reset so next text chunk prints "Assistant: "
+
+                response = await self.process_message(
+                    user_input,
+                    session_id=cli_session_id,
+                    on_text_delta=_stream_to_terminal,
+                    on_tool_start=_show_tool_status,
+                )
+
+                if not first_token:
+                    sys.stdout.write("\n")
+                    sys.stdout.flush()
+                else:
+                    print(f"\nAssistant: {response}")
 
             except KeyboardInterrupt:
                 print("\n\nSession interrupted. Goodbye! 👋")
@@ -793,6 +823,8 @@ class Agent(ABC):
         user_id: str | None = None,
         session_id: str | None = None,
         execution_context: ExecutionContext | None = None,
+        on_text_delta: Callable[[str], None] | None = None,
+        on_tool_start: Callable[[str], None] | None = None,
     ) -> str:
         """
         Process a user message and return the agent's response.
@@ -812,6 +844,12 @@ class Agent(ABC):
                 When provided, the effective permissions are the intersection
                 of the context permissions and the agent's default permissions.
                 This enables permission propagation through agent chains.
+            on_text_delta: Optional callback invoked with each text chunk as it
+                arrives from the streaming API. When provided, uses streaming;
+                when None, uses the standard blocking API call.
+            on_tool_start: Optional callback invoked when a tool call begins,
+                receiving the tool name. Useful for showing status indicators
+                between streaming text chunks during multi-turn tool use.
 
         Returns:
             The agent's response as a string
@@ -859,7 +897,9 @@ class Agent(ABC):
 
         exc_info: tuple | None = None
         try:
-            return await self._process_message_internal(user_message, trace_ctx)
+            return await self._process_message_internal(
+                user_message, trace_ctx, on_text_delta, on_tool_start
+            )
         except BaseException:
             import sys
 
@@ -875,12 +915,20 @@ class Agent(ABC):
             elif trace_ctx is not None:
                 trace_ctx.__exit__(None, None, None)
 
-    async def _process_message_internal(self, user_message: str, trace_ctx) -> str:
+    async def _process_message_internal(
+        self,
+        user_message: str,
+        trace_ctx,
+        on_text_delta: Callable[[str], None] | None = None,
+        on_tool_start: Callable[[str], None] | None = None,
+    ) -> str:
         """Internal message processing with observability context.
 
         Args:
             user_message: The user's input message
             trace_ctx: Optional TraceContext for observability
+            on_text_delta: Optional callback for streaming text deltas
+            on_tool_start: Optional callback invoked when a tool call begins
 
         Returns:
             The agent's response as a string
@@ -925,14 +973,26 @@ class Agent(ABC):
             logger.info(f"Agent iteration {iteration}")
 
             try:
-                # Call Claude
-                response = await self.client.messages.create(
-                    model=self.model,
-                    max_tokens=16000,
-                    system=self.get_system_prompt(),
-                    messages=self.messages,
-                    tools=cast(list[ToolParam], tools),
-                )
+                # Call Claude (streaming when callback provided, blocking otherwise)
+                if on_text_delta is not None:
+                    async with self.client.messages.stream(
+                        model=self.model,
+                        max_tokens=16000,
+                        system=self.get_system_prompt(),
+                        messages=self.messages,
+                        tools=cast(list[ToolParam], tools),
+                    ) as stream:
+                        async for text in stream.text_stream:
+                            on_text_delta(text)
+                        response = await stream.get_final_message()
+                else:
+                    response = await self.client.messages.create(
+                        model=self.model,
+                        max_tokens=16000,
+                        system=self.get_system_prompt(),
+                        messages=self.messages,
+                        tools=cast(list[ToolParam], tools),
+                    )
 
                 # Track token usage
                 self.total_input_tokens += response.usage.input_tokens
@@ -1003,6 +1063,8 @@ class Agent(ABC):
                     tool_results = []
                     for tool_call in tool_calls:
                         logger.info(f"Executing tool: {tool_call.name}")
+                        if on_tool_start is not None:
+                            on_tool_start(tool_call.name)
 
                         # Prepare tool input for observability (preserve non-dict inputs)
                         tool_input = (

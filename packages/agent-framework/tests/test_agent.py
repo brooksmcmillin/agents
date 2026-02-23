@@ -40,7 +40,7 @@ class TestAgentInitialization:
                 agent = ConcreteAgent().create()
 
                 assert agent.api_key == "test-api-key-12345"
-                assert agent.model == "claude-sonnet-4-5-20250929"
+                assert agent.model == "claude-sonnet-4-6"
                 assert agent.messages == []
                 assert agent.total_input_tokens == 0
                 assert agent.total_output_tokens == 0
@@ -308,6 +308,181 @@ class TestAgentProcessMessage:
                 result = await agent.process_message("Test")
 
                 assert "encountered an error" in result
+
+
+class TestAgentStreaming:
+    """Tests for streaming output via on_text_delta callback."""
+
+    @pytest.mark.asyncio
+    async def test_streaming_callback_invoked_with_text_chunks(self, env_with_api_key):
+        """Test that on_text_delta is called for each text chunk."""
+        with patch("agent_framework.core.agent.AsyncAnthropic") as mock_anthropic:
+            with patch("agent_framework.core.agent.MCPClient") as mock_mcp:
+                mock_client = AsyncMock()
+                mock_anthropic.return_value = mock_client
+
+                mock_response = MagicMock()
+                mock_response.stop_reason = "end_turn"
+                mock_response.content = [TextBlock(type="text", text="Hello world")]
+                mock_response.usage.input_tokens = 10
+                mock_response.usage.output_tokens = 5
+
+                # Mock the streaming context manager
+                chunks = ["Hello", " ", "world"]
+
+                async def _text_stream():
+                    for chunk in chunks:
+                        yield chunk
+
+                mock_stream = AsyncMock()
+                mock_stream.text_stream = _text_stream()
+                mock_stream.get_final_message = AsyncMock(return_value=mock_response)
+
+                mock_stream_cm = AsyncMock()
+                mock_stream_cm.__aenter__ = AsyncMock(return_value=mock_stream)
+                mock_stream_cm.__aexit__ = AsyncMock(return_value=False)
+                mock_client.messages.stream = MagicMock(return_value=mock_stream_cm)
+
+                mock_mcp_instance = MagicMock()
+                mock_mcp.return_value = mock_mcp_instance
+                mock_mcp_instance.available_tools = {}
+                mock_mcp_instance.connect = MagicMock()
+                mock_mcp_instance.connect.return_value.__aenter__ = AsyncMock(
+                    return_value=mock_mcp_instance
+                )
+                mock_mcp_instance.connect.return_value.__aexit__ = AsyncMock()
+
+                agent = ConcreteAgent().create()
+                agent.mcp_client = mock_mcp_instance
+
+                received_chunks: list[str] = []
+                result = await agent.process_message(
+                    "Hello", on_text_delta=lambda text: received_chunks.append(text)
+                )
+
+                assert received_chunks == ["Hello", " ", "world"]
+                assert result == "Hello world"
+                assert agent.total_input_tokens == 10
+                assert agent.total_output_tokens == 5
+
+    @pytest.mark.asyncio
+    async def test_streaming_with_tool_use_calls_on_tool_start(self, env_with_api_key):
+        """Test that on_tool_start is called when a tool is invoked during streaming."""
+        with patch("agent_framework.core.agent.AsyncAnthropic") as mock_anthropic:
+            with patch("agent_framework.core.agent.MCPClient") as mock_mcp:
+                mock_client = AsyncMock()
+                mock_anthropic.return_value = mock_client
+
+                # First response: tool_use (model calls a tool)
+                tool_response = MagicMock()
+                tool_response.stop_reason = "tool_use"
+                tool_response.content = [
+                    TextBlock(type="text", text="Let me check."),
+                    ToolUseBlock(
+                        type="tool_use",
+                        id="tool_1",
+                        name="test_tool",
+                        input={"q": "test"},
+                    ),
+                ]
+                tool_response.usage.input_tokens = 10
+                tool_response.usage.output_tokens = 5
+
+                # Second response: end_turn (final answer)
+                final_response = MagicMock()
+                final_response.stop_reason = "end_turn"
+                final_response.content = [TextBlock(type="text", text="Here's the answer.")]
+                final_response.usage.input_tokens = 15
+                final_response.usage.output_tokens = 8
+
+                # Build stream mocks for both iterations
+                async def _tool_text_stream():
+                    yield "Let me check."
+
+                mock_stream_1 = AsyncMock()
+                mock_stream_1.text_stream = _tool_text_stream()
+                mock_stream_1.get_final_message = AsyncMock(return_value=tool_response)
+
+                async def _final_text_stream():
+                    yield "Here's the answer."
+
+                mock_stream_2 = AsyncMock()
+                mock_stream_2.text_stream = _final_text_stream()
+                mock_stream_2.get_final_message = AsyncMock(return_value=final_response)
+
+                call_count = 0
+
+                def _make_stream_cm(*args, **kwargs):
+                    nonlocal call_count
+                    call_count += 1
+                    cm = AsyncMock()
+                    cm.__aenter__ = AsyncMock(
+                        return_value=mock_stream_1 if call_count == 1 else mock_stream_2
+                    )
+                    cm.__aexit__ = AsyncMock(return_value=False)
+                    return cm
+
+                mock_client.messages.stream = MagicMock(side_effect=_make_stream_cm)
+
+                mock_mcp_instance = MagicMock()
+                mock_mcp.return_value = mock_mcp_instance
+                mock_mcp_instance.available_tools = {"test_tool": MagicMock()}
+                mock_mcp_instance.connect = MagicMock()
+                mock_mcp_instance.connect.return_value.__aenter__ = AsyncMock(
+                    return_value=mock_mcp_instance
+                )
+                mock_mcp_instance.connect.return_value.__aexit__ = AsyncMock()
+
+                agent = ConcreteAgent().create()
+                agent.mcp_client = mock_mcp_instance
+                agent._call_mcp_tool_with_reconnect = AsyncMock(return_value={"result": "ok"})
+
+                received_text: list[str] = []
+                tool_starts: list[str] = []
+
+                result = await agent.process_message(
+                    "Do something",
+                    on_text_delta=lambda t: received_text.append(t),
+                    on_tool_start=lambda name: tool_starts.append(name),
+                )
+
+                assert received_text == ["Let me check.", "Here's the answer."]
+                assert tool_starts == ["test_tool"]
+                assert result == "Here's the answer."
+
+    @pytest.mark.asyncio
+    async def test_non_streaming_path_unchanged(self, env_with_api_key):
+        """Test that omitting on_text_delta uses the blocking .create() path."""
+        with patch("agent_framework.core.agent.AsyncAnthropic") as mock_anthropic:
+            with patch("agent_framework.core.agent.MCPClient") as mock_mcp:
+                mock_client = AsyncMock()
+                mock_anthropic.return_value = mock_client
+
+                mock_response = MagicMock()
+                mock_response.stop_reason = "end_turn"
+                mock_response.content = [TextBlock(type="text", text="Blocking response")]
+                mock_response.usage.input_tokens = 10
+                mock_response.usage.output_tokens = 5
+                mock_client.messages.create = AsyncMock(return_value=mock_response)
+
+                mock_mcp_instance = MagicMock()
+                mock_mcp.return_value = mock_mcp_instance
+                mock_mcp_instance.available_tools = {}
+                mock_mcp_instance.connect = MagicMock()
+                mock_mcp_instance.connect.return_value.__aenter__ = AsyncMock(
+                    return_value=mock_mcp_instance
+                )
+                mock_mcp_instance.connect.return_value.__aexit__ = AsyncMock()
+
+                agent = ConcreteAgent().create()
+                agent.mcp_client = mock_mcp_instance
+
+                result = await agent.process_message("Hello")
+
+                assert result == "Blocking response"
+                mock_client.messages.create.assert_called_once()
+                # Verify .stream() was NOT called
+                mock_client.messages.stream.assert_not_called()
 
 
 class TestAgentMemoryIsolation:
