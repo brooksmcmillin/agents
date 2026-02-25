@@ -14,6 +14,15 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+_REPO_RE = re.compile(r"^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$")
+
+
+def validate_repo(repo: str) -> str:
+    """Validate ``owner/repo`` format. Raises :class:`ValueError` on mismatch."""
+    if not _REPO_RE.match(repo):
+        raise ValueError(f"Invalid repo format (expected owner/repo): {repo!r}")
+    return repo
+
 
 async def _run_gh(args: list[str], timeout: int = 30) -> tuple[int, str, str]:
     """Run a ``gh`` CLI command and return (returncode, stdout, stderr)."""
@@ -37,6 +46,7 @@ async def list_open_prs(repo: str, label: str | None = None) -> list[dict[str, A
     Returns a list of dicts with ``number``, ``title``, ``headRefName``,
     and ``labels`` keys.
     """
+    validate_repo(repo)
     cmd = [
         "pr",
         "list",
@@ -206,16 +216,20 @@ async def get_fix_attempt_count(repo: str, pr_number: int) -> int:
 
 async def push_branch(workspace_path: str, branch: str) -> bool:
     """Push a branch from *workspace_path*. Returns True on success."""
-    proc = await asyncio.create_subprocess_exec(
-        "git",
-        "push",
-        "origin",
-        branch,
-        cwd=workspace_path,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            "push",
+            "origin",
+            branch,
+            cwd=workspace_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
+    except TimeoutError:
+        logger.error(f"git push timed out in {workspace_path}")
+        return False
     if proc.returncode != 0:
         err = stderr.decode("utf-8", errors="replace")
         logger.error(f"git push failed in {workspace_path}: {err}")

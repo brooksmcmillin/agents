@@ -13,6 +13,7 @@ import argparse
 import asyncio
 import logging
 import os
+import re
 import sys
 
 # Add project root to path for imports
@@ -91,6 +92,10 @@ Examples:
     )
 
     args = parser.parse_args()
+
+    for repo in args.repos:
+        if not re.match(r"^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$", repo):
+            parser.error(f"Invalid repo format: {repo}. Use owner/repo format.")
 
     return PRShepherdConfig(
         repos=args.repos,

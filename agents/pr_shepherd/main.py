@@ -16,6 +16,8 @@ from agent_framework.tools.claude_code import (
     run_claude_code,
 )
 
+from agents.orchestrator.models import validate_git_ref, validate_workspace_name
+
 from . import github_ops
 from .models import PRShepherdConfig, PRStatus, TrackedPR
 from .prompts import FIX_CI_INSTRUCTIONS_TEMPLATE
@@ -144,8 +146,21 @@ class PRShepherd:
             )
             return
 
+        # Validate branch name before using in git commands
+        try:
+            validate_git_ref(pr.head_branch, "head branch")
+        except ValueError:
+            logger.error(f"Invalid branch name for {pr.repo}#{pr.number}: {pr.head_branch!r}")
+            return
+
         # Ensure workspace exists (clone repo, checkout PR branch)
         workspace_name = f"pr-shepherd-{pr.repo.replace('/', '-')}-{pr.number}"
+        try:
+            validate_workspace_name(workspace_name)
+        except ValueError:
+            logger.error(f"Invalid workspace name: {workspace_name!r}")
+            return
+
         git_url = f"https://github.com/{pr.repo}.git"
 
         ws_result = await create_claude_code_workspace(
@@ -157,49 +172,60 @@ class PRShepherd:
             logger.error(f"Failed to create workspace: {ws_result.get('error')}")
             return
 
-        workspace_path = ws_result.get("workspace_path") or str(
-            Path(
-                os.environ.get(
-                    "CLAUDE_CODE_WORKSPACES_DIR",
-                    str(Path.home() / ".claude_code_workspaces"),
+        workspace_path = ws_result.get("workspace_path")
+        if not workspace_path:
+            workspace_path = str(
+                Path(
+                    os.environ.get(
+                        "CLAUDE_CODE_WORKSPACES_DIR",
+                        str(Path.home() / ".claude_code_workspaces"),
+                    )
                 )
+                / workspace_name
             )
-            / workspace_name
-        )
+            logger.warning(f"workspace_path not in result, reconstructed: {workspace_path}")
 
         # Checkout the PR branch
-        checkout_proc = await asyncio.create_subprocess_exec(
-            "git",
-            "fetch",
-            "origin",
-            pr.head_branch,
-            cwd=workspace_path,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        await asyncio.wait_for(checkout_proc.communicate(), timeout=60)
+        try:
+            fetch_proc = await asyncio.create_subprocess_exec(
+                "git",
+                "fetch",
+                "origin",
+                pr.head_branch,
+                cwd=workspace_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await asyncio.wait_for(fetch_proc.communicate(), timeout=60)
 
-        checkout_proc = await asyncio.create_subprocess_exec(
-            "git",
-            "checkout",
-            pr.head_branch,
-            cwd=workspace_path,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        await asyncio.wait_for(checkout_proc.communicate(), timeout=30)
+            checkout_proc = await asyncio.create_subprocess_exec(
+                "git",
+                "checkout",
+                pr.head_branch,
+                cwd=workspace_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await asyncio.wait_for(checkout_proc.communicate(), timeout=30)
 
-        # Pull latest
-        pull_proc = await asyncio.create_subprocess_exec(
-            "git",
-            "pull",
-            "origin",
-            pr.head_branch,
-            cwd=workspace_path,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        await asyncio.wait_for(pull_proc.communicate(), timeout=60)
+            pull_proc = await asyncio.create_subprocess_exec(
+                "git",
+                "pull",
+                "origin",
+                pr.head_branch,
+                cwd=workspace_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await asyncio.wait_for(pull_proc.communicate(), timeout=60)
+        except TimeoutError:
+            logger.error(f"Git operation timed out for {pr.repo}#{pr.number}")
+            await github_ops.add_comment(
+                pr.repo,
+                pr.number,
+                f"[PR Shepherd] Fix attempt #{attempt} aborted: git operation timed out.",
+            )
+            return
 
         # Build worker instructions
         instructions = FIX_CI_INSTRUCTIONS_TEMPLATE.format(
