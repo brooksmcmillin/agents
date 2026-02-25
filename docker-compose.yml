@@ -7,7 +7,6 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: agents-backend
-    user: "${UID:-1000}:${GID:-1000}"
     environment:
       # Database connection (required - set in .env file)
       DATABASE_URL: ${DATABASE_URL}
@@ -31,6 +30,9 @@ services:
     volumes:
       # Mount source code for development (optional - comment out for production)
       - .:/app
+      # Exclude venv and pycache so container doesn't overwrite host copies
+      - /app/.venv
+      - /app/__pycache__
       # Persist logs (shared with Promtail for log scraping)
       - agent_logs:/var/log/agents
       # Persist memories (if using file backend)

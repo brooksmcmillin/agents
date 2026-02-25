@@ -21,8 +21,13 @@ RUN uv sync --frozen --no-dev
 # Copy application code
 COPY . .
 
-# Create necessary directories
-RUN mkdir -p logs memories .data
+# Create necessary directories and non-root user
+RUN mkdir -p logs memories .data \
+    && groupadd --gid 1000 app \
+    && useradd --uid 1000 --gid app --no-create-home app \
+    && chown -R app:app /app
+
+USER app
 
 # Expose port
 EXPOSE 8080
