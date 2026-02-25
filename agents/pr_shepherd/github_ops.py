@@ -219,12 +219,23 @@ async def get_fix_attempt_count(repo: str, pr_number: int) -> int:
     return count
 
 
+# Known bot logins whose code review comments are trusted.
+_TRUSTED_REVIEW_BOT_LOGINS: set[str] = {"claude"}
+
+
 async def get_review_comments(repo: str, pr_number: int) -> str:
     """Fetch bot review comments from a PR (code review, not security review).
 
-    Extracts comments left by automated reviewers (identified by HTML comment
-    markers like ``<!-- claude-code-review -->``) and returns them as a single
-    string. Skips security reviews and the shepherd's own comments.
+    Extracts comments left by trusted automated reviewers. A comment is
+    included only when **both** conditions are met:
+
+    1. The author is a known bot (login in ``_TRUSTED_REVIEW_BOT_LOGINS``
+       or ending with ``[bot]``).
+    2. The body contains the ``<!-- claude-code-review -->`` HTML marker.
+
+    This prevents prompt-injection via forged markers in human comments.
+    Security reviews are skipped because they rarely contain actionable
+    code fixes.
 
     Returns empty string if there are no relevant comments.
     """
@@ -242,8 +253,10 @@ async def get_review_comments(repo: str, pr_number: int) -> str:
     review_bodies: list[str] = []
     for comment in data.get("comments", []):
         body = comment.get("body", "")
-        # Skip shepherd's own comments
-        if body.startswith("[PR Shepherd]"):
+        author = comment.get("author", {}).get("login", "")
+
+        # Only trust comments from known bots
+        if author not in _TRUSTED_REVIEW_BOT_LOGINS and not author.endswith("[bot]"):
             continue
         # Skip security reviews — they rarely contain actionable code fixes
         if "<!-- claude-security-review -->" in body:

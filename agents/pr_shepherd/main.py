@@ -239,18 +239,23 @@ class PRShepherd:
             )
             return
 
-        # Build worker instructions
+        # Build worker instructions.
+        # Escape curly braces in user-controlled content so str.format()
+        # doesn't choke on code snippets like {variable} in logs/comments.
+        def _escape(s: str) -> str:
+            return s.replace("{", "{{").replace("}", "}}")
+
         review_section = ""
         if review_comments:
             review_section = REVIEW_COMMENTS_SECTION_TEMPLATE.format(
-                review_comments=review_comments,
+                review_comments=_escape(review_comments),
             )
         instructions = FIX_CI_INSTRUCTIONS_TEMPLATE.format(
-            title=pr.title,
-            branch=pr.head_branch,
-            repo=pr.repo,
-            failing_checks=", ".join(failing_checks),
-            logs=logs,
+            title=_escape(pr.title),
+            branch=_escape(pr.head_branch),
+            repo=_escape(pr.repo),
+            failing_checks=_escape(", ".join(failing_checks)),
+            logs=_escape(logs),
             review_comments_section=review_section,
         )
 
