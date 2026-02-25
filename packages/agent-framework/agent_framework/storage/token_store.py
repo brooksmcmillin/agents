@@ -156,7 +156,7 @@ class TokenStore:
         filename = f"{platform}_{user_id}.token"
         token_path = (self.storage_path / filename).resolve()
         # Confinement check: ensure path stays inside storage directory
-        if not str(token_path).startswith(str(self.storage_path.resolve())):
+        if not token_path.is_relative_to(self.storage_path.resolve()):
             raise ValueError("Token path escapes storage directory")
         return token_path
 

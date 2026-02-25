@@ -64,7 +64,8 @@ def validate_git_url(url: str) -> None:
         )
     is_safe, reason = SSRFValidator.is_safe_url(url)
     if not is_safe:
-        raise ValueError(f"Git URL blocked by SSRF protection: {reason}")
+        logger.warning("Git URL blocked by SSRF protection: %s — %s", url, reason)
+        raise ValueError("Git URL is not allowed")
 
 
 # Default base directory for workspaces (configurable via environment)
