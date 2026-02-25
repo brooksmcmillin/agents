@@ -37,6 +37,7 @@ from agent_framework.permissions import (
     PermissionSet,
     get_required_permissions,
 )
+from agent_framework.security.context_trimming import trim_with_security_awareness
 from agent_framework.utils.errors import MissingAPIKeyError
 
 from .config import settings
@@ -1394,6 +1395,10 @@ class Agent(ABC):
     def _trim_context_if_needed(self) -> bool:
         """Trim conversation context if it exceeds max_context_messages.
 
+        Uses context-aware trimming that preserves security-critical messages
+        (permission denials, SSRF blocks, prompt injection detections) to prevent
+        attackers from exploiting context trimming to retry blocked attacks.
+
         Returns:
             True if context was trimmed, False otherwise
         """
@@ -1403,14 +1408,15 @@ class Agent(ABC):
         if len(self.messages) <= self.max_context_messages:
             return False
 
-        # Calculate how many messages to remove
-        messages_to_remove = len(self.messages) - self.max_context_messages
-
-        # Remove oldest messages
-        self.messages = self.messages[messages_to_remove:]
+        trimmed, num_removed, num_pinned = trim_with_security_awareness(
+            self.messages,
+            max_messages=self.max_context_messages,
+        )
+        self.messages = trimmed
 
         logger.info(
-            f"Trimmed context: removed {messages_to_remove} old messages, "
+            f"Context-aware trim: removed {num_removed} messages, "
+            f"pinned {num_pinned} security messages, "
             f"keeping {len(self.messages)} messages"
         )
 
