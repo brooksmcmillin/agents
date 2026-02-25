@@ -86,7 +86,7 @@ load_dotenv()
 # Constants for agent behavior
 MAX_AGENT_ITERATIONS = 10  # Maximum iterations in agentic loop to prevent infinite loops
 WEB_SEARCH_MAX_USES = 10  # Maximum web searches allowed per turn (Anthropic API limit)
-HIGH_IMPORTANCE_THRESHOLD = 7  # Minimum importance level for memory injection
+HIGH_IMPORTANCE_THRESHOLD = 9  # Minimum importance level for memory injection
 MAX_INJECTED_MEMORIES = 10  # Maximum memories to inject after context trimming
 
 # Memory tools that should have agent_name auto-injected for isolation
@@ -95,6 +95,7 @@ MEMORY_TOOLS = frozenset(
         "save_memory",
         "get_memories",
         "search_memories",
+        "recall_memories",
         "delete_memory",
         "get_memory_stats",
     }
@@ -1425,10 +1426,10 @@ class Agent(ABC):
             return False
 
         trimmed, num_removed, num_pinned = trim_with_security_awareness(
-            self.messages,
+            cast(list[dict[str, Any]], self.messages),
             max_messages=self.max_context_messages,
         )
-        self.messages = trimmed
+        self.messages = cast(list[MessageParam], trimmed)
 
         return True
 
@@ -1438,14 +1439,22 @@ class Agent(ABC):
         This helps preserve key information after context trimming.
         Memories are injected as a system-style user message.
         Uses the agent's name for memory isolation.
+        Respects the configured MEMORY_BACKEND (file or database).
         """
         try:
-            from ..tools.memory import get_memory_store
+            import os
 
-            # Use agent's name for memory isolation
-            store = get_memory_store(agent_name=self.get_agent_name())
-            # Get high-importance memories for this specific agent
-            memories = store.get_all_memories(min_importance=HIGH_IMPORTANCE_THRESHOLD)
+            from ..tools.memory import get_database_memory_store, get_memory_store
+
+            agent_name = self.get_agent_name()
+            backend = os.environ.get("MEMORY_BACKEND", "file").lower()
+
+            if backend == "database":
+                store = await get_database_memory_store(agent_name=agent_name)
+                memories = await store.get_all_memories(min_importance=HIGH_IMPORTANCE_THRESHOLD)
+            else:
+                store = get_memory_store(agent_name=agent_name)
+                memories = store.get_all_memories(min_importance=HIGH_IMPORTANCE_THRESHOLD)
 
             if not memories:
                 logger.debug("No high-importance memories to inject")

@@ -21,6 +21,7 @@ import asyncpg
 
 from agent_framework.utils.errors import DatabaseNotInitializedError
 
+from .embedding import EMBEDDING_DIMENSIONS, EmbeddingClient
 from .memory_store import DEFAULT_AGENT_NAME, Memory
 
 logger = logging.getLogger(__name__)
@@ -113,6 +114,7 @@ class DatabaseMemoryStore:
         cache_ttl: float = DEFAULT_CACHE_TTL,
         min_pool_size: int = 2,
         max_pool_size: int = 10,
+        embedding_client: EmbeddingClient | None = None,
     ) -> None:
         """
         Initialize database memory store.
@@ -125,6 +127,9 @@ class DatabaseMemoryStore:
             cache_ttl: Cache time-to-live in seconds (default: 5 minutes)
             min_pool_size: Minimum connection pool size
             max_pool_size: Maximum connection pool size
+            embedding_client: Optional EmbeddingClient for semantic memory recall.
+                            When provided, embeddings are generated on save and
+                            recall_memories() uses vector similarity search.
         """
         self._database_url = database_url
         self._agent_name = agent_name
@@ -132,6 +137,7 @@ class DatabaseMemoryStore:
         self._cache = MemoryCache(default_ttl=cache_ttl)
         self._min_pool_size = min_pool_size
         self._max_pool_size = max_pool_size
+        self._embedding_client = embedding_client
         self._initialized = False
         self._init_lock = asyncio.Lock()
 
@@ -257,6 +263,30 @@ class DatabaseMemoryStore:
                     ON memories(updated_at)
                 """)
 
+            # --- Embedding column migration (for semantic recall) ---
+            if self._embedding_client is not None:
+                await conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+
+                embedding_col_exists = await conn.fetchval("""
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.columns
+                        WHERE table_name = 'memories' AND column_name = 'embedding'
+                    )
+                """)
+                if not embedding_col_exists:
+                    logger.info("Adding embedding column to memories table...")
+                    await conn.execute(f"""
+                        ALTER TABLE memories
+                        ADD COLUMN embedding vector({EMBEDDING_DIMENSIONS})
+                    """)
+                    await conn.execute("""
+                        CREATE INDEX IF NOT EXISTS idx_memories_embedding_hnsw
+                        ON memories
+                        USING hnsw (embedding vector_cosine_ops)
+                        WITH (m = 16, ef_construction = 64)
+                    """)
+                    logger.info("Embedding column and HNSW index created")
+
             logger.debug("Database table and indexes ensured")
 
     @asynccontextmanager
@@ -303,6 +333,16 @@ class DatabaseMemoryStore:
         tags_json = json.dumps(tags)  # Convert list to JSON string for JSONB
         now = datetime.now(UTC)
 
+        # Generate embedding if client is available (best-effort)
+        embedding_str: str | None = None
+        if self._embedding_client is not None:
+            try:
+                embed_text = f"{key}: {value}"
+                vec = await self._embedding_client.get_embedding(embed_text)
+                embedding_str = EmbeddingClient.embedding_to_pgvector(vec)
+            except Exception as e:
+                logger.warning(f"Failed to generate embedding for memory '{key}': {e}")
+
         async with self._get_connection() as conn:
             # Check if exists to determine created_at (scoped to this agent)
             existing = await conn.fetchrow(
@@ -313,38 +353,74 @@ class DatabaseMemoryStore:
 
             if existing:
                 # Update existing memory
-                await conn.execute(
-                    """
-                    UPDATE memories
-                    SET value = $3, category = $4, tags = $5::jsonb,
-                        updated_at = $6, importance = $7
-                    WHERE agent_name = $1 AND key = $2
-                    """,
-                    self._agent_name,
-                    key,
-                    value,
-                    category,
-                    tags_json,
-                    now,
-                    importance,
-                )
+                if embedding_str is not None:
+                    await conn.execute(
+                        """
+                        UPDATE memories
+                        SET value = $3, category = $4, tags = $5::jsonb,
+                            updated_at = $6, importance = $7, embedding = $8::vector
+                        WHERE agent_name = $1 AND key = $2
+                        """,
+                        self._agent_name,
+                        key,
+                        value,
+                        category,
+                        tags_json,
+                        now,
+                        importance,
+                        embedding_str,
+                    )
+                else:
+                    await conn.execute(
+                        """
+                        UPDATE memories
+                        SET value = $3, category = $4, tags = $5::jsonb,
+                            updated_at = $6, importance = $7
+                        WHERE agent_name = $1 AND key = $2
+                        """,
+                        self._agent_name,
+                        key,
+                        value,
+                        category,
+                        tags_json,
+                        now,
+                        importance,
+                    )
                 created_at = existing["created_at"].replace(tzinfo=None)
                 logger.info(f"Updated memory for agent '{self._agent_name}': {key}")
             else:
                 # Insert new memory
-                await conn.execute(
-                    """
-                    INSERT INTO memories (agent_name, key, value, category, tags, created_at, updated_at, importance)
-                    VALUES ($1, $2, $3, $4, $5::jsonb, $6, $6, $7)
-                    """,
-                    self._agent_name,
-                    key,
-                    value,
-                    category,
-                    tags_json,
-                    now,
-                    importance,
-                )
+                if embedding_str is not None:
+                    await conn.execute(
+                        """
+                        INSERT INTO memories (agent_name, key, value, category, tags,
+                                              created_at, updated_at, importance, embedding)
+                        VALUES ($1, $2, $3, $4, $5::jsonb, $6, $6, $7, $8::vector)
+                        """,
+                        self._agent_name,
+                        key,
+                        value,
+                        category,
+                        tags_json,
+                        now,
+                        importance,
+                        embedding_str,
+                    )
+                else:
+                    await conn.execute(
+                        """
+                        INSERT INTO memories (agent_name, key, value, category, tags,
+                                              created_at, updated_at, importance)
+                        VALUES ($1, $2, $3, $4, $5::jsonb, $6, $6, $7)
+                        """,
+                        self._agent_name,
+                        key,
+                        value,
+                        category,
+                        tags_json,
+                        now,
+                        importance,
+                    )
                 created_at = now
                 logger.info(f"Created new memory for agent '{self._agent_name}': {key}")
 
@@ -485,6 +561,66 @@ class DatabaseMemoryStore:
             )
 
         return [self._row_to_memory(row) for row in rows]
+
+    async def recall_memories(
+        self,
+        query: str,
+        limit: int = 10,
+        min_score: float = 0.3,
+        category: str | None = None,
+    ) -> list[tuple[Memory, float]]:
+        """Retrieve memories ranked by semantic similarity to *query*.
+
+        Requires an ``embedding_client`` to have been provided at init time.
+        Falls back to keyword ``search_memories()`` wrapped in (memory, 0.0)
+        tuples when embeddings are unavailable.
+
+        Args:
+            query: Natural-language query to match against.
+            limit: Maximum results to return.
+            min_score: Minimum cosine-similarity score (0-1) to include.
+            category: Optional category filter.
+
+        Returns:
+            List of ``(Memory, score)`` tuples sorted by descending score.
+        """
+        if self._embedding_client is None:
+            # Fallback: keyword search with score=0
+            keyword_results = await self.search_memories(query)
+            return [(m, 0.0) for m in keyword_results[:limit]]
+
+        query_vec = await self._embedding_client.get_embedding(query)
+        query_vec_str = EmbeddingClient.embedding_to_pgvector(query_vec)
+
+        sql = """
+            SELECT *, 1 - (embedding <=> $1::vector) AS similarity
+            FROM memories
+            WHERE agent_name = $2
+              AND embedding IS NOT NULL
+        """
+        params: list[Any] = [query_vec_str, self._agent_name]
+        param_idx = 2
+
+        if category is not None:
+            param_idx += 1
+            sql += f" AND category = ${param_idx}"
+            params.append(category)
+
+        sql += f"""
+            ORDER BY embedding <=> $1::vector
+            LIMIT {limit}
+        """
+
+        async with self._get_connection() as conn:
+            rows = await conn.fetch(sql, *params)
+
+        results: list[tuple[Memory, float]] = []
+        for row in rows:
+            score = float(row["similarity"])
+            if score >= min_score:
+                results.append((self._row_to_memory(row), score))
+
+        return results
 
     async def delete_memory(self, key: str) -> bool:
         """

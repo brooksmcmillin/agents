@@ -7,6 +7,7 @@ from .conversation_store import (
     Message,
 )
 from .database_memory_store import DatabaseMemoryStore, MemoryCache
+from .embedding import EmbeddingClient
 from .memory_store import Memory, MemoryStore
 from .sms_phone_pool import PhonePoolEntry, SMSPhonePoolManager
 from .token_store import TokenData, TokenStore
@@ -16,6 +17,7 @@ __all__ = [
     "ConversationWithMessages",
     "DatabaseConversationStore",
     "DatabaseMemoryStore",
+    "EmbeddingClient",
     "Memory",
     "MemoryCache",
     "MemoryStore",
