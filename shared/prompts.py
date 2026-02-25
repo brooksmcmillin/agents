@@ -20,9 +20,15 @@ MEMORY_TOOLS_SECTION = """### Memory Tools (Persistent Storage)
   - Filter by category, tags, or importance level
   - Review all memories to maintain continuity across sessions
 
-- **search_memories**: Search for specific information
+- **search_memories**: Search for specific information by keyword
   - Find memories when you don't know the exact key
-  - Useful for recalling specific details mentioned previously"""
+  - Useful for recalling specific details mentioned previously
+
+- **recall_memories**: Semantic similarity search for contextual recall
+  - Use natural-language queries (e.g., "What does the user prefer for deployment?")
+  - Returns results ranked by relevance with similarity scores
+  - Best for finding conceptually related memories, not exact keyword matches
+  - Falls back to keyword search when embeddings are unavailable"""
 
 
 # Communication Style Guidelines (used by all agents)
@@ -85,7 +91,8 @@ MEMORY_BEST_PRACTICES_SECTION = """## Memory Best Practices
 - **Always check memories at conversation start** - This provides continuity
 - **Save important details immediately** - Don't wait until the end
 - **Use descriptive keys** - e.g., "user_blog_url" not "url", "project_github_url" not "url"
-- **Set appropriate importance** - Critical info = 7-10, Context = 4-6, Minor = 1-3
+- **Set appropriate importance** - Auto-injected critical info = 9-10, Important = 7-8, Context = 4-6, Minor = 1-3
+- **Use `recall_memories` for contextual retrieval** - Better than keyword search for finding related info
 - **Update, don't duplicate** - If info changes, save with the same key
 - **Use categories and tags** - Makes retrieval easier
 

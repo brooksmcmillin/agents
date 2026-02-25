@@ -24,6 +24,7 @@ import threading
 from typing import Any
 
 from ..storage.database_memory_store import DatabaseMemoryStore
+from ..storage.embedding import EmbeddingClient
 from ..storage.memory_store import DEFAULT_AGENT_NAME, Memory, MemoryStore
 
 logger = logging.getLogger(__name__)
@@ -150,8 +151,11 @@ async def get_database_memory_store(agent_name: str = DEFAULT_AGENT_NAME) -> Dat
                     raise ValueError(
                         "MEMORY_DATABASE_URL or DATABASE_URL environment variable required when using database backend"
                     )
+                # Construct optional embedding client for semantic recall
+                openai_key = os.environ.get("OPENAI_API_KEY")
+                embedding_client = EmbeddingClient(api_key=openai_key) if openai_key else None
                 _database_memory_stores[validated_name] = DatabaseMemoryStore(
-                    database_url, agent_name=validated_name
+                    database_url, agent_name=validated_name, embedding_client=embedding_client
                 )
                 await _database_memory_stores[validated_name].initialize()
     return _database_memory_stores[validated_name]
@@ -190,9 +194,14 @@ async def configure_memory_store(
         if not database_url:
             raise ValueError("database_url required for database backend")
         os.environ["MEMORY_DATABASE_URL"] = database_url
+        openai_key = os.environ.get("OPENAI_API_KEY")
+        embedding_client = EmbeddingClient(api_key=openai_key) if openai_key else None
         with _database_stores_lock:
             _database_memory_stores[validated_name] = DatabaseMemoryStore(
-                database_url, agent_name=validated_name, cache_ttl=cache_ttl
+                database_url,
+                agent_name=validated_name,
+                cache_ttl=cache_ttl,
+                embedding_client=embedding_client,
             )
             await _database_memory_stores[validated_name].initialize()
         logger.info(f"Configured database memory backend for agent '{validated_name}'")
@@ -478,6 +487,74 @@ async def get_memory_stats(
         }
 
 
+async def recall_memories(
+    query: str,
+    limit: int = 10,
+    min_score: float = 0.3,
+    category: str | None = None,
+    agent_name: str = DEFAULT_AGENT_NAME,
+) -> dict[str, Any]:
+    """Retrieve memories by semantic similarity to a natural-language query.
+
+    When the database backend is configured with embeddings, performs vector
+    cosine-similarity search for accurate contextual recall.  Falls back to
+    keyword search (search_memories) when embeddings are unavailable or the
+    file backend is in use.
+
+    Args:
+        query: Natural-language description of what you're looking for.
+        limit: Maximum number of memories to return (default: 10).
+        min_score: Minimum similarity score 0-1 (default: 0.3, ignored for
+                   keyword fallback).
+        category: Optional category filter.
+        agent_name: Agent identifier for memory isolation (default: "shared").
+
+    Returns:
+        List of matching memories with similarity scores (if available).
+    """
+    logger.info(f"Recalling memories for agent '{agent_name}': {query}")
+
+    try:
+        backend = _get_backend()
+
+        if backend == "database":
+            store = await get_database_memory_store(agent_name)
+            results = await store.recall_memories(
+                query=query,
+                limit=limit,
+                min_score=min_score,
+                category=category,
+            )
+            memories_out = []
+            for memory, score in results:
+                d = _memory_to_dict(memory)
+                d["score"] = round(score, 4)
+                memories_out.append(d)
+
+            return {
+                "status": "success",
+                "agent_name": agent_name,
+                "query": query,
+                "method": "semantic" if store.has_embeddings else "keyword",
+                "count": len(memories_out),
+                "memories": memories_out,
+                "message": f"Found {len(memories_out)} memories matching '{query}'",
+            }
+        else:
+            # File backend: fall back to keyword search
+            result = await search_memories(query=query, limit=limit, agent_name=agent_name)
+            result["method"] = "keyword"
+            return result
+
+    except Exception as e:
+        logger.error(f"Failed to recall memories for agent '{agent_name}': {e}")
+        return {
+            "status": "error",
+            "message": f"Failed to recall memories: {e}",
+            "memories": [],
+        }
+
+
 def _memory_to_dict(memory: Memory) -> dict[str, Any]:
     """Convert a Memory object to a dictionary for API responses."""
     return {
@@ -668,5 +745,52 @@ TOOL_SCHEMAS = [
             "required": [],
         },
         "handler": get_memory_stats,
+    },
+    {
+        "name": "recall_memories",
+        "description": (
+            "Retrieve memories by semantic similarity to a natural-language query. "
+            "Uses embedding-based vector search when available (database backend with "
+            "OPENAI_API_KEY), otherwise falls back to keyword search. Use this for "
+            "contextual recall — e.g. 'What does the user prefer for deployment?' "
+            "rather than exact key lookups."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "maxLength": 4000,
+                    "description": "Natural-language description of what you're looking for",
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 50,
+                    "default": 10,
+                    "description": "Maximum number of results",
+                },
+                "min_score": {
+                    "type": "number",
+                    "minimum": 0.0,
+                    "maximum": 1.0,
+                    "default": 0.3,
+                    "description": "Minimum similarity score (0-1). Only used for semantic search.",
+                },
+                "category": {
+                    "type": "string",
+                    "description": "Optional category filter (e.g., 'user_preference', 'goal')",
+                },
+                "agent_name": {
+                    "type": "string",
+                    "default": "shared",
+                    "maxLength": 100,
+                    "pattern": "^[a-zA-Z0-9_-]+$",
+                    "description": "Agent identifier for memory isolation. Default: 'shared'",
+                },
+            },
+            "required": ["query"],
+        },
+        "handler": recall_memories,
     },
 ]

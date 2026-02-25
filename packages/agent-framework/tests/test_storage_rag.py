@@ -97,7 +97,7 @@ class TestRAGStore:
 
     def test_rag_store_init(self):
         """Test RAGStore initialization."""
-        with patch("agent_framework.storage.rag_store.AsyncOpenAI") as mock_openai:
+        with patch("agent_framework.storage.embedding.AsyncOpenAI") as mock_openai:
             store = RAGStore(
                 database_url="postgresql://localhost/test",
                 openai_api_key="sk-test",
@@ -112,7 +112,7 @@ class TestRAGStore:
 
     def test_generate_content_hash(self):
         """Test content hash generation."""
-        with patch("agent_framework.storage.rag_store.AsyncOpenAI"):
+        with patch("agent_framework.storage.embedding.AsyncOpenAI"):
             store = RAGStore(
                 database_url="postgresql://localhost/test",
                 openai_api_key="sk-test",
@@ -135,12 +135,12 @@ class TestRAGStore:
         mock_openai = AsyncMock()
         mock_openai.embeddings.create.return_value = mock_response
 
-        with patch("agent_framework.storage.rag_store.AsyncOpenAI", return_value=mock_openai):
+        with patch("agent_framework.storage.embedding.AsyncOpenAI", return_value=mock_openai):
             store = RAGStore(
                 database_url="postgresql://localhost/test",
                 openai_api_key="sk-test",
             )
-            store._openai = mock_openai
+            store._embedding_client._openai = mock_openai
 
             embedding = await store._get_embedding("test text")
 
@@ -156,7 +156,7 @@ class TestRAGStore:
         mock_conn = AsyncMock()
         mock_pool = create_mock_pool(mock_conn)
 
-        with patch("agent_framework.storage.rag_store.AsyncOpenAI"):
+        with patch("agent_framework.storage.embedding.AsyncOpenAI"):
             with patch(
                 "agent_framework.storage.rag_store.asyncpg.create_pool",
                 new=AsyncMock(return_value=mock_pool),
@@ -186,12 +186,12 @@ class TestRAGStore:
         mock_response.data = [MagicMock(embedding=[0.1] * EMBEDDING_DIMENSIONS)]
         mock_openai.embeddings.create.return_value = mock_response
 
-        with patch("agent_framework.storage.rag_store.AsyncOpenAI", return_value=mock_openai):
+        with patch("agent_framework.storage.embedding.AsyncOpenAI", return_value=mock_openai):
             store = RAGStore(
                 database_url="postgresql://localhost/test",
                 openai_api_key="sk-test",
             )
-            store._openai = mock_openai
+            store._embedding_client._openai = mock_openai
             store._pool = mock_pool
 
             result = await store.add_document(
@@ -207,7 +207,7 @@ class TestRAGStore:
     @pytest.mark.asyncio
     async def test_add_document_empty_content(self):
         """Test adding document with empty content raises error."""
-        with patch("agent_framework.storage.rag_store.AsyncOpenAI"):
+        with patch("agent_framework.storage.embedding.AsyncOpenAI"):
             store = RAGStore(
                 database_url="postgresql://localhost/test",
                 openai_api_key="sk-test",
@@ -221,7 +221,7 @@ class TestRAGStore:
     @pytest.mark.asyncio
     async def test_search_empty_query(self):
         """Test search with empty query raises error."""
-        with patch("agent_framework.storage.rag_store.AsyncOpenAI"):
+        with patch("agent_framework.storage.embedding.AsyncOpenAI"):
             store = RAGStore(
                 database_url="postgresql://localhost/test",
                 openai_api_key="sk-test",
@@ -254,12 +254,12 @@ class TestRAGStore:
         mock_response.data = [MagicMock(embedding=[0.1] * EMBEDDING_DIMENSIONS)]
         mock_openai.embeddings.create.return_value = mock_response
 
-        with patch("agent_framework.storage.rag_store.AsyncOpenAI", return_value=mock_openai):
+        with patch("agent_framework.storage.embedding.AsyncOpenAI", return_value=mock_openai):
             store = RAGStore(
                 database_url="postgresql://localhost/test",
                 openai_api_key="sk-test",
             )
-            store._openai = mock_openai
+            store._embedding_client._openai = mock_openai
             store._pool = mock_pool
 
             results = await store.search(query="python", top_k=5)
@@ -284,7 +284,7 @@ class TestRAGStore:
         mock_conn.fetchrow.return_value = mock_row
         mock_pool = create_mock_pool(mock_conn)
 
-        with patch("agent_framework.storage.rag_store.AsyncOpenAI"):
+        with patch("agent_framework.storage.embedding.AsyncOpenAI"):
             store = RAGStore(
                 database_url="postgresql://localhost/test",
                 openai_api_key="sk-test",
@@ -304,7 +304,7 @@ class TestRAGStore:
         mock_conn.fetchrow.return_value = None
         mock_pool = create_mock_pool(mock_conn)
 
-        with patch("agent_framework.storage.rag_store.AsyncOpenAI"):
+        with patch("agent_framework.storage.embedding.AsyncOpenAI"):
             store = RAGStore(
                 database_url="postgresql://localhost/test",
                 openai_api_key="sk-test",
@@ -322,7 +322,7 @@ class TestRAGStore:
         mock_conn.execute.return_value = "DELETE 1"
         mock_pool = create_mock_pool(mock_conn)
 
-        with patch("agent_framework.storage.rag_store.AsyncOpenAI"):
+        with patch("agent_framework.storage.embedding.AsyncOpenAI"):
             store = RAGStore(
                 database_url="postgresql://localhost/test",
                 openai_api_key="sk-test",
@@ -340,7 +340,7 @@ class TestRAGStore:
         mock_conn.execute.return_value = "DELETE 0"
         mock_pool = create_mock_pool(mock_conn)
 
-        with patch("agent_framework.storage.rag_store.AsyncOpenAI"):
+        with patch("agent_framework.storage.embedding.AsyncOpenAI"):
             store = RAGStore(
                 database_url="postgresql://localhost/test",
                 openai_api_key="sk-test",
@@ -362,7 +362,7 @@ class TestRAGStore:
         ]
         mock_pool = create_mock_pool(mock_conn)
 
-        with patch("agent_framework.storage.rag_store.AsyncOpenAI"):
+        with patch("agent_framework.storage.embedding.AsyncOpenAI"):
             store = RAGStore(
                 database_url="postgresql://localhost/test",
                 openai_api_key="sk-test",
@@ -383,7 +383,7 @@ class TestRAGStore:
         mock_conn = AsyncMock()
         mock_pool = create_mock_pool(mock_conn)
 
-        with patch("agent_framework.storage.rag_store.AsyncOpenAI"):
+        with patch("agent_framework.storage.embedding.AsyncOpenAI"):
             store = RAGStore(
                 database_url="postgresql://localhost/test",
                 openai_api_key="sk-test",

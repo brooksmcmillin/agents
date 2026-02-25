@@ -52,6 +52,7 @@ from .memory import (
     delete_memory,
     get_memories,
     get_memory_stats,
+    recall_memories,
     save_memory,
     search_memories,
 )
@@ -107,6 +108,7 @@ __all__ = [
     "get_memories",
     "get_memory_stats",
     "get_social_media_stats",
+    "recall_memories",
     "save_memory",
     "search_memories",
     "send_slack_message",

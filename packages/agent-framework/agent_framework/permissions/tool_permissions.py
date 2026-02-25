@@ -40,6 +40,7 @@ TOOL_PERMISSIONS: dict[str, set[Permission]] = {
     # =========================================================================
     "get_memories": {Permission.READ},
     "search_memories": {Permission.READ},
+    "recall_memories": {Permission.READ},
     "get_memory_stats": {Permission.READ},
     "save_memory": {Permission.WRITE},
     "delete_memory": {Permission.DELETE},
@@ -293,6 +294,7 @@ def get_tool_permissions_by_category() -> dict[str, dict[str, set[Permission]]]:
             "save_memory",
             "get_memories",
             "search_memories",
+            "recall_memories",
             "delete_memory",
             "get_memory_stats",
             "configure_memory",
