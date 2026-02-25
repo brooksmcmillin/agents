@@ -65,10 +65,16 @@ def validate_git_url(url: str) -> None:
         )
     is_safe, reason = SSRFValidator.is_safe_url(url)
     if not is_safe:
-        # Strip credentials from URL before logging to avoid leaking tokens
+        # Strip credentials and sanitize for safe logging (prevent log injection)
         parsed = urlparse(url)
         safe_url = urlunparse(parsed._replace(netloc=parsed.hostname or ""))
-        logger.warning("Git URL blocked by SSRF protection: %s — %s", safe_url, reason)
+        sanitized_url = safe_url.replace("\n", "").replace("\r", "")[:200]
+        sanitized_reason = reason.replace("\n", "").replace("\r", "")[:200]
+        logger.warning(  # noqa: LOG015
+            "Git URL blocked by SSRF protection: %s — %s",
+            sanitized_url,
+            sanitized_reason,
+        )
         raise ValueError("Git URL is not allowed")
 
 
