@@ -28,6 +28,7 @@ import re
 import shutil
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse, urlunparse
 
 from agent_framework.security import LLMOutputSanitizer, SSRFValidator
 
@@ -64,7 +65,10 @@ def validate_git_url(url: str) -> None:
         )
     is_safe, reason = SSRFValidator.is_safe_url(url)
     if not is_safe:
-        logger.warning("Git URL blocked by SSRF protection: %s — %s", url, reason)
+        # Strip credentials from URL before logging to avoid leaking tokens
+        parsed = urlparse(url)
+        safe_url = urlunparse(parsed._replace(netloc=parsed.hostname or ""))
+        logger.warning("Git URL blocked by SSRF protection: %s — %s", safe_url, reason)
         raise ValueError("Git URL is not allowed")
 
 
@@ -528,7 +532,8 @@ async def create_claude_code_workspace(
             if process.returncode != 0:
                 # Clean up failed clone
                 shutil.rmtree(workspace_path, ignore_errors=True)
-                raise RuntimeError(f"Git clone failed: {stderr.decode('utf-8', errors='replace')}")
+                logger.warning("Git clone failed: %s", stderr.decode("utf-8", errors="replace"))
+                raise RuntimeError("Git clone failed")
 
             is_git_repo = True
         else:
