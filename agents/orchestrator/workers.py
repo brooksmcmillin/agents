@@ -11,6 +11,7 @@ calls; concurrent usage requires external synchronisation.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import re
@@ -349,13 +350,15 @@ async def push_and_create_pr(
     body_diff = diff_summary[:2000] if diff_summary else ""
     body_parts = [safe_description]
 
-    # Link back to the originating task
+    # Link back to the originating task (sanitize to prevent prompt/markdown injection)
     if task.external_id:
-        task_ref = f"Task: `{task.external_id}`"
-        taskmanager_url = os.environ.get("TASKMANAGER_URL", "").rstrip("/")
-        if taskmanager_url:
-            task_ref = f"Task: [{task.external_id}]({taskmanager_url}/task/{task.external_id})"
-        body_parts.append(task_ref)
+        safe_external_id = re.sub(r"[^a-zA-Z0-9_\-]", "", task.external_id)[:128]
+        if safe_external_id:
+            task_ref = f"Task: `{safe_external_id}`"
+            taskmanager_url = os.environ.get("TASKMANAGER_URL", "").rstrip("/")
+            if taskmanager_url:
+                task_ref = f"Task: [{safe_external_id}]({taskmanager_url}/task/{safe_external_id})"
+            body_parts.append(task_ref)
 
     if body_diff:
         body_parts.append(f"## Changes\n\n```\n{body_diff}\n```")
@@ -399,7 +402,12 @@ async def push_and_create_pr(
     if not pr_url and task.workspace_name and task.branch_name:
         workspace_status = await get_claude_code_workspace_status(task.workspace_name)
         ws_path = workspace_status.get("workspace_path", "")
-        if ws_path:
+        # Defense-in-depth: ensure path is under the expected workspaces directory
+        workspaces_dir = os.environ.get(
+            "CLAUDE_CODE_WORKSPACES_DIR",
+            str(Path.home() / ".claude_code_workspaces"),
+        )
+        if ws_path and Path(ws_path).resolve().is_relative_to(Path(workspaces_dir).resolve()):
             pr_url = await _find_pr_for_branch(ws_path, task.branch_name)
             if pr_url:
                 logger.info(f"PR URL found via gh fallback for task {task.id}: {pr_url}")
@@ -419,8 +427,8 @@ def _extract_pr_url(output: str) -> str | None:
     been wrapped by the LLM output sanitizer (boundary markers, zero-width
     spaces), so we strip those before matching.
     """
-    # Strip zero-width spaces that the sanitizer may have inserted
-    cleaned = output.replace("\u200b", "")
+    # Strip zero-width characters that the sanitizer may have inserted
+    cleaned = re.sub(r"[\u200b-\u200d\ufeff]", "", output)
     match = re.search(r"https://github\.com/[^\s\"'<>]+/pull/\d+", cleaned)
     return match.group(0) if match else None
 
@@ -461,8 +469,6 @@ async def _find_pr_for_branch(
 
         if proc.returncode != 0:
             return None
-
-        import json
 
         data = json.loads(stdout.decode("utf-8", errors="replace"))
         if data and isinstance(data, list) and data[0].get("url"):
