@@ -37,7 +37,10 @@ from agent_framework.permissions import (
     PermissionSet,
     get_required_permissions,
 )
-from agent_framework.security.context_trimming import trim_with_security_awareness
+from agent_framework.security.context_trimming import (
+    SECURITY_EVENT_KEY,
+    trim_with_security_awareness,
+)
 from agent_framework.utils.errors import MissingAPIKeyError
 
 from .config import settings
@@ -1133,6 +1136,7 @@ class Agent(ABC):
                                     "tool_use_id": tool_call.id,
                                     "content": f"Permission denied: {e}",
                                     "is_error": True,
+                                    SECURITY_EVENT_KEY: "permission_denied",
                                 }
                             )
 
@@ -1149,14 +1153,21 @@ class Agent(ABC):
                                     metadata={"error_type": type(e).__name__},
                                 )
 
-                            tool_results.append(
-                                {
-                                    "type": "tool_result",
-                                    "tool_use_id": tool_call.id,
-                                    "content": f"Tool execution failed: {e}",
-                                    "is_error": True,
-                                }
-                            )
+                            error_result: dict[str, Any] = {
+                                "type": "tool_result",
+                                "tool_use_id": tool_call.id,
+                                "content": f"Tool execution failed: {e}",
+                                "is_error": True,
+                            }
+                            # Tag SSRF-related errors for context-aware trimming
+                            error_str = str(e).lower()
+                            if any(
+                                kw in error_str
+                                for kw in ("ssrf", "blocked hostname", "blocked ip",
+                                           "private ip", "metadata endpoint")
+                            ):
+                                error_result[SECURITY_EVENT_KEY] = "ssrf_block"
+                            tool_results.append(error_result)
 
                         finally:
                             # Always close the tool span context manager
@@ -1413,12 +1424,6 @@ class Agent(ABC):
             max_messages=self.max_context_messages,
         )
         self.messages = trimmed
-
-        logger.info(
-            f"Context-aware trim: removed {num_removed} messages, "
-            f"pinned {num_pinned} security messages, "
-            f"keeping {len(self.messages)} messages"
-        )
 
         return True
 

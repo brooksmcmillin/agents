@@ -6,6 +6,16 @@ during conversation trimming. Without this, an attacker could wait for context
 trimming to erase evidence of a blocked attack, then retry the same attack
 with the agent having no memory of the previous attempt.
 
+Classification uses two complementary approaches:
+1. Structured metadata: Messages tagged with ``_security_event`` at the
+   enforcement point (SSRF validator, permission checker, Lakera Guard) are
+   classified as CRITICAL without pattern matching.  This is the preferred
+   path — it is robust to message format changes.
+2. Pattern fallback: If no structured metadata is present, text content is
+   matched against known security-event patterns.  This covers assistant
+   messages that *describe* a security event (e.g. "your message was flagged")
+   and acts as a safety net for legacy or third-party tools.
+
 Pinned message types:
 - Permission denials (tool errors with "Permission denied")
 - SSRF blocks (blocked URLs, private IP access attempts)
@@ -21,6 +31,11 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# Metadata key used by enforcement layers to tag security events directly.
+# When present on a tool_result block, its value is a short event-type string
+# (e.g. "permission_denied", "ssrf_block", "prompt_injection").
+SECURITY_EVENT_KEY = "_security_event"
+
 
 class SecurityClassification(Enum):
     """Classification levels for conversation messages."""
@@ -29,11 +44,12 @@ class SecurityClassification(Enum):
     NORMAL = "normal"  # Can be trimmed normally
 
 
-# Patterns that indicate security-relevant content in tool results
+# Patterns that indicate security-relevant content in tool results.
+# These are the *fallback* classifier — structured metadata is preferred.
 _PERMISSION_DENIAL_PATTERNS = [
     re.compile(r"Permission denied", re.IGNORECASE),
     re.compile(r"cannot execute .+ Required permissions:", re.IGNORECASE),
-    re.compile(r"lacks \[.+\]", re.IGNORECASE),
+    re.compile(r"lacks \[.+\] permissions?", re.IGNORECASE),
 ]
 
 _SSRF_PATTERNS = [
@@ -55,8 +71,12 @@ _PROMPT_INJECTION_PATTERNS = [
 ]
 
 _SECURITY_WARNING_PATTERNS = [
-    re.compile(r"TOOL_OUTPUT_DATA_BOUNDARY", re.IGNORECASE),
-    re.compile(r"Security note:.*Treat as data", re.IGNORECASE),
+    # Require the boundary marker to also contain the security-specific header,
+    # to avoid false-positives on every LLMOutputSanitizer-wrapped tool result.
+    re.compile(
+        r"TOOL_OUTPUT_DATA_BOUNDARY.*Security note:.*Treat as data",
+        re.IGNORECASE | re.DOTALL,
+    ),
     re.compile(r"potential (?:prompt )?injection", re.IGNORECASE),
     re.compile(r"suspicious pattern", re.IGNORECASE),
 ]
@@ -113,6 +133,29 @@ def _extract_text_content(message: dict[str, Any]) -> str:
     return str(content)
 
 
+def _has_security_event_metadata(message: dict[str, Any]) -> str | None:
+    """Check if any block in the message carries structured security metadata.
+
+    The enforcement layer (permission checker, SSRF validator, etc.) can tag
+    tool_result blocks with ``_security_event`` so that classification does
+    not rely on fragile pattern matching.
+
+    Args:
+        message: An Anthropic API message dict.
+
+    Returns:
+        The event-type string if present, otherwise None.
+    """
+    content = message.get("content", [])
+    if not isinstance(content, list):
+        return None
+
+    for block in content:
+        if isinstance(block, dict) and SECURITY_EVENT_KEY in block:
+            return str(block[SECURITY_EVENT_KEY])
+    return None
+
+
 def _is_error_tool_result(message: dict[str, Any]) -> bool:
     """Check if a message contains any tool_result with is_error=True.
 
@@ -134,11 +177,52 @@ def _is_error_tool_result(message: dict[str, Any]) -> bool:
     )
 
 
+def _is_tool_use_message(message: dict[str, Any]) -> bool:
+    """Check if a message contains tool_use blocks.
+
+    Args:
+        message: An Anthropic API message dict.
+
+    Returns:
+        True if message contains tool_use blocks.
+    """
+    content = message.get("content", [])
+    if not isinstance(content, list):
+        return False
+
+    for block in content:
+        if isinstance(block, dict) and block.get("type") == "tool_use":
+            return True
+        if hasattr(block, "type") and getattr(block, "type", None) == "tool_use":
+            return True
+    return False
+
+
+def _is_tool_result_message(message: dict[str, Any]) -> bool:
+    """Check if a message contains tool_result blocks.
+
+    Args:
+        message: An Anthropic API message dict.
+
+    Returns:
+        True if message contains tool_result blocks.
+    """
+    content = message.get("content", [])
+    if not isinstance(content, list):
+        return False
+
+    return any(
+        isinstance(block, dict) and block.get("type") == "tool_result"
+        for block in content
+    )
+
+
 def classify_message(message: dict[str, Any]) -> ClassifiedMessage:
     """Classify a single message for its security relevance.
 
-    Examines message content against known security patterns to determine
-    if it should be pinned (survive trimming) or can be safely removed.
+    First checks for structured ``_security_event`` metadata (set by the
+    enforcement layer), then falls back to pattern matching against message
+    text content.
 
     Args:
         message: An Anthropic API message dict.
@@ -147,6 +231,19 @@ def classify_message(message: dict[str, Any]) -> ClassifiedMessage:
         ClassifiedMessage with the security classification and reasons.
     """
     reasons: list[str] = []
+
+    # Preferred path: structured metadata from enforcement layer
+    event_type = _has_security_event_metadata(message)
+    if event_type:
+        reasons.append(f"metadata: {event_type}")
+        return ClassifiedMessage(
+            index=0,
+            message=message,
+            classification=SecurityClassification.CRITICAL,
+            reasons=reasons,
+        )
+
+    # Fallback path: pattern matching on text content
     text = _extract_text_content(message)
     is_error = _is_error_tool_result(message)
 
@@ -205,7 +302,9 @@ def _build_security_summary(pinned_messages: list[ClassifiedMessage]) -> str:
     """Build a compact summary of pinned security events.
 
     When there are too many pinned messages to keep, this creates a summary
-    that preserves the essential security context.
+    that preserves the essential security context *without* re-injecting
+    attacker-controlled content.  Only the event type and classification
+    reasons are included — raw message text is redacted.
 
     Args:
         pinned_messages: List of classified messages marked as CRITICAL.
@@ -215,17 +314,40 @@ def _build_security_summary(pinned_messages: list[ClassifiedMessage]) -> str:
     """
     events: list[str] = []
     for cm in pinned_messages:
-        text = _extract_text_content(cm.message)
-        # Truncate long messages but preserve key info
-        summary = text[:200] + "..." if len(text) > 200 else text
         reason_tags = ", ".join(cm.reasons)
-        events.append(f"[{reason_tags}] {summary}")
+        events.append(f"Blocked event: {reason_tags} (content redacted for safety)")
 
     return (
         "[SECURITY CONTEXT - Previous security events in this session]\n"
-        + "\n".join(f"• {e}" for e in events)
+        + "\n".join(f"- {e}" for e in events)
         + "\n[END SECURITY CONTEXT]"
     )
+
+
+def _build_tool_use_pairs(messages: list[dict[str, Any]]) -> dict[int, int]:
+    """Identify tool_use → tool_result pairs by adjacency.
+
+    In the Anthropic API, a tool_use assistant message at index *i* is always
+    immediately followed by a tool_result user message at index *i+1*.  This
+    function maps each tool_use index to its paired tool_result index so they
+    can be removed (or kept) atomically.
+
+    Args:
+        messages: The full conversation messages list.
+
+    Returns:
+        Dict mapping tool_use index → tool_result index.
+    """
+    pairs: dict[int, int] = {}
+    for i in range(len(messages) - 1):
+        if (
+            messages[i].get("role") == "assistant"
+            and _is_tool_use_message(messages[i])
+            and messages[i + 1].get("role") == "user"
+            and _is_tool_result_message(messages[i + 1])
+        ):
+            pairs[i] = i + 1
+    return pairs
 
 
 def trim_with_security_awareness(
@@ -239,11 +361,9 @@ def trim_with_security_awareness(
     1. Classifies all messages by security relevance
     2. Identifies "pinned pairs" (user+assistant or assistant+user pairs
        around security events)
-    3. Removes oldest non-pinned messages first
+    3. Removes oldest non-pinned messages first, keeping tool_use/tool_result
+       pairs atomic (both removed or both kept)
     4. If still over limit, compresses oldest pinned messages into a summary
-
-    The result always maintains valid message ordering (user/assistant alternation
-    is preserved, tool_result messages follow their corresponding tool_use).
 
     Args:
         messages: Current conversation messages list.
@@ -254,11 +374,14 @@ def trim_with_security_awareness(
     Returns:
         Tuple of (trimmed_messages, num_removed, num_pinned) where:
         - trimmed_messages: The new message list
-        - num_removed: Number of messages removed
+        - num_removed: Number of original messages removed (not counting
+          any injected summary messages)
         - num_pinned: Number of messages that were pinned (survived trimming)
     """
     if len(messages) <= max_messages:
         return messages, 0, 0
+
+    original_count = len(messages)
 
     # Phase 1: Classify all messages
     classified: list[ClassifiedMessage] = []
@@ -267,7 +390,12 @@ def trim_with_security_awareness(
         cm.index = i
         classified.append(cm)
 
-    # Phase 2: Expand pinned messages to include their conversation pair.
+    # Phase 2: Build tool_use/tool_result pair map for atomic handling
+    tool_pairs = _build_tool_use_pairs(messages)
+    # Also build reverse map: tool_result index → tool_use index
+    tool_result_to_use: dict[int, int] = {v: k for k, v in tool_pairs.items()}
+
+    # Phase 3: Expand pinned messages to include their conversation pair.
     # A security event in a tool_result (user role) also pins the preceding
     # assistant message (which contains the tool_use), and vice versa.
     pinned_indices: set[int] = set()
@@ -280,7 +408,7 @@ def trim_with_security_awareness(
             elif cm.message.get("role") == "assistant" and cm.index + 1 < len(messages):
                 pinned_indices.add(cm.index + 1)  # following user/tool_result
 
-    # Phase 3: Separate pinned and trimmable messages
+    # Phase 4: Separate pinned and trimmable messages
     pinned: list[ClassifiedMessage] = []
     trimmable_indices: list[int] = []
 
@@ -290,22 +418,44 @@ def trim_with_security_awareness(
         else:
             trimmable_indices.append(cm.index)
 
-    # Phase 4: Calculate how many messages to remove
-    messages_to_remove = len(messages) - max_messages
-
-    # Remove from oldest trimmable messages first
+    # Phase 5: Remove oldest trimmable messages first, respecting tool pairs.
+    # When we decide to remove one half of a tool_use/tool_result pair, we
+    # must remove both halves to avoid orphaned messages.
+    messages_to_remove = original_count - max_messages
     indices_to_remove: set[int] = set()
+
     for idx in trimmable_indices:
         if len(indices_to_remove) >= messages_to_remove:
             break
+
+        # Skip if already scheduled (e.g. pulled in as part of a pair)
+        if idx in indices_to_remove:
+            continue
+
+        # If this index is part of a tool pair, remove both atomically
+        if idx in tool_pairs:
+            partner = tool_pairs[idx]
+            if partner not in pinned_indices:
+                indices_to_remove.add(idx)
+                indices_to_remove.add(partner)
+            # If partner is pinned, skip — can't break the pair
+            continue
+        if idx in tool_result_to_use:
+            partner = tool_result_to_use[idx]
+            if partner not in pinned_indices:
+                indices_to_remove.add(idx)
+                indices_to_remove.add(partner)
+            continue
+
+        # Non-pair message: remove individually
         indices_to_remove.add(idx)
 
-    # Phase 5: If we still need to remove more and have excess pinned messages,
-    # summarize the oldest pinned pairs into a compact security context message
+    # Phase 6: If we still need to remove more and have excess pinned messages,
+    # summarize the oldest pinned pairs into a compact security context message.
     security_summary_msg: dict[str, Any] | None = None
     pinned_to_summarize: list[ClassifiedMessage] = []
 
-    if len(indices_to_remove) < messages_to_remove and len(pinned) > max_pinned_pairs * 2:
+    if len(indices_to_remove) < messages_to_remove and len(pinned) >= max_pinned_pairs * 2:
         # Sort pinned by index (oldest first)
         pinned_sorted = sorted(pinned, key=lambda cm: cm.index)
         # Keep the newest max_pinned_pairs*2, summarize the rest
@@ -314,8 +464,9 @@ def trim_with_security_awareness(
         for cm in pinned_to_summarize:
             indices_to_remove.add(cm.index)
 
-        # Build a summary message from the summarized pinned messages
-        # Only include the ones that were originally classified as CRITICAL
+        # Build a summary message from the summarized pinned messages.
+        # Only include the ones that were originally classified as CRITICAL.
+        # Attacker-controlled content is REDACTED — only event types are kept.
         critical_summarized = [
             cm for cm in pinned_to_summarize
             if cm.classification == SecurityClassification.CRITICAL
@@ -325,33 +476,27 @@ def trim_with_security_awareness(
             security_summary_msg = {
                 "role": "user",
                 "content": (
-                    f"[SYSTEM CONTEXT]\n{summary_text}\n[END SYSTEM CONTEXT]\n\n"
-                    "Please acknowledge you've noted these prior security events."
+                    f"[INJECTED SYSTEM CONTEXT — this was not typed by a user]\n"
+                    f"{summary_text}\n"
+                    f"[END INJECTED SYSTEM CONTEXT]"
                 ),
             }
 
-    # Phase 6: Build the trimmed message list
+    # Phase 7: Build the trimmed message list
     trimmed: list[dict[str, Any]] = []
 
-    # Insert security summary at the start if we had to compress pinned messages
+    # Insert security summary at the start if we had to compress pinned messages.
+    # No fabricated assistant acknowledgement — only the factual summary.
     if security_summary_msg is not None:
         trimmed.append(security_summary_msg)
-        trimmed.append(
-            {
-                "role": "assistant",
-                "content": (
-                    "Understood. I've noted the previous security events from this session. "
-                    "I will continue to enforce the same security policies."
-                ),
-            }
-        )
 
     # Add remaining messages in order
     for i, msg in enumerate(messages):
         if i not in indices_to_remove:
             trimmed.append(msg)
 
-    num_removed = len(messages) - len(trimmed)
+    # Count based on original messages removed (not counting synthetic ones)
+    num_removed = original_count - sum(1 for i in range(original_count) if i not in indices_to_remove)
     num_pinned = len(pinned_indices) - len(pinned_to_summarize)
 
     logger.info(
