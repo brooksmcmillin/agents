@@ -191,7 +191,7 @@ class OrchestratorConfig:
     # Decomposition
     skip_decomposition: bool = False  # When True, never decompose tasks into subtasks
     decompose_threshold_hours: float = 4.0  # Skip decomposition for tasks estimated ≤ this
-    max_subtask_depth: int = 3
+    max_subtask_depth: int = 1
     max_subtasks_per_task: int = 6
     max_total_tasks: int = 50  # Absolute cap on tasks in the registry
 

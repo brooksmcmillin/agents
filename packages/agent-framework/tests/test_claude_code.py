@@ -219,7 +219,7 @@ class TestCreateClaudeCodeWorkspace:
 
             result = await create_claude_code_workspace(
                 folder_name="cloned",
-                git_repo_url="https://github.com/example/repo.git",
+                git_repo_url="git@github.com:example/repo.git",
                 working_dir_base=str(workspace_dir),
             )
 

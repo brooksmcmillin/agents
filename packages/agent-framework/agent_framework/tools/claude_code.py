@@ -28,9 +28,8 @@ import re
 import shutil
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse, urlunparse
 
-from agent_framework.security import LLMOutputSanitizer, SSRFValidator
+from agent_framework.security import LLMOutputSanitizer
 
 logger = logging.getLogger(__name__)
 
@@ -43,14 +42,14 @@ _llm_sanitizer = LLMOutputSanitizer(
     block_on_critical=True,  # Block dangerous input patterns
 )
 
-_HTTPS_GIT_URL_RE = re.compile(r"^https://", re.IGNORECASE)
+_SSH_GIT_URL_RE = re.compile(r"^git@[a-zA-Z0-9._-]+:")
 
 
 def validate_git_url(url: str) -> None:
     """Validate a git URL is safe to clone.
 
-    Only allows https:// URLs and checks against SSRF (private IPs, cloud
-    metadata, localhost). Rejects file://, ssh://, git://, and bare paths.
+    Only allows SSH URLs (git@host:path). Rejects file://, https://,
+    http://, git://, and bare paths.
 
     Args:
         url: The git repository URL to validate
@@ -58,24 +57,11 @@ def validate_git_url(url: str) -> None:
     Raises:
         ValueError: If the URL is not safe to clone
     """
-    if not _HTTPS_GIT_URL_RE.match(url):
+    if not _SSH_GIT_URL_RE.match(url):
         raise ValueError(
-            "Git URL must use https:// scheme (file://, ssh://, git://, "
-            "and http:// are not allowed)"
+            "Git URL must use SSH format (git@host:path). "
+            "https://, file://, git://, and http:// are not allowed."
         )
-    is_safe, reason = SSRFValidator.is_safe_url(url)
-    if not is_safe:
-        # Strip credentials and sanitize for safe logging (prevent log injection)
-        parsed = urlparse(url)
-        safe_url = urlunparse(parsed._replace(netloc=parsed.hostname or ""))
-        sanitized_url = safe_url.replace("\n", "").replace("\r", "")[:200]
-        sanitized_reason = reason.replace("\n", "").replace("\r", "")[:200]
-        logger.warning(  # noqa: LOG015
-            "Git URL blocked by SSRF protection: %s — %s",
-            sanitized_url,
-            sanitized_reason,
-        )
-        raise ValueError("Git URL is not allowed")
 
 
 # Default base directory for workspaces (configurable via environment)
