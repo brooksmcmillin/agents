@@ -4,6 +4,10 @@ Usage:
     uv run python scripts/backfill_memory_embeddings.py             # process all
     uv run python scripts/backfill_memory_embeddings.py --dry-run   # preview only
     uv run python scripts/backfill_memory_embeddings.py --batch-size 50
+
+Environment variables:
+    MEMORY_DATABASE_URL or DATABASE_URL  — PostgreSQL connection string
+    OPENAI_API_KEY                       — OpenAI API key for embeddings
 """
 
 import argparse
@@ -33,70 +37,71 @@ async def backfill(
     client = EmbeddingClient(api_key=openai_api_key)
     pool = await asyncpg.create_pool(database_url, min_size=1, max_size=5)
 
-    async with pool.acquire() as conn:
-        total = await conn.fetchval("SELECT COUNT(*) FROM memories WHERE embedding IS NULL")
-        logger.info(f"Found {total} memories without embeddings")
-
-        if dry_run:
-            sample = await conn.fetch(
-                "SELECT agent_name, key, LEFT(value, 80) AS preview "
-                "FROM memories WHERE embedding IS NULL LIMIT 10"
-            )
-            for row in sample:
-                logger.info(f"  [{row['agent_name']}] {row['key']}: {row['preview']}...")
-            logger.info("Dry run complete — no changes made")
-            await pool.close()
-            return
-
-    processed = 0
-    while processed < total:
+    try:
         async with pool.acquire() as conn:
-            rows = await conn.fetch(
-                "SELECT agent_name, key, value FROM memories "
-                "WHERE embedding IS NULL "
-                "ORDER BY agent_name, key "
-                "LIMIT $1 OFFSET $2",
-                batch_size,
-                processed,
-            )
+            total = await conn.fetchval("SELECT COUNT(*) FROM memories WHERE embedding IS NULL")
+            logger.info(f"Found {total} memories without embeddings")
 
-        if not rows:
-            break
+            if dry_run:
+                sample = await conn.fetch(
+                    "SELECT agent_name, key, LEFT(value, 80) AS preview "
+                    "FROM memories WHERE embedding IS NULL LIMIT 10"
+                )
+                for row in sample:
+                    logger.info(f"  [{row['agent_name']}] {row['key']}: {row['preview']}...")
+                logger.info("Dry run complete — no changes made")
+                return
 
-        for row in rows:
-            text = f"{row['key']}: {row['value']}"
-            try:
-                vec = await client.get_embedding(text)
-                vec_str = EmbeddingClient.embedding_to_pgvector(vec)
-                async with pool.acquire() as conn:
-                    await conn.execute(
-                        "UPDATE memories SET embedding = $1::vector "
-                        "WHERE agent_name = $2 AND key = $3",
-                        vec_str,
-                        row["agent_name"],
-                        row["key"],
-                    )
-                processed += 1
-                if processed % 10 == 0:
-                    logger.info(f"Processed {processed}/{total}")
-            except Exception as e:
-                logger.error(f"Failed to embed [{row['agent_name']}] {row['key']}: {e}")
-                processed += 1
+        processed = 0
+        while True:
+            async with pool.acquire() as conn:
+                # Always OFFSET 0: processed rows no longer match the WHERE
+                # filter, so the result set slides forward automatically.
+                rows = await conn.fetch(
+                    "SELECT agent_name, key, value FROM memories "
+                    "WHERE embedding IS NULL "
+                    "ORDER BY agent_name, key "
+                    "LIMIT $1",
+                    batch_size,
+                )
 
-    logger.info(f"Backfill complete: {processed} memories processed")
-    await pool.close()
+            if not rows:
+                break
+
+            for row in rows:
+                text = f"{row['key']}: {row['value']}"
+                try:
+                    vec = await client.get_embedding(text)
+                    vec_str = EmbeddingClient.embedding_to_pgvector(vec)
+                    async with pool.acquire() as conn:
+                        await conn.execute(
+                            "UPDATE memories SET embedding = $1::vector "
+                            "WHERE agent_name = $2 AND key = $3",
+                            vec_str,
+                            row["agent_name"],
+                            row["key"],
+                        )
+                    processed += 1
+                    if processed % 10 == 0:
+                        logger.info(f"Processed {processed}/{total}")
+                except Exception as e:
+                    logger.error(f"Failed to embed [{row['agent_name']}] {row['key']}: {e}")
+                    # Skip this row — it will reappear in the next batch since
+                    # its embedding is still NULL, so break to re-fetch.
+                    break
+
+        logger.info(f"Backfill complete: {processed} memories processed")
+    finally:
+        await pool.close()
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Backfill memory embeddings")
     parser.add_argument("--batch-size", type=int, default=100, help="Batch size")
     parser.add_argument("--dry-run", action="store_true", help="Preview without changes")
-    parser.add_argument("--database-url", help="Override DATABASE_URL env var")
     args = parser.parse_args()
 
-    database_url = (
-        args.database_url or os.environ.get("MEMORY_DATABASE_URL") or os.environ.get("DATABASE_URL")
-    )
+    database_url = os.environ.get("MEMORY_DATABASE_URL") or os.environ.get("DATABASE_URL")
     if not database_url:
         logger.error("Set MEMORY_DATABASE_URL or DATABASE_URL environment variable")
         sys.exit(1)

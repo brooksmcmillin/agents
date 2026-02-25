@@ -146,6 +146,11 @@ class DatabaseMemoryStore:
         """Get the agent name for this memory store."""
         return self._agent_name
 
+    @property
+    def has_embeddings(self) -> bool:
+        """Whether this store has an embedding client for semantic recall."""
+        return self._embedding_client is not None
+
     async def initialize(self) -> None:
         """Initialize connection pool and create table if needed."""
         async with self._init_lock:
@@ -601,26 +606,27 @@ class DatabaseMemoryStore:
         params: list[Any] = [query_vec_str, self._agent_name]
         param_idx = 2
 
+        # Push min_score into the query so LIMIT applies after filtering
+        param_idx += 1
+        sql += f" AND 1 - (embedding <=> $1::vector) >= ${param_idx}"
+        params.append(min_score)
+
         if category is not None:
             param_idx += 1
             sql += f" AND category = ${param_idx}"
             params.append(category)
 
+        param_idx += 1
         sql += f"""
             ORDER BY embedding <=> $1::vector
-            LIMIT {limit}
+            LIMIT ${param_idx}
         """
+        params.append(limit)
 
         async with self._get_connection() as conn:
             rows = await conn.fetch(sql, *params)
 
-        results: list[tuple[Memory, float]] = []
-        for row in rows:
-            score = float(row["similarity"])
-            if score >= min_score:
-                results.append((self._row_to_memory(row), score))
-
-        return results
+        return [(self._row_to_memory(row), float(row["similarity"])) for row in rows]
 
     async def delete_memory(self, key: str) -> bool:
         """

@@ -89,7 +89,7 @@ class TestRecallMemoriesTool:
 
         mock_memory = Memory(key="deploy_pref", value="User prefers Docker", importance=7)
         mock_store = AsyncMock()
-        mock_store._embedding_client = MagicMock()  # non-None = semantic
+        mock_store.has_embeddings = True  # semantic path
         mock_store.recall_memories = AsyncMock(return_value=[(mock_memory, 0.85)])
 
         with patch(
@@ -114,7 +114,7 @@ class TestRecallMemoriesTool:
 
         mock_memory = Memory(key="lang_pref", value="Python", importance=5)
         mock_store = AsyncMock()
-        mock_store._embedding_client = None  # No embedding client = keyword fallback
+        mock_store.has_embeddings = False  # keyword fallback
         mock_store.recall_memories = AsyncMock(return_value=[(mock_memory, 0.0)])
 
         with patch(

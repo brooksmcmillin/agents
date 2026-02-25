@@ -194,9 +194,14 @@ async def configure_memory_store(
         if not database_url:
             raise ValueError("database_url required for database backend")
         os.environ["MEMORY_DATABASE_URL"] = database_url
+        openai_key = os.environ.get("OPENAI_API_KEY")
+        embedding_client = EmbeddingClient(api_key=openai_key) if openai_key else None
         with _database_stores_lock:
             _database_memory_stores[validated_name] = DatabaseMemoryStore(
-                database_url, agent_name=validated_name, cache_ttl=cache_ttl
+                database_url,
+                agent_name=validated_name,
+                cache_ttl=cache_ttl,
+                embedding_client=embedding_client,
             )
             await _database_memory_stores[validated_name].initialize()
         logger.info(f"Configured database memory backend for agent '{validated_name}'")
@@ -530,7 +535,7 @@ async def recall_memories(
                 "status": "success",
                 "agent_name": agent_name,
                 "query": query,
-                "method": "semantic" if store._embedding_client is not None else "keyword",
+                "method": "semantic" if store.has_embeddings else "keyword",
                 "count": len(memories_out),
                 "memories": memories_out,
                 "message": f"Found {len(memories_out)} memories matching '{query}'",
@@ -755,6 +760,7 @@ TOOL_SCHEMAS = [
             "properties": {
                 "query": {
                     "type": "string",
+                    "maxLength": 4000,
                     "description": "Natural-language description of what you're looking for",
                 },
                 "limit": {

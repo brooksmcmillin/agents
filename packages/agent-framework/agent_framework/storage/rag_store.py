@@ -323,13 +323,15 @@ class RAGStore:
         if builder.has_conditions():
             base_query += " WHERE " + builder.get_where_clause()
 
+        # Parameterize LIMIT to prevent injection if top_k is ever user-derived
+        limit_param_idx = len(builder.get_params()) + 1
         base_query += f"""
             ORDER BY embedding <=> $1::vector
-            LIMIT {top_k}
+            LIMIT ${limit_param_idx}
         """
 
         async with self._pool.acquire() as conn:
-            rows = await conn.fetch(base_query, *builder.get_params())
+            rows = await conn.fetch(base_query, *builder.get_params(), top_k)
 
         results = []
         for row in rows:
