@@ -219,6 +219,83 @@ async def get_fix_attempt_count(repo: str, pr_number: int) -> int:
     return count
 
 
+async def get_review_comments(repo: str, pr_number: int) -> str:
+    """Fetch bot review comments from a PR (code review, not security review).
+
+    Extracts comments left by automated reviewers (identified by HTML comment
+    markers like ``<!-- claude-code-review -->``) and returns them as a single
+    string. Skips security reviews and the shepherd's own comments.
+
+    Returns empty string if there are no relevant comments.
+    """
+    rc, out, _ = await _run_gh(
+        ["pr", "view", str(pr_number), "--repo", repo, "--json", "comments"],
+    )
+    if rc != 0:
+        return ""
+
+    try:
+        data = json.loads(out)
+    except json.JSONDecodeError:
+        return ""
+
+    review_bodies: list[str] = []
+    for comment in data.get("comments", []):
+        body = comment.get("body", "")
+        # Skip shepherd's own comments
+        if body.startswith("[PR Shepherd]"):
+            continue
+        # Skip security reviews — they rarely contain actionable code fixes
+        if "<!-- claude-security-review -->" in body:
+            continue
+        # Include code review bot comments
+        if "<!-- claude-code-review -->" in body:
+            review_bodies.append(body)
+
+    if not review_bodies:
+        return ""
+
+    combined = "\n\n---\n\n".join(review_bodies)
+    # Truncate to keep context manageable
+    max_len = 10000
+    if len(combined) > max_len:
+        combined = combined[:max_len] + "\n\n... (review comments truncated)"
+    return combined
+
+
+async def configure_git_credentials(workspace_path: str) -> bool:
+    """Configure ``gh`` CLI as the git credential helper for a workspace.
+
+    Sets the local git config so that fetch, pull, and push operations
+    authenticate via the ``gh`` CLI's existing token. This is needed
+    because workspaces are cloned over HTTPS (for SSRF safety) and
+    raw ``git push`` requires credentials.
+
+    Should be called once after workspace creation, before any
+    authenticated git operations.
+    """
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            "config",
+            "--local",
+            "credential.helper",
+            "!gh auth git-credential",
+            cwd=workspace_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await asyncio.wait_for(proc.communicate(), timeout=10)
+    except TimeoutError:
+        logger.error(f"git config timed out in {workspace_path}")
+        return False
+    if proc.returncode != 0:
+        err = stderr.decode("utf-8", errors="replace")
+        logger.error(f"Failed to configure git credentials in {workspace_path}: {err}")
+        return False
+    return True
+
+
 async def push_branch(workspace_path: str, branch: str) -> bool:
     """Push a branch from *workspace_path*. Returns True on success."""
     try:

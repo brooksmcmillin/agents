@@ -20,7 +20,7 @@ from agents.orchestrator.models import validate_git_ref, validate_workspace_name
 
 from . import github_ops
 from .models import PRShepherdConfig, PRStatus, TrackedPR
-from .prompts import FIX_CI_INSTRUCTIONS_TEMPLATE
+from .prompts import FIX_CI_INSTRUCTIONS_TEMPLATE, REVIEW_COMMENTS_SECTION_TEMPLATE
 
 logger = logging.getLogger(__name__)
 
@@ -138,8 +138,11 @@ class PRShepherd:
             f"[PR Shepherd] Fix attempt #{attempt} — failing checks: {', '.join(failing_checks)}",
         )
 
-        # Get failing logs
-        logs = await github_ops.get_failing_logs(pr.repo, pr.number)
+        # Get failing logs and review comments in parallel
+        logs, review_comments = await asyncio.gather(
+            github_ops.get_failing_logs(pr.repo, pr.number),
+            github_ops.get_review_comments(pr.repo, pr.number),
+        )
         if not logs:
             logger.warning(f"No CI logs found for {pr.repo}#{pr.number}, skipping fix")
             await github_ops.add_comment(
@@ -148,6 +151,8 @@ class PRShepherd:
                 "[PR Shepherd] Could not retrieve CI logs. Skipping fix attempt.",
             )
             return
+        if review_comments:
+            logger.info(f"{pr.repo}#{pr.number}: found review comments to include")
 
         # Validate branch name before using in git commands
         try:
@@ -187,6 +192,10 @@ class PRShepherd:
                 / workspace_name
             )
             logger.warning(f"workspace_path not in result, reconstructed: {workspace_path}")
+
+        # Configure gh as credential helper so push works with HTTPS clones
+        if not await github_ops.configure_git_credentials(workspace_path):
+            logger.warning(f"Could not configure git credentials for {workspace_path}")
 
         # Checkout the PR branch
         try:
@@ -231,12 +240,18 @@ class PRShepherd:
             return
 
         # Build worker instructions
+        review_section = ""
+        if review_comments:
+            review_section = REVIEW_COMMENTS_SECTION_TEMPLATE.format(
+                review_comments=review_comments,
+            )
         instructions = FIX_CI_INSTRUCTIONS_TEMPLATE.format(
             title=pr.title,
             branch=pr.head_branch,
             repo=pr.repo,
             failing_checks=", ".join(failing_checks),
             logs=logs,
+            review_comments_section=review_section,
         )
 
         # Run Claude Code worker
