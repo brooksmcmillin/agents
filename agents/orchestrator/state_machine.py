@@ -288,12 +288,18 @@ class Orchestrator:
 
         Tasks are NOT decomposed if:
         - Decomposition is globally disabled (skip_decomposition)
-        - They're already subtasks at max depth
+        - They're already a subtask (have a parent_id)
+        - They're already at max depth
         - They're already decomposed (have subtask_ids)
         - Their description is very short (likely already atomic)
         - Their estimated hours are at or below the threshold (small enough to do in one shot)
         """
         if self.config.skip_decomposition:
+            return False
+        # Subtasks are never decomposed — the taskmanager only supports one
+        # layer of subtasks, and the depth check alone depends on depth being
+        # set correctly when subtasks are created.
+        if task.parent_id is not None:
             return False
         if task.depth >= self.config.max_subtask_depth:
             return False
