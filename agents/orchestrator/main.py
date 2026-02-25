@@ -180,6 +180,13 @@ def parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--external-id",
+        type=str,
+        default=None,
+        help="External task ID (e.g., TaskManager task_386) to link in PR body",
+    )
+
+    parser.add_argument(
         "--file",
         type=str,
         default=None,
@@ -190,6 +197,12 @@ def parse_args() -> argparse.Namespace:
         "--dry-run",
         action="store_true",
         help="Plan only, don't execute workers",
+    )
+
+    parser.add_argument(
+        "--no-decompose",
+        action="store_true",
+        help="Skip task decomposition — run as a single worker task",
     )
 
     parser.add_argument(
@@ -271,6 +284,7 @@ async def run_orchestrator(args: argparse.Namespace) -> int:
     # Build config
     config = OrchestratorConfig(
         worker_model=args.worker_model,
+        skip_decomposition=args.no_decompose,
     )
 
     # Create orchestrator
@@ -316,6 +330,7 @@ async def run_orchestrator(args: argparse.Namespace) -> int:
                 tags=args.tags,
                 category=args.category,
                 workspace_name=args.workspace,
+                external_id=args.external_id,
             )
         )
     else:
