@@ -59,7 +59,7 @@ RUN chmod +x entrypoint.sh
 # Create runtime directories and non-root user
 RUN mkdir -p logs memories .data \
     && groupadd --gid 1000 app \
-    && useradd --uid 1000 --gid app --no-create-home app \
+    && useradd --uid 1000 --gid app --no-create-home --shell /sbin/nologin app \
     && chown -R app:app /app
 
 USER app

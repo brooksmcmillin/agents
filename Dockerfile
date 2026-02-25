@@ -22,10 +22,10 @@ RUN uv sync --frozen --no-dev
 COPY . .
 
 # Create necessary directories and non-root user
-RUN mkdir -p logs memories .data \
+RUN mkdir -p logs memories .data /var/log/agents \
     && groupadd --gid 1000 app \
-    && useradd --uid 1000 --gid app --no-create-home app \
-    && chown -R app:app /app
+    && useradd --uid 1000 --gid app --no-create-home --shell /sbin/nologin app \
+    && chown -R app:app /app /var/log/agents
 
 USER app
 
