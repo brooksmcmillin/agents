@@ -61,7 +61,10 @@ class PRShepherd:
                 # Recover fix attempt count from comment history (stateless)
                 pr.fix_attempts = await github_ops.get_fix_attempt_count(repo, pr.number)
 
-                await self._process_pr(pr)
+                try:
+                    await self._process_pr(pr)
+                except Exception:
+                    logger.exception(f"Unhandled error processing {pr.repo}#{pr.number}, skipping")
                 all_tracked.append(pr)
 
         return all_tracked

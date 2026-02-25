@@ -32,7 +32,12 @@ async def _run_gh(args: list[str], timeout: int = 30) -> tuple[int, str, str]:
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except TimeoutError:
+        proc.kill()
+        logger.warning(f"gh command timed out after {timeout}s: gh {' '.join(args[:3])}")
+        return (1, "", f"timed out after {timeout}s")
     return (
         proc.returncode or 0,
         stdout.decode("utf-8", errors="replace"),
