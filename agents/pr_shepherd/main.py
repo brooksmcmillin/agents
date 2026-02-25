@@ -169,7 +169,7 @@ class PRShepherd:
             logger.error(f"Invalid workspace name: {workspace_name!r}")
             return
 
-        git_url = f"https://github.com/{pr.repo}.git"
+        git_url = f"git@github.com:{pr.repo}.git"
 
         ws_result = await create_claude_code_workspace(
             folder_name=workspace_name,
@@ -192,10 +192,6 @@ class PRShepherd:
                 / workspace_name
             )
             logger.warning(f"workspace_path not in result, reconstructed: {workspace_path}")
-
-        # Configure gh as credential helper so push works with HTTPS clones
-        if not await github_ops.configure_git_credentials(workspace_path):
-            logger.warning(f"Could not configure git credentials for {workspace_path}")
 
         # Checkout the PR branch
         try:
