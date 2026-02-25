@@ -640,6 +640,11 @@ class ClaudeCodeSessionManager:
         self.workspaces_dir.mkdir(parents=True, exist_ok=True)
 
         if git_url:
+            # Validate URL before cloning (SSRF protection)
+            from agent_framework.tools.claude_code import validate_git_url
+
+            validate_git_url(git_url)
+
             # Clone repository
             process = await asyncio.create_subprocess_exec(
                 "git",

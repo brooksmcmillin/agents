@@ -87,7 +87,7 @@ class TestAgentProcessingErrors:
     """Test agent processing error responses (500)."""
 
     def test_agent_exception_returns_500(self):
-        """Agent exceptions should return 500 with error detail."""
+        """Agent exceptions should return 500 with generic error (no detail leak)."""
         from api.server import app
 
         # Create a mock agent that raises an exception
@@ -100,7 +100,9 @@ class TestAgentProcessingErrors:
             with TestClient(app) as client:
                 response = client.post("/agents/chatbot/message", json={"message": "test"})
                 assert response.status_code == 500
-                assert "Agent processing failed" in response.json()["detail"]
+                # Internal error details must not leak to clients
+                assert response.json()["detail"] == "Internal server error"
+                assert "Agent processing failed" not in response.json()["detail"]
 
 
 class TestAuthenticationErrors:

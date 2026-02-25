@@ -29,7 +29,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from agent_framework.security import LLMOutputSanitizer
+from agent_framework.security import LLMOutputSanitizer, SSRFValidator
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +41,31 @@ _llm_sanitizer = LLMOutputSanitizer(
     strict_mode=False,  # Escape rather than remove for output
     block_on_critical=True,  # Block dangerous input patterns
 )
+
+_HTTPS_GIT_URL_RE = re.compile(r"^https://", re.IGNORECASE)
+
+
+def validate_git_url(url: str) -> None:
+    """Validate a git URL is safe to clone.
+
+    Only allows https:// URLs and checks against SSRF (private IPs, cloud
+    metadata, localhost). Rejects file://, ssh://, git://, and bare paths.
+
+    Args:
+        url: The git repository URL to validate
+
+    Raises:
+        ValueError: If the URL is not safe to clone
+    """
+    if not _HTTPS_GIT_URL_RE.match(url):
+        raise ValueError(
+            "Git URL must use https:// scheme (file://, ssh://, git://, "
+            "and http:// are not allowed)"
+        )
+    is_safe, reason = SSRFValidator.is_safe_url(url)
+    if not is_safe:
+        raise ValueError(f"Git URL blocked by SSRF protection: {reason}")
+
 
 # Default base directory for workspaces (configurable via environment)
 DEFAULT_WORKSPACES_DIR = os.environ.get(
@@ -487,6 +512,7 @@ async def create_claude_code_workspace(
 
         # Clone git repo if URL provided
         if git_repo_url:
+            validate_git_url(git_repo_url)
             logger.info(f"Cloning {git_repo_url} into {workspace_path}")
             process = await asyncio.create_subprocess_exec(
                 "git",
