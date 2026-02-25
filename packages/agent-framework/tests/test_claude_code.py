@@ -13,6 +13,7 @@ from agent_framework.tools.claude_code import (
     get_claude_code_workspace_status,
     list_claude_code_workspaces,
     run_claude_code,
+    validate_git_url,
 )
 
 
@@ -69,6 +70,36 @@ class TestValidateFolderName:
             _validate_folder_name("project@name")
         with pytest.raises(ValueError, match="Must start with alphanumeric"):
             _validate_folder_name("project name")  # space
+
+
+class TestValidateGitUrl:
+    """Tests for validate_git_url function."""
+
+    def test_ssh_url_accepted(self):
+        """Test that standard SSH URLs are accepted."""
+        validate_git_url("git@github.com:user/repo.git")
+        validate_git_url("git@gitlab.com:org/project.git")
+        validate_git_url("git@bitbucket.org:team/repo.git")
+
+    def test_https_url_rejected(self):
+        """Test that HTTPS URLs are rejected."""
+        with pytest.raises(ValueError, match="SSH format"):
+            validate_git_url("https://github.com/user/repo.git")
+
+    def test_http_url_rejected(self):
+        """Test that HTTP URLs are rejected."""
+        with pytest.raises(ValueError, match="SSH format"):
+            validate_git_url("http://github.com/user/repo.git")
+
+    def test_file_url_rejected(self):
+        """Test that file:// URLs are rejected."""
+        with pytest.raises(ValueError, match="SSH format"):
+            validate_git_url("file:///tmp/repo")
+
+    def test_bare_path_rejected(self):
+        """Test that bare filesystem paths are rejected."""
+        with pytest.raises(ValueError, match="SSH format"):
+            validate_git_url("/tmp/repo")
 
 
 class TestGetWorkspacePath:

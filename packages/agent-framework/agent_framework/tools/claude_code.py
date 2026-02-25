@@ -487,7 +487,7 @@ async def create_claude_code_workspace(
     Example:
         >>> result = await create_claude_code_workspace(
         ...     folder_name="new_project",
-        ...     git_repo_url="https://github.com/user/repo.git"
+        ...     git_repo_url="git@github.com:user/repo.git"
         ... )
     """
     workspace_path = None
@@ -519,7 +519,7 @@ async def create_claude_code_workspace(
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            _, stderr = await process.communicate()
+            _, stderr = await asyncio.wait_for(process.communicate(), timeout=120)
 
             if process.returncode != 0:
                 # Clean up failed clone

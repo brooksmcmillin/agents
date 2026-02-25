@@ -296,6 +296,9 @@ class Orchestrator:
         """
         if self.config.skip_decomposition:
             return False
+        # Subtasks are never decomposed — the taskmanager only supports one
+        # layer of subtasks, and the depth check alone depends on depth being
+        # set correctly when subtasks are created.
         if task.parent_id is not None:
             return False
         if task.depth >= self.config.max_subtask_depth:
