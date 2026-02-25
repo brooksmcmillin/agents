@@ -394,6 +394,16 @@ async def push_and_create_pr(
 
     # Extract PR URL from output
     pr_url = _extract_pr_url(output)
+
+    # Fallback: query gh CLI directly if URL wasn't in sanitized output
+    if not pr_url and task.workspace_name and task.branch_name:
+        workspace_status = await get_claude_code_workspace_status(task.workspace_name)
+        ws_path = workspace_status.get("workspace_path", "")
+        if ws_path:
+            pr_url = await _find_pr_for_branch(ws_path, task.branch_name)
+            if pr_url:
+                logger.info(f"PR URL found via gh fallback for task {task.id}: {pr_url}")
+
     if pr_url:
         logger.info(f"PR created for task {task.id}: {pr_url}")
     else:
@@ -405,10 +415,62 @@ async def push_and_create_pr(
 def _extract_pr_url(output: str) -> str | None:
     """Extract a GitHub PR URL from Claude Code output.
 
-    Looks for https://github.com/.../ pull/N patterns.
+    Looks for https://github.com/.../pull/N patterns.  The output may have
+    been wrapped by the LLM output sanitizer (boundary markers, zero-width
+    spaces), so we strip those before matching.
     """
-    match = re.search(r"https://github\.com/[^\s\"'<>]+/pull/\d+", output)
+    # Strip zero-width spaces that the sanitizer may have inserted
+    cleaned = output.replace("\u200b", "")
+    match = re.search(r"https://github\.com/[^\s\"'<>]+/pull/\d+", cleaned)
     return match.group(0) if match else None
+
+
+async def _find_pr_for_branch(
+    workspace_path: str,
+    branch_name: str,
+) -> str | None:
+    """Find an existing PR URL for a branch using gh CLI.
+
+    Fallback when URL extraction from Claude Code output fails.
+    This handles cases where claude -p stdout doesn't include tool
+    output, or where the sanitizer obscures the URL.
+
+    Args:
+        workspace_path: Path to the git workspace (for cwd).
+        branch_name: The branch to look up.
+
+    Returns:
+        The PR URL, or None if no PR was found.
+    """
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "gh",
+            "pr",
+            "list",
+            "--head",
+            branch_name,
+            "--json",
+            "url",
+            "--limit",
+            "1",
+            cwd=workspace_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15)
+
+        if proc.returncode != 0:
+            return None
+
+        import json
+
+        data = json.loads(stdout.decode("utf-8", errors="replace"))
+        if data and isinstance(data, list) and data[0].get("url"):
+            return data[0]["url"]
+    except Exception as e:
+        logger.debug(f"gh pr list fallback failed: {e}")
+
+    return None
 
 
 async def get_workspace_diff(

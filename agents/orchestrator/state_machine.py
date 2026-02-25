@@ -287,11 +287,14 @@ class Orchestrator:
         """Determine if a task should be decomposed into subtasks.
 
         Tasks are NOT decomposed if:
+        - Decomposition is globally disabled (skip_decomposition)
         - They're already subtasks at max depth
         - They're already decomposed (have subtask_ids)
         - Their description is very short (likely already atomic)
         - Their estimated hours are at or below the threshold (small enough to do in one shot)
         """
+        if self.config.skip_decomposition:
+            return False
         if task.depth >= self.config.max_subtask_depth:
             return False
         if task.subtask_ids:

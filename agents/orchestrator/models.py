@@ -189,6 +189,7 @@ class OrchestratorConfig:
     """Configuration for the orchestrator."""
 
     # Decomposition
+    skip_decomposition: bool = False  # When True, never decompose tasks into subtasks
     decompose_threshold_hours: float = 4.0  # Skip decomposition for tasks estimated ≤ this
     max_subtask_depth: int = 3
     max_subtasks_per_task: int = 6
