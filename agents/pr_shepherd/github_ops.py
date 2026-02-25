@@ -219,6 +219,96 @@ async def get_fix_attempt_count(repo: str, pr_number: int) -> int:
     return count
 
 
+# Known bot logins whose code review comments are trusted.
+_TRUSTED_REVIEW_BOT_LOGINS: set[str] = {"claude"}
+
+
+async def get_review_comments(repo: str, pr_number: int) -> str:
+    """Fetch bot review comments from a PR (code review, not security review).
+
+    Extracts comments left by trusted automated reviewers. A comment is
+    included only when **both** conditions are met:
+
+    1. The author is a known bot (login in ``_TRUSTED_REVIEW_BOT_LOGINS``
+       or ending with ``[bot]``).
+    2. The body contains the ``<!-- claude-code-review -->`` HTML marker.
+
+    This prevents prompt-injection via forged markers in human comments.
+    Security reviews are skipped because they rarely contain actionable
+    code fixes.
+
+    Returns empty string if there are no relevant comments.
+    """
+    rc, out, _ = await _run_gh(
+        ["pr", "view", str(pr_number), "--repo", repo, "--json", "comments"],
+    )
+    if rc != 0:
+        return ""
+
+    try:
+        data = json.loads(out)
+    except json.JSONDecodeError:
+        return ""
+
+    review_bodies: list[str] = []
+    for comment in data.get("comments", []):
+        body = comment.get("body", "")
+        author = comment.get("author", {}).get("login", "")
+
+        # Only trust comments from known bots
+        if author not in _TRUSTED_REVIEW_BOT_LOGINS and not author.endswith("[bot]"):
+            continue
+        # Skip security reviews — they rarely contain actionable code fixes
+        if "<!-- claude-security-review -->" in body:
+            continue
+        # Include code review bot comments
+        if "<!-- claude-code-review -->" in body:
+            review_bodies.append(body)
+
+    if not review_bodies:
+        return ""
+
+    combined = "\n\n---\n\n".join(review_bodies)
+    # Truncate to keep context manageable
+    max_len = 10000
+    if len(combined) > max_len:
+        combined = combined[:max_len] + "\n\n... (review comments truncated)"
+    return combined
+
+
+async def configure_git_credentials(workspace_path: str) -> bool:
+    """Configure ``gh`` CLI as the git credential helper for a workspace.
+
+    Sets the local git config so that fetch, pull, and push operations
+    authenticate via the ``gh`` CLI's existing token. This is needed
+    because workspaces are cloned over HTTPS (for SSRF safety) and
+    raw ``git push`` requires credentials.
+
+    Should be called once after workspace creation, before any
+    authenticated git operations.
+    """
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            "config",
+            "--local",
+            "credential.helper",
+            "!gh auth git-credential",
+            cwd=workspace_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await asyncio.wait_for(proc.communicate(), timeout=10)
+    except TimeoutError:
+        logger.error(f"git config timed out in {workspace_path}")
+        return False
+    if proc.returncode != 0:
+        err = stderr.decode("utf-8", errors="replace")
+        logger.error(f"Failed to configure git credentials in {workspace_path}: {err}")
+        return False
+    return True
+
+
 async def push_branch(workspace_path: str, branch: str) -> bool:
     """Push a branch from *workspace_path*. Returns True on success."""
     try:
