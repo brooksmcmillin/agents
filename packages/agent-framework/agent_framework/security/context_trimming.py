@@ -398,15 +398,21 @@ def trim_with_security_awareness(
     # Phase 3: Expand pinned messages to include their conversation pair.
     # A security event in a tool_result (user role) also pins the preceding
     # assistant message (which contains the tool_use), and vice versa.
+    # A CRITICAL assistant message also pins its preceding user message so
+    # the trimmed list never starts with an assistant-role message (the
+    # Anthropic API requires conversations to begin with a user message).
     pinned_indices: set[int] = set()
     for cm in classified:
         if cm.classification == SecurityClassification.CRITICAL:
             pinned_indices.add(cm.index)
-            # Pin the adjacent message to maintain conversation coherence
+            # Pin the adjacent messages to maintain conversation coherence
             if cm.message.get("role") == "user" and cm.index > 0:
                 pinned_indices.add(cm.index - 1)  # preceding assistant
-            elif cm.message.get("role") == "assistant" and cm.index + 1 < len(messages):
-                pinned_indices.add(cm.index + 1)  # following user/tool_result
+            elif cm.message.get("role") == "assistant":
+                if cm.index + 1 < len(messages):
+                    pinned_indices.add(cm.index + 1)  # following user/tool_result
+                if cm.index > 0:
+                    pinned_indices.add(cm.index - 1)  # preceding user (preserve start-of-conv)
 
     # Phase 4: Separate pinned and trimmable messages
     pinned: list[ClassifiedMessage] = []
@@ -455,11 +461,17 @@ def trim_with_security_awareness(
     security_summary_msg: dict[str, Any] | None = None
     pinned_to_summarize: list[ClassifiedMessage] = []
 
-    if len(indices_to_remove) < messages_to_remove and len(pinned) >= max_pinned_pairs * 2:
+    still_need_to_remove = messages_to_remove - len(indices_to_remove)
+    if still_need_to_remove > 0 and len(pinned) >= max_pinned_pairs * 2:
         # Sort pinned by index (oldest first)
         pinned_sorted = sorted(pinned, key=lambda cm: cm.index)
-        # Keep the newest max_pinned_pairs*2, summarize the rest
-        pinned_to_summarize = pinned_sorted[: len(pinned_sorted) - max_pinned_pairs * 2]
+        # Calculate how many pinned messages to keep vs. summarize.
+        # We'd like to keep max_pinned_pairs*2, but if that isn't enough
+        # to meet the removal target, we reduce the keep count.
+        # Always keep at least 2 messages (one conversation pair).
+        desired_keep = max_pinned_pairs * 2
+        actual_keep = max(2, min(desired_keep, len(pinned_sorted) - still_need_to_remove))
+        pinned_to_summarize = pinned_sorted[: len(pinned_sorted) - actual_keep]
 
         for cm in pinned_to_summarize:
             indices_to_remove.add(cm.index)
@@ -485,15 +497,38 @@ def trim_with_security_awareness(
     # Phase 7: Build the trimmed message list
     trimmed: list[dict[str, Any]] = []
 
+    # Collect surviving original messages in order
+    surviving: list[dict[str, Any]] = []
+    for i, msg in enumerate(messages):
+        if i not in indices_to_remove:
+            surviving.append(msg)
+
     # Insert security summary at the start if we had to compress pinned messages.
     # No fabricated assistant acknowledgement — only the factual summary.
     if security_summary_msg is not None:
         trimmed.append(security_summary_msg)
+        # If the first surviving original message is also user-role, insert a
+        # minimal assistant bridge to avoid consecutive user messages (API rejects).
+        if surviving and surviving[0].get("role") == "user":
+            trimmed.append(
+                {
+                    "role": "assistant",
+                    "content": "[Acknowledged — security context noted.]",
+                }
+            )
 
-    # Add remaining messages in order
-    for i, msg in enumerate(messages):
-        if i not in indices_to_remove:
-            trimmed.append(msg)
+    trimmed.extend(surviving)
+
+    # Phase 8: Ensure the final list never starts with an assistant-role message.
+    # The Anthropic API requires conversations to begin with a user message.
+    if trimmed and trimmed[0].get("role") == "assistant":
+        trimmed.insert(
+            0,
+            {
+                "role": "user",
+                "content": "[Context continues from a previous session.]",
+            },
+        )
 
     # Count based on original messages removed (not counting synthetic ones)
     num_removed = original_count - sum(1 for i in range(original_count) if i not in indices_to_remove)

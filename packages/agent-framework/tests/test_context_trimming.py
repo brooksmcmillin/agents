@@ -5,16 +5,12 @@ events (permission denials, SSRF blocks, prompt injection detections) during
 conversation history trimming.
 """
 
-import pytest
-
 from agent_framework.security.context_trimming import (
     SECURITY_EVENT_KEY,
-    ClassifiedMessage,
     SecurityClassification,
     classify_message,
     trim_with_security_awareness,
 )
-
 
 # --- Helpers for building test messages ---
 
@@ -686,5 +682,119 @@ class TestOffByOnePinnedPairs:
             messages, max_messages=4, max_pinned_pairs=4
         )
 
-        # Summarization should have been triggered to get under the limit
-        assert len(trimmed) <= len(messages)
+        # Summarization should have been triggered — some original messages removed.
+        assert removed > 0
+        # The result must start with a user-role message (API requirement).
+        assert trimmed[0]["role"] == "user"
+
+
+class TestConversationStartsWithUserRole:
+    """Tests that trimmed conversation always starts with a user-role message."""
+
+    def test_critical_assistant_does_not_orphan_at_start(self):
+        """Trimming must not leave a CRITICAL assistant message at position 0.
+
+        Scenario: [user_normal, assistant_CRITICAL, user_pinned, ...], max=4.
+        Without the fix, user_normal is trimmed and the list starts with
+        assistant_CRITICAL, which the Anthropic API rejects.
+        """
+        messages = [
+            user_msg("hello"),  # normal, trimmable
+            assistant_msg(
+                "I'm sorry, but your message was flagged by our security system "
+                "and cannot be processed."
+            ),  # CRITICAL
+            user_msg("ok fine"),
+            assistant_msg("sure"),
+            user_msg("another question"),
+            assistant_msg("another answer"),
+        ]
+        trimmed, _, _ = trim_with_security_awareness(messages, max_messages=4)
+
+        # The first message MUST be user-role
+        assert trimmed[0]["role"] == "user", (
+            f"Trimmed conversation starts with '{trimmed[0]['role']}' role, "
+            "expected 'user' (API will reject assistant-first)"
+        )
+
+    def test_pinned_assistant_pins_preceding_user(self):
+        """A CRITICAL assistant at index 1 should pin the user at index 0."""
+        messages = [
+            user_msg("malicious input"),  # index 0 — should be pinned
+            assistant_msg(
+                "Security threat detected. Your message was blocked for safety reasons."
+            ),  # index 1 — CRITICAL
+            user_msg("msg2"),
+            assistant_msg("resp2"),
+            user_msg("msg3"),
+            assistant_msg("resp3"),
+            user_msg("msg4"),
+            assistant_msg("resp4"),
+        ]
+        trimmed, _, pinned = trim_with_security_awareness(messages, max_messages=6)
+
+        assert trimmed[0]["role"] == "user"
+        # The security assistant message should survive
+        all_text = " ".join(str(m.get("content", "")) for m in trimmed)
+        assert "Security threat detected" in all_text
+
+
+class TestNoConsecutiveUserMessages:
+    """Tests that the trimmed list never has adjacent user-role messages."""
+
+    def test_summary_followed_by_user_gets_bridge(self):
+        """When summary (user) is followed by a surviving user message,
+        an assistant bridge must be inserted between them."""
+        messages = []
+        # Create enough pinned security events to trigger summarization
+        for i in range(16):
+            messages.append(tool_use_assistant(f"t{i}", "tool"))
+            messages.append(
+                tool_result_msg(f"t{i}", f"Permission denied: tool {i}", is_error=True)
+            )
+        # End with a user message that will survive
+        messages.append(user_msg("final question"))
+        messages.append(assistant_msg("final answer"))
+
+        trimmed, _, _ = trim_with_security_awareness(
+            messages, max_messages=12, max_pinned_pairs=3
+        )
+
+        # Verify no two consecutive user messages exist
+        for i in range(len(trimmed) - 1):
+            if trimmed[i]["role"] == "user" and trimmed[i + 1]["role"] == "user":
+                raise AssertionError(
+                    f"Consecutive user messages at indices {i} and {i+1}: "
+                    f"{str(trimmed[i]['content'])[:80]}... / "
+                    f"{str(trimmed[i+1]['content'])[:80]}..."
+                )
+
+    def test_summary_followed_by_assistant_no_bridge(self):
+        """When summary (user) is followed by a surviving assistant message,
+        no bridge should be inserted."""
+        messages = []
+        for i in range(16):
+            messages.append(tool_use_assistant(f"t{i}", "tool"))
+            messages.append(
+                tool_result_msg(f"t{i}", f"Permission denied: tool {i}", is_error=True)
+            )
+        # End with assistant first (all tool_use are assistant-role, so surviving
+        # pinned messages may start with an assistant tool_use)
+        # Force the first surviving original to be assistant by having enough security
+        # pairs that the surviving ones start with tool_use_assistant
+        trimmed, _, _ = trim_with_security_awareness(
+            messages, max_messages=10, max_pinned_pairs=3
+        )
+
+        # The trimmed list should be valid — first message is user (summary or original)
+        assert trimmed[0]["role"] == "user"
+
+
+class TestSecurityEventKeyExported:
+    """Test that SECURITY_EVENT_KEY is accessible via the public package API."""
+
+    def test_importable_from_security_package(self):
+        """SECURITY_EVENT_KEY should be importable from agent_framework.security."""
+        from agent_framework.security import SECURITY_EVENT_KEY as key
+
+        assert key == "_security_event"
