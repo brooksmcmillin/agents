@@ -7,6 +7,7 @@ implementing the same interface.
 
 import json
 import logging
+import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -126,11 +127,38 @@ class TokenStore:
             logger.warning("Failed to auto-generate encryption key: %s", e)
             return None
 
+    _SAFE_STORE_KEY_RE = re.compile(r"^[a-zA-Z0-9_\-]{1,100}$")
+
+    def _validate_store_key(self, value: str, field: str) -> None:
+        """Validate a token store key to prevent path traversal.
+
+        Args:
+            value: The key value to validate
+            field: Field name for error messages (e.g., "platform", "user_id")
+
+        Raises:
+            ValueError: If the key contains invalid characters
+        """
+        if not value:
+            raise ValueError(f"{field} cannot be empty")
+        if "\x00" in value or ".." in value or "/" in value or "\\" in value:
+            raise ValueError(f"{field} contains invalid characters")
+        if not self._SAFE_STORE_KEY_RE.match(value):
+            raise ValueError(
+                f"{field} must contain only alphanumeric characters, "
+                "underscores, and hyphens (max 100 chars)"
+            )
+
     def _get_token_path(self, platform: str, user_id: str = "default") -> Path:
         """Get file path for storing token."""
-        # Use platform and user_id to support multiple users
+        self._validate_store_key(platform, "platform")
+        self._validate_store_key(user_id, "user_id")
         filename = f"{platform}_{user_id}.token"
-        return self.storage_path / filename
+        token_path = (self.storage_path / filename).resolve()
+        # Confinement check: ensure path stays inside storage directory
+        if not token_path.is_relative_to(self.storage_path.resolve()):
+            raise ValueError("Token path escapes storage directory")
+        return token_path
 
     def get_token(self, platform: str, user_id: str = "default") -> TokenData | None:
         """

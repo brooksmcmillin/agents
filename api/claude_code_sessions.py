@@ -553,10 +553,7 @@ class ClaudeCodeSessionManager:
         workspace_path = self.workspaces_dir / workspace_name
 
         if not workspace_path.exists():
-            raise FileNotFoundError(
-                f"Workspace not found: {workspace_name}. "
-                f"Available: {[w.name for w in self.workspaces_dir.iterdir() if w.is_dir()]}"
-            )
+            raise FileNotFoundError(f"Workspace not found: {workspace_name}")
 
         if not workspace_path.is_dir():
             raise ValueError(f"Not a directory: {workspace_name}")
@@ -640,6 +637,11 @@ class ClaudeCodeSessionManager:
         self.workspaces_dir.mkdir(parents=True, exist_ok=True)
 
         if git_url:
+            # Validate URL before cloning (SSRF protection)
+            from agent_framework.tools.claude_code import validate_git_url
+
+            validate_git_url(git_url)
+
             # Clone repository
             process = await asyncio.create_subprocess_exec(
                 "git",
@@ -652,7 +654,8 @@ class ClaudeCodeSessionManager:
             _, stderr = await process.communicate()
 
             if process.returncode != 0:
-                raise RuntimeError(f"Git clone failed: {stderr.decode()}")
+                logger.warning("Git clone failed: %s", stderr.decode())
+                raise RuntimeError("Git clone failed")
         else:
             # Create empty directory with git init
             workspace_path.mkdir(parents=True)

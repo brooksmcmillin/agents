@@ -293,6 +293,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     else:
         logger.info("Conversation persistence disabled (no DATABASE_URL)")
 
+    if not _api_key:
+        logger.warning(
+            "SECURITY: API_KEY not set — all endpoints are publicly accessible. "
+            "Set API_KEY environment variable to enable authentication."
+        )
+
     logger.info("Agent REST API started")
     yield
 
@@ -504,7 +510,7 @@ async def stateless_message(
         response_text = await agent.process_message(body.message)
     except Exception as e:
         logger.exception("Agent %s failed processing message", _sanitize_log_input(agent_name))
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
     return MessageResponse(
         response=response_text,
@@ -572,7 +578,7 @@ async def session_message(
         )
     except Exception as e:
         logger.exception("Session %s failed processing message", _sanitize_log_input(session_id))
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
     session.touch()
 
@@ -777,7 +783,7 @@ async def conversation_message(
         logger.exception(
             "Conversation %s failed processing message", _sanitize_log_input(conversation_id)
         )
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
     # Save both messages to database
     await store.add_messages_batch(
@@ -969,7 +975,8 @@ async def create_claude_code_workspace(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except RuntimeError as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        logger.exception("Workspace creation failed")
+        raise HTTPException(status_code=500, detail="Workspace creation failed") from e
 
 
 @app.delete("/claude-code/workspaces/{workspace_name}", status_code=204)
@@ -1028,7 +1035,8 @@ async def create_claude_code_session(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except RuntimeError as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        logger.exception("Session creation failed")
+        raise HTTPException(status_code=500, detail="Session creation failed") from e
 
 
 @app.get("/claude-code/sessions/{session_id}", response_model=ClaudeCodeSessionInfo)
