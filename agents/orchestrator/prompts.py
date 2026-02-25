@@ -134,7 +134,10 @@ You are working in the workspace at: {workspace_path}
 ## Instructions
 - Complete the task described above.
 - Write clean, well-tested code.
-- Commit your changes with a clear commit message describing what you did.
+- IMPORTANT: When you are done, you MUST stage and commit ALL your changes:
+  1. `git add -A`
+  2. `git commit -m "descriptive message of what you did"`
+  Without a commit, your work will be lost. This is critical.
 - Do NOT push to remote. The orchestrator handles that.
 - If you encounter blockers, document them clearly in your output.
 

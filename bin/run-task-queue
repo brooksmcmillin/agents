@@ -10,7 +10,6 @@ Usage:
     uv run python bin/run-task-queue --max-tasks 5       # Limit
     uv run python bin/run-task-queue --no-overdue        # Today only
     uv run python bin/run-task-queue --repo URL          # For code tasks
-    uv run python bin/run-task-queue --no-review         # Skip review gates
 """
 
 import argparse
@@ -103,11 +102,6 @@ Examples:
         help="Git repository URL for code tasks",
     )
     parser.add_argument(
-        "--no-review",
-        action="store_true",
-        help="Skip code and security review gates",
-    )
-    parser.add_argument(
         "--slack-webhook",
         default=None,
         help="Slack webhook URL for notifications",
@@ -140,8 +134,6 @@ Examples:
         lightweight_model=args.lightweight_model,
         include_overdue=not args.no_overdue,
         priority_bump_overdue=not args.no_priority_bump,
-        enable_code_review=not args.no_review,
-        enable_security_review=not args.no_review,
         git_repo_url=args.repo,
         slack_webhook_url=args.slack_webhook,
         send_email_report=args.email_report,

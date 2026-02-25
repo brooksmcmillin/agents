@@ -79,8 +79,6 @@ class TaskQueueConfig:
     priority_bump_overdue: bool = True
 
     # Orchestrator settings
-    enable_code_review: bool = True
-    enable_security_review: bool = True
     git_repo_url: str | None = None
 
     # Concurrency

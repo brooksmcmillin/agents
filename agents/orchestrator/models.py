@@ -116,7 +116,6 @@ class TaskStatus(str, Enum):
     PENDING = "pending"
     PLANNING = "planning"
     IN_PROGRESS = "in_progress"
-    IN_REVIEW = "in_review"
     AWAITING_HUMAN = "awaiting_human"
     COMPLETED = "completed"
     FAILED = "failed"
@@ -130,53 +129,10 @@ class Phase(str, Enum):
     INGEST = "ingest"
     PLAN = "plan"
     EXECUTE = "execute"
-    REVIEW = "review"
     PUBLISH = "publish"
     HUMAN_GATE = "human_gate"
     COMPLETE = "complete"
     FAILED = "failed"
-
-
-class ReviewVerdict(str, Enum):
-    """Outcome of a review gate."""
-
-    PASSED = "passed"
-    FAILED = "failed"
-    NEEDS_CHANGES = "needs_changes"
-
-
-@dataclass
-class ReviewResult:
-    """Result from a review agent."""
-
-    reviewer: str
-    verdict: ReviewVerdict
-    summary: str
-    issues: list[ReviewIssue] = field(default_factory=list)
-    raw_output: str = ""
-    diff_truncated: bool = False  # True if the diff was too large and was cut
-    reviewed_at: datetime = field(default_factory=_utcnow)
-
-
-@dataclass
-class ReviewIssue:
-    """A specific issue found during review."""
-
-    title: str
-    description: str
-    severity: str = "medium"  # low, medium, high, critical
-    file_path: str | None = None
-    line_number: int | None = None
-    suggestion: str | None = None
-
-    def to_task_title(self) -> str:
-        """Generate a remediation task title from this issue."""
-        prefix = f"[{self.severity.upper()}]" if self.severity in ("high", "critical") else ""
-        return f"{prefix} Fix: {self.title}".strip()
-
-    def severity_to_priority(self) -> int:
-        """Map severity to task priority (1-10 scale, 10=highest)."""
-        return {"critical": 10, "high": 8, "medium": 5, "low": 3}.get(self.severity, 5)
 
 
 @dataclass
@@ -208,7 +164,6 @@ class Task:
 
     # Results
     worker_output: str | None = None
-    review_results: list[ReviewResult] = field(default_factory=list)
     pr_url: str | None = None
     error: str | None = None
 
@@ -228,12 +183,6 @@ class Task:
         """True if this task has no subtasks."""
         return len(self.subtask_ids) == 0
 
-    def all_reviews_passed(self) -> bool:
-        """True if all review results have a PASSED verdict."""
-        return bool(self.review_results) and all(
-            r.verdict == ReviewVerdict.PASSED for r in self.review_results
-        )
-
 
 @dataclass
 class OrchestratorConfig:
@@ -243,7 +192,6 @@ class OrchestratorConfig:
     decompose_threshold_hours: float = 4.0  # Skip decomposition for tasks estimated ≤ this
     max_subtask_depth: int = 3
     max_subtasks_per_task: int = 6
-    max_remediation_tasks: int = 3
     max_total_tasks: int = 50  # Absolute cap on tasks in the registry
 
     # Worker configuration
@@ -251,10 +199,8 @@ class OrchestratorConfig:
     worker_timeout: int = 600  # 10 minutes
     worker_max_turns: int = 30
 
-    # Review configuration
-    review_model: str = "sonnet"
-    enable_code_review: bool = True
-    enable_security_review: bool = True
+    # Planner configuration
+    planner_model: str = "sonnet"
 
     # Git configuration
     branch_prefix: str = "orchestrator"
@@ -307,8 +253,6 @@ class OrchestratorState:
     tasks_completed: int = 0
     tasks_failed: int = 0
     total_worker_turns: int = 0
-    total_review_passes: int = 0
-    total_review_failures: int = 0
     started_at: datetime | None = None
     last_worker_error: str | None = None
     consecutive_identical_errors: int = 0
@@ -321,7 +265,5 @@ class OrchestratorState:
             "tasks_completed": self.tasks_completed,
             "tasks_failed": self.tasks_failed,
             "total_worker_turns": self.total_worker_turns,
-            "total_review_passes": self.total_review_passes,
-            "total_review_failures": self.total_review_failures,
             "started_at": self.started_at.isoformat() if self.started_at else None,
         }

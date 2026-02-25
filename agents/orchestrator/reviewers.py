@@ -10,19 +10,57 @@ from __future__ import annotations
 import json
 import logging
 import os
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from enum import Enum
 from typing import Any
 
 from anthropic import AsyncAnthropic
 
 from .models import (
     OrchestratorConfig,
-    ReviewIssue,
-    ReviewResult,
-    ReviewVerdict,
     Task,
     resolve_model,
 )
 from .prompts import CODE_REVIEW_SYSTEM_PROMPT, SECURITY_REVIEW_SYSTEM_PROMPT
+
+
+def _utcnow() -> datetime:
+    return datetime.now(UTC)
+
+
+class ReviewVerdict(str, Enum):
+    """Outcome of a review gate."""
+
+    PASSED = "passed"
+    FAILED = "failed"
+    NEEDS_CHANGES = "needs_changes"
+
+
+@dataclass
+class ReviewIssue:
+    """A specific issue found during review."""
+
+    title: str
+    description: str
+    severity: str = "medium"  # low, medium, high, critical
+    file_path: str | None = None
+    line_number: int | None = None
+    suggestion: str | None = None
+
+
+@dataclass
+class ReviewResult:
+    """Result from a review agent."""
+
+    reviewer: str
+    verdict: ReviewVerdict
+    summary: str
+    issues: list[ReviewIssue] = field(default_factory=list)
+    raw_output: str = ""
+    diff_truncated: bool = False
+    reviewed_at: datetime = field(default_factory=_utcnow)
+
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +87,7 @@ async def run_code_review(
         system_prompt=CODE_REVIEW_SYSTEM_PROMPT,
         task=task,
         diff=diff,
-        model=config.review_model,
+        model=config.planner_model,
         api_key=api_key,
     )
 
@@ -76,7 +114,7 @@ async def run_security_review(
         system_prompt=SECURITY_REVIEW_SYSTEM_PROMPT,
         task=task,
         diff=diff,
-        model=config.review_model,
+        model=config.planner_model,
         api_key=api_key,
     )
 

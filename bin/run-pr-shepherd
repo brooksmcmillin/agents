@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+"""CLI entry point for the PR Shepherd service.
+
+Usage:
+    uv run python bin/run-pr-shepherd --repos owner/repo          # Watch one repo
+    uv run python bin/run-pr-shepherd --repos owner/r1 owner/r2   # Watch multiple
+    uv run python bin/run-pr-shepherd --repos owner/repo --once    # Single pass
+    uv run python bin/run-pr-shepherd --repos owner/repo --dry-run # Preview only
+    uv run python bin/run-pr-shepherd --repos owner/repo --label auto-merge
+"""
+
+import argparse
+import asyncio
+import logging
+import os
+import re
+import sys
+
+# Add project root to path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from agents.pr_shepherd.main import PRShepherd
+from agents.pr_shepherd.models import PRShepherdConfig
+
+# Suppress noisy httpx INFO logs
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
+
+def parse_args() -> PRShepherdConfig:
+    """Parse CLI arguments into a PRShepherdConfig."""
+    parser = argparse.ArgumentParser(
+        description="PR Shepherd — watch PRs, fix CI failures, auto-merge.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+    uv run python bin/run-pr-shepherd --repos brooksmcmillin/taskmanager --once --dry-run
+    uv run python bin/run-pr-shepherd --repos owner/repo --label auto-merge
+    uv run python bin/run-pr-shepherd --repos owner/r1 owner/r2 --poll-interval 120
+""",
+    )
+
+    parser.add_argument(
+        "--repos",
+        nargs="+",
+        required=True,
+        help="GitHub repos to watch (owner/repo format)",
+    )
+    parser.add_argument(
+        "--poll-interval",
+        type=int,
+        default=60,
+        help="Seconds between poll cycles (default: 60)",
+    )
+    parser.add_argument(
+        "--max-attempts",
+        type=int,
+        default=3,
+        help="Max fix attempts per PR before abandoning (default: 3)",
+    )
+    parser.add_argument(
+        "--merge-method",
+        choices=["squash", "merge", "rebase"],
+        default="squash",
+        help="Merge method (default: squash)",
+    )
+    parser.add_argument(
+        "--label",
+        default=None,
+        help="Only process PRs with this label",
+    )
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Run a single pass and exit",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview actions without executing them",
+    )
+    parser.add_argument(
+        "--worker-model",
+        default="sonnet",
+        choices=["sonnet", "haiku", "opus"],
+        help="Model for CI fix workers (default: sonnet)",
+    )
+    parser.add_argument(
+        "--worker-timeout",
+        type=int,
+        default=600,
+        help="Timeout in seconds for fix workers (default: 600)",
+    )
+
+    args = parser.parse_args()
+
+    for repo in args.repos:
+        if not re.match(r"^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$", repo):
+            parser.error(f"Invalid repo format: {repo}. Use owner/repo format.")
+
+    return PRShepherdConfig(
+        repos=args.repos,
+        poll_interval=args.poll_interval,
+        max_fix_attempts=args.max_attempts,
+        merge_method=args.merge_method,
+        label_filter=args.label,
+        worker_model=args.worker_model,
+        worker_timeout=args.worker_timeout,
+        dry_run=args.dry_run,
+    )
+
+
+async def main() -> None:
+    """Main entry point."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
+    config = parse_args()
+    shepherd = PRShepherd(config)
+
+    try:
+        if "--once" in sys.argv:
+            tracked = await shepherd.run_once()
+            print(f"\nProcessed {len(tracked)} PR(s):")
+            for pr in tracked:
+                print(f"  {pr.repo}#{pr.number}: {pr.status.value} — {pr.title}")
+        else:
+            await shepherd.run()
+    except KeyboardInterrupt:
+        print("\nInterrupted.")
+        sys.exit(130)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

@@ -3,17 +3,16 @@
 The orchestrator is a lightweight control plane that drives work through a
 deterministic state machine:
 
-    INGEST -> PLAN -> EXECUTE -> REVIEW -> PUBLISH -> COMPLETE
-                                   |          |          |
-                                   v          v          v
-                              HUMAN_GATE   FAILED     FAILED
-                                   |
-                                   v
-                                COMPLETE
+    INGEST -> PLAN -> EXECUTE -> PUBLISH -> COMPLETE
+                                    |          |
+                                    v          v
+                               HUMAN_GATE   FAILED
+                                    |
+                                    v
+                                 COMPLETE
 
-It is NOT an LLM agent. It invokes LLM agents at specific stages (planning,
-review) but the flow control is deterministic based on task configuration
-and review outcomes.
+It is NOT an LLM agent. It invokes LLM agents at specific stages (planning)
+but the flow control is deterministic based on task configuration.
 
 NOTE: This class is **not** thread-safe.  All public methods must be called
 from the same asyncio event loop.  An ``asyncio.Lock`` guards internal state
@@ -32,14 +31,11 @@ from .models import (
     OrchestratorConfig,
     OrchestratorState,
     Phase,
-    ReviewIssue,
-    ReviewVerdict,
     Task,
     TaskStatus,
     _utcnow,
 )
 from .planner import PlanningError, plan_task
-from .reviewers import run_code_review, run_security_review
 from .workers import dispatch_worker, ensure_workspace, get_workspace_diff, push_and_create_pr
 
 logger = logging.getLogger(__name__)
@@ -92,10 +88,11 @@ class Orchestrator:
         # Orchestrator state for observability
         self.state = OrchestratorState()
 
-        # Callbacks for human gate and notifications
+        # Callbacks for human gate, notifications, and progress
         self._on_human_approval_needed: list[Any] = []
         self._on_task_complete: list[Any] = []
         self._on_task_failed: list[Any] = []
+        self._on_progress: list[Any] = []
 
         # Lock to prevent re-entrant state mutation from concurrent coroutines
         self._lock = asyncio.Lock()
@@ -216,12 +213,13 @@ class Orchestrator:
     async def _process_task(self, task: Task) -> None:
         """Process a single task through the full pipeline.
 
-        Pipeline: INGEST -> PLAN -> EXECUTE -> REVIEW -> PUBLISH -> COMPLETE/HUMAN_GATE
+        Pipeline: INGEST -> PLAN -> EXECUTE -> PUBLISH -> COMPLETE/HUMAN_GATE
         """
         # INGEST: Validate and prepare
         async with self._lock:
             self.state.phase = Phase.INGEST
         task.started_at = _utcnow()
+        await self._notify_progress("ingest", task)
 
         if task.autonomy_tier == AutonomyTier.MANUAL_ONLY:
             logger.info(f"Task {task.id} is MANUAL_ONLY, notifying human")
@@ -235,6 +233,7 @@ class Orchestrator:
         async with self._lock:
             self.state.phase = Phase.PLAN
         task.status = TaskStatus.PLANNING
+        await self._notify_progress("plan", task)
 
         if task.is_leaf() and self._should_decompose(task):
             # Check headroom before spending an LLM call on planning
@@ -260,6 +259,7 @@ class Orchestrator:
         async with self._lock:
             self.state.phase = Phase.EXECUTE
         task.status = TaskStatus.IN_PROGRESS
+        await self._notify_progress("execute", task, "dispatching worker")
         await self._execute_task(task)
 
         if task.status == TaskStatus.FAILED:
@@ -269,21 +269,11 @@ class Orchestrator:
             await self._notify_failure(task)
             return
 
-        # REVIEW: Run review gates
-        async with self._lock:
-            self.state.phase = Phase.REVIEW
-        task.status = TaskStatus.IN_REVIEW
-        review_passed = await self._review_task(task)
-
-        if not review_passed:
-            # Check if we should create remediation tasks
-            await self._handle_review_failure(task)
-            return
-
         # PUBLISH: Push branch and create PR (only for tasks with changes)
         if task.branch_name and task.workspace_name:
             async with self._lock:
                 self.state.phase = Phase.PUBLISH
+            await self._notify_progress("publish", task, "pushing branch and creating PR")
             await self._publish_task(task)
 
         # COMPLETE or HUMAN_GATE based on autonomy tier
@@ -330,7 +320,7 @@ class Orchestrator:
         try:
             subtasks = await plan_task(
                 task,
-                model=self.config.review_model,
+                model=self.config.planner_model,
                 max_subtasks=self.config.max_subtasks_per_task,
             )
             return subtasks
@@ -386,62 +376,6 @@ class Orchestrator:
                     self.state.last_worker_error = error_key
                     self.state.consecutive_identical_errors = 1
 
-    async def _review_task(self, task: Task) -> bool:
-        """Run review gates on a completed task.
-
-        Returns True if all reviews passed.
-        """
-        if not task.workspace_name or not task.branch_name:
-            logger.warning(f"Task {task.id} has no workspace/branch for review, skipping")
-            return True
-
-        # Get the diff
-        diff = await get_workspace_diff(task.workspace_name, task.branch_name, self.config)
-        if not diff.strip():
-            if task.worker_output:
-                logger.warning(
-                    f"No diff for task {task.id} despite worker producing output "
-                    f"({len(task.worker_output)} chars). Worker may have failed "
-                    f"to commit changes. Skipping review."
-                )
-            else:
-                logger.warning(f"No diff for task {task.id} and no worker output. Skipping review.")
-            return True
-
-        all_passed = True
-
-        # Code review
-        if self.config.enable_code_review:
-            code_result = await run_code_review(task, diff, self.config)
-            task.review_results.append(code_result)
-            async with self._lock:
-                if code_result.verdict == ReviewVerdict.PASSED:
-                    self.state.total_review_passes += 1
-                else:
-                    self.state.total_review_failures += 1
-                    all_passed = False
-            logger.info(
-                f"Code review for task {task.id}: {code_result.verdict.value} "
-                f"({len(code_result.issues)} issues)"
-            )
-
-        # Security review
-        if self.config.enable_security_review:
-            security_result = await run_security_review(task, diff, self.config)
-            task.review_results.append(security_result)
-            async with self._lock:
-                if security_result.verdict == ReviewVerdict.PASSED:
-                    self.state.total_review_passes += 1
-                else:
-                    self.state.total_review_failures += 1
-                    all_passed = False
-            logger.info(
-                f"Security review for task {task.id}: {security_result.verdict.value} "
-                f"({len(security_result.issues)} issues)"
-            )
-
-        return all_passed
-
     async def _publish_task(self, task: Task) -> None:
         """Push branch and create a PR for a completed task.
 
@@ -470,97 +404,8 @@ class Orchestrator:
             logger.error(f"Publish failed for task {task.id}: {e}")
             # Non-fatal: task proceeds to finalization
 
-    async def _handle_review_failure(self, task: Task) -> None:
-        """Handle a task that failed review by creating remediation tasks.
-
-        Collects issues from all review results and creates child tasks
-        to fix them, subject to recursion depth limits and the global
-        task cap.
-        """
-        all_issues: list[ReviewIssue] = []
-        for result in task.review_results:
-            if result.verdict != ReviewVerdict.PASSED:
-                all_issues.extend(result.issues)
-
-        if not all_issues:
-            # Review failed but no specific issues -> mark as failed
-            task.status = TaskStatus.FAILED
-            task.error = "Review failed without specific issues"
-            async with self._lock:
-                self.state.tasks_failed += 1
-            await self._notify_failure(task)
-            return
-
-        # Check recursion limit
-        if task.depth >= self.config.max_subtask_depth:
-            logger.warning(
-                f"Task {task.id} failed review at max depth {task.depth}, "
-                f"cannot create remediation tasks"
-            )
-            task.status = TaskStatus.FAILED
-            task.error = (
-                f"Review failed at max recursion depth. Issues: {[i.title for i in all_issues]}"
-            )
-            async with self._lock:
-                self.state.tasks_failed += 1
-            await self._notify_failure(task)
-            return
-
-        # Check global task limit headroom
-        headroom = self.config.max_total_tasks - len(self.tasks)
-        if headroom <= 0:
-            logger.warning(
-                f"Task {task.id} failed review but global task limit reached, "
-                f"cannot create remediation tasks"
-            )
-            task.status = TaskStatus.FAILED
-            task.error = (
-                f"Review failed; global task limit ({self.config.max_total_tasks}) "
-                f"prevents remediation. Issues: {[i.title for i in all_issues]}"
-            )
-            async with self._lock:
-                self.state.tasks_failed += 1
-            await self._notify_failure(task)
-            return
-
-        # Create remediation tasks (limited by both per-task and global caps)
-        remediation_count = min(
-            len(all_issues),
-            self.config.max_remediation_tasks,
-            headroom,
-        )
-        # Sort by severity (critical first)
-        severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
-        sorted_issues = sorted(all_issues, key=lambda i: severity_order.get(i.severity, 2))
-
-        for issue in sorted_issues[:remediation_count]:
-            remediation = Task(
-                title=issue.to_task_title(),
-                description=(
-                    f"{issue.description}\n\n"
-                    f"File: {issue.file_path or 'N/A'}\n"
-                    f"Suggestion: {issue.suggestion or 'N/A'}"
-                ),
-                parent_id=task.id,
-                priority=issue.severity_to_priority(),
-                tags=["auto-generated", "remediation"],
-                autonomy_tier=task.autonomy_tier,
-                category=task.category,
-                depth=task.depth + 1,
-                workspace_name=task.workspace_name,
-                # branch_name intentionally omitted: each remediation task
-                # gets its own branch via dispatch_worker() to avoid git
-                # conflicts when multiple remediation tasks run on the
-                # same workspace.
-            )
-            self.add_task(remediation)
-            task.subtask_ids.append(remediation.id)
-
-        logger.info(f"Created {remediation_count} remediation tasks for task {task.id}")
-        task.status = TaskStatus.IN_PROGRESS  # Parent stays in progress
-
     async def _finalize_task(self, task: Task) -> None:
-        """Finalize a task based on its autonomy tier after review passes."""
+        """Finalize a task based on its autonomy tier."""
         match task.autonomy_tier:
             case AutonomyTier.AUTO_MERGE:
                 # Auto-complete
@@ -642,6 +487,13 @@ class Orchestrator:
     # Notification hooks
     # ------------------------------------------------------------------
 
+    def on_progress(self, callback) -> None:
+        """Register a callback for progress updates.
+
+        Callback receives (phase: str, task_title: str, detail: str).
+        """
+        self._on_progress.append(callback)
+
     def on_human_approval_needed(self, callback) -> None:
         """Register a callback for when human approval is needed."""
         self._on_human_approval_needed.append(callback)
@@ -683,6 +535,16 @@ class Orchestrator:
                     await result
             except Exception as e:
                 logger.error(f"Failure callback failed: {e}")
+
+    async def _notify_progress(self, phase: str, task: Task, detail: str = "") -> None:
+        """Fire progress callbacks for visibility into long-running operations."""
+        for cb in self._on_progress:
+            try:
+                result = cb(phase, task.title, detail)
+                if hasattr(result, "__await__"):
+                    await result
+            except Exception:  # nosec B110
+                pass  # Progress callbacks must never disrupt execution
 
     async def approve_task(self, task_id: str) -> bool:
         """Approve a task that is awaiting human approval.

@@ -252,6 +252,12 @@ async def run_claude_code(
 
         logger.info(f"Running Claude Code in {workspace_path} with command: {command[:100]}...")
 
+        # Build subprocess environment: start from caller-provided env or
+        # inherit the current process env, then strip CLAUDECODE to allow
+        # nested Claude Code sessions (the parent session sets this var).
+        subprocess_env = dict(env if env is not None else os.environ)
+        subprocess_env.pop("CLAUDECODE", None)
+
         # Run claude and wait for completion
         process = await asyncio.create_subprocess_exec(
             *claude_cmd,
@@ -259,7 +265,7 @@ async def run_claude_code(
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            env=env,
+            env=subprocess_env,
         )
         try:
             stdout, stderr = await asyncio.wait_for(
