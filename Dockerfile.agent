@@ -9,6 +9,8 @@
 
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
 ARG AGENT_NAME
 ARG AGENT_MODULE=""
 
@@ -54,8 +56,13 @@ COPY deploy/entrypoint.sh ./entrypoint.sh
 COPY deploy/oneshot.py ./deploy/oneshot.py
 RUN chmod +x entrypoint.sh
 
-# Create runtime directories
-RUN mkdir -p logs memories .data
+# Create runtime directories and non-root user
+RUN mkdir -p logs memories .data \
+    && groupadd --gid 1000 app \
+    && useradd --uid 1000 --gid app --no-create-home --shell /sbin/nologin app \
+    && chown -R app:app /app
+
+USER app
 
 # Bake the agent name into the image so entrypoint.sh can find it
 ENV AGENT_NAME=${AGENT_NAME}
