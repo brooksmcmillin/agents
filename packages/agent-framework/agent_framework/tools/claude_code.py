@@ -268,9 +268,9 @@ async def run_claude_code(
             str(max_turns),
         ]
 
-        # Add model if not default
-        if model.lower() != "sonnet":
-            claude_cmd.extend(["--model", model_map[model.lower()]])
+        # Always pass --model explicitly to avoid inheriting the user's
+        # default (which may differ from the intended worker model).
+        claude_cmd.extend(["--model", model_map[model.lower()]])
 
         logger.info(f"Running Claude Code in {workspace_path} with command: {command[:100]}...")
 
