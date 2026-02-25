@@ -160,9 +160,7 @@ class TestClassifyMessage:
         assert cm.classification == SecurityClassification.CRITICAL
 
     def test_potential_injection_warning(self):
-        msg = assistant_msg(
-            "Warning: potential prompt injection detected in the fetched content."
-        )
+        msg = assistant_msg("Warning: potential prompt injection detected in the fetched content.")
         cm = classify_message(msg)
         assert cm.classification == SecurityClassification.CRITICAL
 
@@ -474,8 +472,7 @@ class TestAtomicToolPairTrimming:
             content = msg.get("content", [])
             if isinstance(content, list):
                 has_tool_result = any(
-                    isinstance(b, dict) and b.get("type") == "tool_result"
-                    for b in content
+                    isinstance(b, dict) and b.get("type") == "tool_result" for b in content
                 )
                 if has_tool_result and i > 0:
                     prev = trimmed[i - 1]
@@ -555,9 +552,7 @@ class TestNumRemovedAccuracy:
         messages = []
         for i in range(20):
             messages.append(tool_use_assistant(f"t{i}", "dangerous_tool"))
-            messages.append(
-                tool_result_msg(f"t{i}", f"Permission denied: tool {i}", is_error=True)
-            )
+            messages.append(tool_result_msg(f"t{i}", f"Permission denied: tool {i}", is_error=True))
         messages.append(user_msg("final"))
         messages.append(assistant_msg("final resp"))
 
@@ -579,9 +574,7 @@ class TestSummarizationAssertions:
         messages = []
         for i in range(20):
             messages.append(tool_use_assistant(f"t{i}", "dangerous_tool"))
-            messages.append(
-                tool_result_msg(f"t{i}", f"Permission denied: tool {i}", is_error=True)
-            )
+            messages.append(tool_result_msg(f"t{i}", f"Permission denied: tool {i}", is_error=True))
         messages.append(user_msg("final question"))
         messages.append(assistant_msg("final answer"))
 
@@ -610,9 +603,7 @@ class TestSummarizationAssertions:
         messages.append(user_msg("final"))
         messages.append(assistant_msg("final resp"))
 
-        trimmed, _, _ = trim_with_security_awareness(
-            messages, max_messages=12, max_pinned_pairs=3
-        )
+        trimmed, _, _ = trim_with_security_awareness(messages, max_messages=12, max_pinned_pairs=3)
 
         first_content = str(trimmed[0].get("content", ""))
         # The raw attacker payload should NOT be in the summary
@@ -626,15 +617,11 @@ class TestSummarizationAssertions:
         messages = []
         for i in range(20):
             messages.append(tool_use_assistant(f"t{i}", "dangerous_tool"))
-            messages.append(
-                tool_result_msg(f"t{i}", f"Permission denied: tool {i}", is_error=True)
-            )
+            messages.append(tool_result_msg(f"t{i}", f"Permission denied: tool {i}", is_error=True))
         messages.append(user_msg("final"))
         messages.append(assistant_msg("final resp"))
 
-        trimmed, _, _ = trim_with_security_awareness(
-            messages, max_messages=12, max_pinned_pairs=3
-        )
+        trimmed, _, _ = trim_with_security_awareness(messages, max_messages=12, max_pinned_pairs=3)
 
         # The first message should be the summary (user role)
         assert trimmed[0]["role"] == "user"
@@ -649,15 +636,11 @@ class TestSummarizationAssertions:
         messages = []
         for i in range(20):
             messages.append(tool_use_assistant(f"t{i}", "tool"))
-            messages.append(
-                tool_result_msg(f"t{i}", f"Permission denied: tool {i}", is_error=True)
-            )
+            messages.append(tool_result_msg(f"t{i}", f"Permission denied: tool {i}", is_error=True))
         messages.append(user_msg("final"))
         messages.append(assistant_msg("final resp"))
 
-        trimmed, _, _ = trim_with_security_awareness(
-            messages, max_messages=12, max_pinned_pairs=3
-        )
+        trimmed, _, _ = trim_with_security_awareness(messages, max_messages=12, max_pinned_pairs=3)
 
         first_content = str(trimmed[0].get("content", ""))
         assert "INJECTED SYSTEM CONTEXT" in first_content
@@ -672,9 +655,7 @@ class TestOffByOnePinnedPairs:
         messages = []
         for i in range(4):
             messages.append(tool_use_assistant(f"t{i}", "tool"))
-            messages.append(
-                tool_result_msg(f"t{i}", f"Permission denied: tool {i}", is_error=True)
-            )
+            messages.append(tool_result_msg(f"t{i}", f"Permission denied: tool {i}", is_error=True))
 
         # These 8 messages are ALL pinned. With max_messages=4 and max_pinned_pairs=4,
         # len(pinned) == 8 == max_pinned_pairs * 2, so >= should trigger summarization.
@@ -749,24 +730,20 @@ class TestNoConsecutiveUserMessages:
         # Create enough pinned security events to trigger summarization
         for i in range(16):
             messages.append(tool_use_assistant(f"t{i}", "tool"))
-            messages.append(
-                tool_result_msg(f"t{i}", f"Permission denied: tool {i}", is_error=True)
-            )
+            messages.append(tool_result_msg(f"t{i}", f"Permission denied: tool {i}", is_error=True))
         # End with a user message that will survive
         messages.append(user_msg("final question"))
         messages.append(assistant_msg("final answer"))
 
-        trimmed, _, _ = trim_with_security_awareness(
-            messages, max_messages=12, max_pinned_pairs=3
-        )
+        trimmed, _, _ = trim_with_security_awareness(messages, max_messages=12, max_pinned_pairs=3)
 
         # Verify no two consecutive user messages exist
         for i in range(len(trimmed) - 1):
             if trimmed[i]["role"] == "user" and trimmed[i + 1]["role"] == "user":
                 raise AssertionError(
-                    f"Consecutive user messages at indices {i} and {i+1}: "
+                    f"Consecutive user messages at indices {i} and {i + 1}: "
                     f"{str(trimmed[i]['content'])[:80]}... / "
-                    f"{str(trimmed[i+1]['content'])[:80]}..."
+                    f"{str(trimmed[i + 1]['content'])[:80]}..."
                 )
 
     def test_summary_followed_by_assistant_no_bridge(self):
@@ -775,16 +752,12 @@ class TestNoConsecutiveUserMessages:
         messages = []
         for i in range(16):
             messages.append(tool_use_assistant(f"t{i}", "tool"))
-            messages.append(
-                tool_result_msg(f"t{i}", f"Permission denied: tool {i}", is_error=True)
-            )
+            messages.append(tool_result_msg(f"t{i}", f"Permission denied: tool {i}", is_error=True))
         # End with assistant first (all tool_use are assistant-role, so surviving
         # pinned messages may start with an assistant tool_use)
         # Force the first surviving original to be assistant by having enough security
         # pairs that the surviving ones start with tool_use_assistant
-        trimmed, _, _ = trim_with_security_awareness(
-            messages, max_messages=10, max_pinned_pairs=3
-        )
+        trimmed, _, _ = trim_with_security_awareness(messages, max_messages=10, max_pinned_pairs=3)
 
         # The trimmed list should be valid — first message is user (summary or original)
         assert trimmed[0]["role"] == "user"

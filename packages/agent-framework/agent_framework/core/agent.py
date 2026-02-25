@@ -1163,8 +1163,13 @@ class Agent(ABC):
                             error_str = str(e).lower()
                             if any(
                                 kw in error_str
-                                for kw in ("ssrf", "blocked hostname", "blocked ip",
-                                           "private ip", "metadata endpoint")
+                                for kw in (
+                                    "ssrf",
+                                    "blocked hostname",
+                                    "blocked ip",
+                                    "private ip",
+                                    "metadata endpoint",
+                                )
                             ):
                                 error_result[SECURITY_EVENT_KEY] = "ssrf_block"
                             tool_results.append(error_result)

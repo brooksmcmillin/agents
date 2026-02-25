@@ -211,10 +211,7 @@ def _is_tool_result_message(message: dict[str, Any]) -> bool:
     if not isinstance(content, list):
         return False
 
-    return any(
-        isinstance(block, dict) and block.get("type") == "tool_result"
-        for block in content
-    )
+    return any(isinstance(block, dict) and block.get("type") == "tool_result" for block in content)
 
 
 def classify_message(message: dict[str, Any]) -> ClassifiedMessage:
@@ -480,8 +477,7 @@ def trim_with_security_awareness(
         # Only include the ones that were originally classified as CRITICAL.
         # Attacker-controlled content is REDACTED — only event types are kept.
         critical_summarized = [
-            cm for cm in pinned_to_summarize
-            if cm.classification == SecurityClassification.CRITICAL
+            cm for cm in pinned_to_summarize if cm.classification == SecurityClassification.CRITICAL
         ]
         if critical_summarized:
             summary_text = _build_security_summary(critical_summarized)
@@ -531,7 +527,9 @@ def trim_with_security_awareness(
         )
 
     # Count based on original messages removed (not counting synthetic ones)
-    num_removed = original_count - sum(1 for i in range(original_count) if i not in indices_to_remove)
+    num_removed = original_count - sum(
+        1 for i in range(original_count) if i not in indices_to_remove
+    )
     num_pinned = len(pinned_indices) - len(pinned_to_summarize)
 
     logger.info(
