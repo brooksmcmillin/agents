@@ -44,10 +44,10 @@ uv run python scripts/demo_live.py memory
 - Agent name validation blocks path traversal (`../`), null bytes, and non-alphanumeric characters.
 
 **Key code:**
-- Auto-injection: `agent.py` line ~645-651
-- Namespace validation: `tools/memory.py` lines 47-82
-- File isolation: `storage/memory_store.py` line 103
-- DB isolation: `storage/database_memory_store.py` — `WHERE agent_name = $1` on every query
+- Auto-injection: `Agent._call_mcp_tool_with_reconnect()` in `core/agent.py`
+- Namespace validation: `validate_agent_name()` in `tools/memory.py`
+- File isolation: `MemoryStore.__init__()` in `storage/memory_store.py`
+- DB isolation: `DatabaseMemoryStore` — `WHERE agent_name = $1` on every query
 
 ---
 
@@ -86,10 +86,10 @@ uv run python scripts/demo_live.py ssrf
 - Permission intersection means a low-privilege caller can never escalate by delegating to a high-privilege agent.
 
 **Key code:**
-- SSRF validator: `security/ssrf.py`
-- Permission check: `agent.py` lines 578-603
-- Tool permission map: `permissions/tool_permissions.py`
-- ExecutionContext delegation: `permissions/context.py` lines 108-165
+- SSRF validator: `SSRFValidator` in `security/ssrf.py`
+- Permission check: `Agent._check_tool_permissions()` in `core/agent.py`
+- Tool permission map: `TOOL_PERMISSIONS` in `permissions/tool_permissions.py`
+- ExecutionContext delegation: `ExecutionContext.delegate_to()` in `permissions/context.py`
 
 ---
 
@@ -118,7 +118,7 @@ uv run python scripts/demo_live.py trimming
 - **Belt and suspenders:** Structured metadata is preferred, but pattern matching is a fallback for messages that describe security events (e.g., "your request was flagged by our security system").
 
 **Key code:**
-- Tagging at enforcement: `agent.py` lines ~1140 (permission) and ~1175 (SSRF)
-- Classification: `security/context_trimming.py` — `classify_message()`
-- 8-phase trim algorithm: `security/context_trimming.py` — `trim_with_security_awareness()`
-- Redacted summary builder: `security/context_trimming.py` — `_build_security_summary()`
+- Tagging at enforcement: `SECURITY_EVENT_KEY` tagging in `Agent._call_mcp_tool_with_reconnect()`
+- Classification: `classify_message()` in `security/context_trimming.py`
+- 8-phase trim algorithm: `trim_with_security_awareness()` in `security/context_trimming.py`
+- Redacted summary builder: `_build_security_summary()` in `security/context_trimming.py`

@@ -35,7 +35,7 @@ from agent_framework.security.context_trimming import (  # noqa: E402
     trim_with_security_awareness,
 )
 from agent_framework.security.ssrf import SSRFValidator  # noqa: E402
-from agent_framework.tools.memory import save_memory, search_memories  # noqa: E402
+from agent_framework.tools.memory import delete_memory, save_memory, search_memories  # noqa: E402
 
 # ── Formatting helpers ───────────────────────────────────────────────────────
 
@@ -86,61 +86,61 @@ async def demo_memory_namespace() -> None:
     agent_a = "DemoAgent-Alpha"
     agent_b = "DemoAgent-Beta"
 
-    # ── Save memories under each namespace ──────────────────────────────────
-    section("Saving memories into two namespaces")
+    try:
+        # ── Save memories under each namespace ──────────────────────────────
+        section("Saving memories into two namespaces")
 
-    await save_memory(
-        key="demo-project-status",
-        value="Alpha team: launching rocket to Mars next quarter",
-        category="project",
-        importance=8,
-        agent_name=agent_a,
-    )
-    ok(f'{agent_a} saved: "launching rocket to Mars next quarter"')
+        await save_memory(
+            key="demo-project-status",
+            value="Alpha team: launching rocket to Mars next quarter",
+            category="project",
+            importance=8,
+            agent_name=agent_a,
+        )
+        ok(f'{agent_a} saved: "launching rocket to Mars next quarter"')
 
-    await save_memory(
-        key="demo-project-status",
-        value="Beta team: building underwater data center in the Pacific",
-        category="project",
-        importance=8,
-        agent_name=agent_b,
-    )
-    ok(f'{agent_b} saved: "building underwater data center in the Pacific"')
+        await save_memory(
+            key="demo-project-status",
+            value="Beta team: building underwater data center in the Pacific",
+            category="project",
+            importance=8,
+            agent_name=agent_b,
+        )
+        ok(f'{agent_b} saved: "building underwater data center in the Pacific"')
 
-    # ── Search with the same query from each namespace ──────────────────────
-    section('Searching both namespaces for "project"')
+        # ── Search with the same query from each namespace ──────────────────
+        section('Searching both namespaces for "project"')
 
-    result_a = await search_memories(query="project", agent_name=agent_a)
-    result_b = await search_memories(query="project", agent_name=agent_b)
+        result_a = await search_memories(query="project", agent_name=agent_a)
+        result_b = await search_memories(query="project", agent_name=agent_b)
 
-    memories_a = result_a.get("memories", [])
-    memories_b = result_b.get("memories", [])
+        memories_a = result_a.get("memories", [])
+        memories_b = result_b.get("memories", [])
 
-    info(f"{agent_a} sees {len(memories_a)} result(s):")
-    for m in memories_a:
-        print(f"    {CYAN}{m['key']}{RESET}: {m['value']}")
+        info(f"{agent_a} sees {len(memories_a)} result(s):")
+        for m in memories_a:
+            print(f"    {CYAN}{m['key']}{RESET}: {m['value']}")
 
-    info(f"{agent_b} sees {len(memories_b)} result(s):")
-    for m in memories_b:
-        print(f"    {CYAN}{m['key']}{RESET}: {m['value']}")
+        info(f"{agent_b} sees {len(memories_b)} result(s):")
+        for m in memories_b:
+            print(f"    {CYAN}{m['key']}{RESET}: {m['value']}")
 
-    # ── Cross-namespace check ───────────────────────────────────────────────
-    section("Cross-namespace verification")
+        # ── Cross-namespace check ───────────────────────────────────────────
+        section("Cross-namespace verification")
 
-    # Search Agent A's namespace for Agent B's content
-    cross = await search_memories(query="underwater", agent_name=agent_a)
-    cross_results = cross.get("memories", [])
-    if not cross_results:
-        ok(f'{agent_a} searching "underwater" → 0 results (isolation works)')
-    else:
-        blocked(f"{agent_a} found {len(cross_results)} result(s) — isolation broken!")
+        # Search Agent A's namespace for Agent B's content
+        cross = await search_memories(query="underwater", agent_name=agent_a)
+        cross_results = cross.get("memories", [])
+        if not cross_results:
+            ok(f'{agent_a} searching "underwater" → 0 results (isolation works)')
+        else:
+            blocked(f"{agent_a} found {len(cross_results)} result(s) — isolation broken!")
 
-    # ── Cleanup ─────────────────────────────────────────────────────────────
-    from agent_framework.tools.memory import delete_memory
-
-    await delete_memory(key="demo-project-status", agent_name=agent_a)
-    await delete_memory(key="demo-project-status", agent_name=agent_b)
-    info("Cleaned up demo memories")
+    finally:
+        # ── Cleanup (runs even on error/Ctrl-C) ────────────────────────────
+        await delete_memory(key="demo-project-status", agent_name=agent_a)
+        await delete_memory(key="demo-project-status", agent_name=agent_b)
+        info("Cleaned up demo memories")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -245,7 +245,7 @@ async def demo_ssrf_permissions() -> None:
 async def demo_security_trimming() -> None:
     banner(3, "Security Events Survive Trimming", "Long conversation, pinned events persist")
 
-    # Build a synthetic conversation with 30 messages (mix of normal + security)
+    # Build a synthetic conversation with 44 messages (mix of normal + security)
     messages: list[dict] = []
 
     # Normal conversation padding (turns 1-10)
