@@ -360,7 +360,7 @@ curl -X DELETE http://localhost:8000/sessions/$SESSION_ID
 ## Available Agents
 
 ### chatbot
-General-purpose AI assistant with access to all 29 MCP tools.
+General-purpose AI assistant with access to all 53 MCP tools.
 
 **Use for**:
 - General questions and assistance

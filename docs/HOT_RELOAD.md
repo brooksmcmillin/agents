@@ -142,7 +142,7 @@ You: reload
 
 Agent: Reconnecting to MCP server...
 ✓ Reconnected successfully
-Tools refreshed: 29 tools available
+Tools refreshed: 53 tools available
 ```
 
 **When to use `reload`**:

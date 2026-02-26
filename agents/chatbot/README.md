@@ -1,6 +1,6 @@
 # Chatbot Agent
 
-A general-purpose AI assistant powered by Claude Sonnet 4.5 with access to all 29 MCP tools. Unlike specialized agents, this chatbot can help with any task by leveraging the full suite of available tools including web analysis, memory, document search, email management, and communication.
+A general-purpose AI assistant powered by Claude Sonnet 4.5 with access to all 53 MCP tools. Unlike specialized agents, this chatbot can help with any task by leveraging the full suite of available tools including web analysis, memory, document search, email management, and communication.
 
 ## Features
 
@@ -34,7 +34,7 @@ A general-purpose AI assistant powered by Claude Sonnet 4.5 with access to all 2
 - Get social media statistics (Twitter, LinkedIn)
 
 ### 🔧 Full Tool Access
-Unlike specialized agents that are limited to specific tools, the chatbot has unrestricted access to all 29 MCP tools, making it ideal for:
+Unlike specialized agents that are limited to specific tools, the chatbot has unrestricted access to all 53 MCP tools, making it ideal for:
 - Multi-domain tasks that span different capabilities
 - Exploration and experimentation with tools
 - General assistance without predefined workflows
@@ -100,7 +100,7 @@ uv run python -m agents.chatbot.main
 
 ## MCP Tools
 
-The chatbot has access to **29 tools** across 8 categories:
+The chatbot has access to **53 tools** across 14 categories:
 
 ### Web Analysis (2 tools)
 - **fetch_web_content**: Fetch web content as clean markdown for reading and analysis
