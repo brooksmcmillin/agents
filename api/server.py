@@ -28,6 +28,7 @@ Run with:
 import asyncio
 import logging
 import os
+import re
 import secrets
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -302,6 +303,10 @@ app.add_middleware(
 # Correlation ID Middleware (for distributed tracing)
 # ---------------------------------------------------------------------------
 
+# Allow alphanumeric characters and hyphens, 1-64 chars.
+# Rejects header injection / log forgery payloads.
+_CORRELATION_ID_RE = re.compile(r"^[a-zA-Z0-9\-]{1,64}$")
+
 
 @app.middleware("http")
 async def add_correlation_id(
@@ -309,11 +314,15 @@ async def add_correlation_id(
 ) -> Response:
     """Add correlation ID to each request for distributed tracing.
 
-    If X-Correlation-ID header is present, use it. Otherwise, generate a new UUID.
-    The correlation ID is stored in a ContextVar for use by logging throughout
-    the request lifecycle.
+    If X-Correlation-ID header is present and passes validation, use it.
+    Otherwise, generate a new UUID. The correlation ID is stored in a
+    ContextVar for use by logging throughout the request lifecycle.
     """
-    correlation_id = request.headers.get("X-Correlation-ID") or str(uuid.uuid4())
+    raw_id = request.headers.get("X-Correlation-ID")
+    if raw_id and _CORRELATION_ID_RE.match(raw_id):
+        correlation_id = raw_id
+    else:
+        correlation_id = str(uuid.uuid4())
 
     # Set correlation ID in context var for logging
     token = correlation_id_var.set(correlation_id)
