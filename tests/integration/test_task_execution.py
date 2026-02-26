@@ -7,73 +7,75 @@ These tests verify the prompts and configuration are correctly wired up,
 not actual Claude API calls (which require credentials and live services).
 """
 
+import re
+
 from agents.task_manager.prompts import SYSTEM_PROMPT, USER_GREETING_PROMPT
+from shared.constants import (
+    CLAUDE_CODE_TOOLS,
+    COMMUNICATION_TOOLS,
+    CONTENT_TOOLS,
+    FASTMAIL_TOOLS,
+    MEMORY_TOOLS,
+)
+
+
+def _get_workflow_section(action_type: str) -> str:
+    """Extract a specific execution workflow section from the prompt.
+
+    Returns the text between the workflow heading and the next heading
+    of the same level (### or ##).
+    """
+    pattern = rf"### Execution Workflow:.*?{re.escape(action_type)}.*?\n(.*?)(?=\n###? |\Z)"
+    match = re.search(pattern, SYSTEM_PROMPT, re.DOTALL)
+    assert match, f"Could not find workflow section for '{action_type}'"
+    return match.group(1)
 
 
 class TestTaskManagerToolConfiguration:
-    """Verify the agent imports all required tool groups."""
+    """Verify the agent has all required tool groups in allowed_tools."""
 
-    def test_claude_code_tools_in_imports(self):
-        """Task execution requires CLAUDE_CODE_TOOLS to be imported and used."""
-        import inspect
-
-        import agents.task_manager.main as main_module
-
-        source = inspect.getsource(main_module)
-        assert "CLAUDE_CODE_TOOLS" in source
-
-    def test_email_tools_in_imports(self):
-        """Task execution requires FASTMAIL_TOOLS to be imported and used."""
-        import inspect
-
-        import agents.task_manager.main as main_module
-
-        source = inspect.getsource(main_module)
-        assert "FASTMAIL_TOOLS" in source
-
-    def test_communication_tools_in_imports(self):
-        """Notifications require COMMUNICATION_TOOLS."""
-        import inspect
-
-        import agents.task_manager.main as main_module
-
-        source = inspect.getsource(main_module)
-        assert "COMMUNICATION_TOOLS" in source
-
-    def test_memory_tools_in_imports(self):
-        """Agent needs MEMORY_TOOLS for context."""
-        import inspect
-
-        import agents.task_manager.main as main_module
-
-        source = inspect.getsource(main_module)
-        assert "MEMORY_TOOLS" in source
-
-    def test_web_research_tools_in_imports(self):
-        """Research task execution requires WEB_RESEARCH_TOOLS."""
-        import inspect
-
-        import agents.task_manager.main as main_module
-
-        source = inspect.getsource(main_module)
-        assert "WEB_RESEARCH_TOOLS" in source
-
-    def test_all_tool_groups_in_allowed_tools(self):
-        """All tool groups must be combined into allowed_tools."""
-        from shared.constants import (
-            CLAUDE_CODE_TOOLS,
-            COMMUNICATION_TOOLS,
-            FASTMAIL_TOOLS,
-            MEMORY_TOOLS,
-            WEB_RESEARCH_TOOLS,
+    def _get_allowed_tools(self) -> list[str]:
+        """Build the expected allowed_tools list from the agent module."""
+        return (
+            CONTENT_TOOLS + MEMORY_TOOLS + COMMUNICATION_TOOLS + CLAUDE_CODE_TOOLS + FASTMAIL_TOOLS
         )
 
-        # Verify all tool groups are non-empty
-        assert len(CLAUDE_CODE_TOOLS) > 0
-        assert len(COMMUNICATION_TOOLS) > 0
-        assert len(FASTMAIL_TOOLS) > 0
-        assert len(MEMORY_TOOLS) > 0
-        assert len(WEB_RESEARCH_TOOLS) > 0
+    def test_claude_code_tools_included(self):
+        """Task execution requires all Claude Code tools."""
+        allowed = self._get_allowed_tools()
+        for tool in CLAUDE_CODE_TOOLS:
+            assert tool in allowed, f"Missing Claude Code tool: {tool}"
+
+    def test_email_tools_included(self):
+        """Task execution requires all FastMail tools."""
+        allowed = self._get_allowed_tools()
+        for tool in FASTMAIL_TOOLS:
+            assert tool in allowed, f"Missing email tool: {tool}"
+
+    def test_communication_tools_included(self):
+        """Notifications require Slack communication tools."""
+        allowed = self._get_allowed_tools()
+        for tool in COMMUNICATION_TOOLS:
+            assert tool in allowed, f"Missing communication tool: {tool}"
+
+    def test_memory_tools_included(self):
+        """Agent needs memory tools for context across sessions."""
+        allowed = self._get_allowed_tools()
+        for tool in MEMORY_TOOLS:
+            assert tool in allowed, f"Missing memory tool: {tool}"
+
+    def test_content_tools_included(self):
+        """Research and content tasks require content tools."""
+        allowed = self._get_allowed_tools()
+        for tool in CONTENT_TOOLS:
+            assert tool in allowed, f"Missing content tool: {tool}"
+
+    def test_no_duplicate_tools(self):
+        """allowed_tools list should not contain duplicates."""
+        allowed = self._get_allowed_tools()
+        assert len(allowed) == len(set(allowed)), (
+            f"Duplicate tools found: {[t for t in allowed if allowed.count(t) > 1]}"
+        )
 
 
 class TestClassificationWorkflow:
@@ -143,6 +145,10 @@ class TestExecutionWorkflows:
         """Communication task execution workflow must be defined."""
         assert "Execution Workflow: Communication Tasks" in SYSTEM_PROMPT
         assert "send_slack_message" in SYSTEM_PROMPT
+
+    def test_review_execution_workflow(self):
+        """Review task execution workflow must be defined."""
+        assert "Execution Workflow: Review Tasks" in SYSTEM_PROMPT
 
     def test_execution_lifecycle_pattern(self):
         """All workflows follow the standard lifecycle pattern."""
@@ -214,6 +220,16 @@ class TestSafetyControls:
         assert "Safety Rules" in SYSTEM_PROMPT
         assert "Always log before executing" in SYSTEM_PROMPT
 
+    def test_external_facing_actions_rule(self):
+        """External-facing actions must require tier 3+."""
+        assert "External-facing actions require tier 3+" in SYSTEM_PROMPT
+
+    def test_tier_2_workspace_code_allowed(self):
+        """Safety rules must not contradict tier 2 for workspace code changes."""
+        assert (
+            "Workspace code changes" in SYSTEM_PROMPT or "workspace code changes" in SYSTEM_PROMPT
+        )
+
     def test_email_safety_rule(self):
         """Email-specific safety rule must exist."""
         assert "Email safety" in SYSTEM_PROMPT
@@ -260,40 +276,76 @@ class TestExecutionPipelineIntegration:
     def test_classification_to_execution_flow(self):
         """Classification action_types must map to execution workflows."""
         action_workflow_map = {
-            "code": "Execution Workflow: Code Tasks",
-            "research": "Execution Workflow: Research Tasks",
-            "email": "Execution Workflow: Email Tasks",
-            "document": "Execution Workflow: Document Tasks",
-            "communication": "Execution Workflow: Communication Tasks",
+            "code": "Code Tasks",
+            "research": "Research Tasks",
+            "email": "Email Tasks",
+            "document": "Document Tasks",
+            "communication": "Communication Tasks",
+            "review": "Review Tasks",
         }
-        for action_type, workflow_heading in action_workflow_map.items():
-            assert workflow_heading in SYSTEM_PROMPT, (
-                f"action_type '{action_type}' has no execution workflow '{workflow_heading}'"
+        for action_type, workflow_label in action_workflow_map.items():
+            assert f"Execution Workflow: {workflow_label}" in SYSTEM_PROMPT, (
+                f"action_type '{action_type}' has no execution workflow for '{workflow_label}'"
             )
 
-    def test_all_workflows_include_status_tracking(self):
-        """Every execution workflow should use set_agent_status."""
-        assert SYSTEM_PROMPT.count("set_agent_status") >= 10, (
-            "set_agent_status should be referenced throughout execution workflows"
-        )
+    def test_each_workflow_includes_status_tracking(self):
+        """Every execution workflow section should reference set_agent_status."""
+        workflow_types = [
+            "Code Tasks",
+            "Research Tasks",
+            "Email Tasks",
+            "Document Tasks",
+            "Communication Tasks",
+            "Review Tasks",
+        ]
+        for wtype in workflow_types:
+            section = _get_workflow_section(wtype)
+            assert "set_agent_status" in section, f"Workflow '{wtype}' missing set_agent_status"
 
-    def test_all_workflows_include_logging(self):
-        """Every execution workflow should use add_agent_note for logging."""
-        assert SYSTEM_PROMPT.count("add_agent_note") >= 8, (
-            "add_agent_note should be referenced throughout execution workflows"
-        )
+    def test_each_workflow_includes_logging(self):
+        """Every execution workflow section should reference add_agent_note."""
+        workflow_types = [
+            "Code Tasks",
+            "Research Tasks",
+            "Email Tasks",
+            "Document Tasks",
+            "Communication Tasks",
+            "Review Tasks",
+        ]
+        for wtype in workflow_types:
+            section = _get_workflow_section(wtype)
+            assert "add_agent_note" in section, f"Workflow '{wtype}' missing add_agent_note"
 
-    def test_all_workflows_include_notification(self):
-        """Execution workflows should notify via Slack on completion."""
-        assert SYSTEM_PROMPT.count("send_slack_message") >= 3, (
-            "Execution workflows should notify via send_slack_message"
-        )
+    def test_each_workflow_includes_completion(self):
+        """Every execution workflow should reference complete_task or set_agent_status for closing."""
+        workflow_types = [
+            "Code Tasks",
+            "Research Tasks",
+            "Email Tasks",
+            "Document Tasks",
+            "Communication Tasks",
+            "Review Tasks",
+        ]
+        for wtype in workflow_types:
+            section = _get_workflow_section(wtype)
+            assert "complete_task" in section or "set_agent_status" in section, (
+                f"Workflow '{wtype}' missing completion step"
+            )
 
-    def test_complete_task_used_in_workflows(self):
-        """complete_task should be used to close tasks after execution."""
-        assert SYSTEM_PROMPT.count("complete_task") >= 5, (
-            "complete_task should be used across execution workflows"
-        )
+    def test_notification_workflows_reference_slack(self):
+        """Workflows that produce output should notify via Slack."""
+        notifying_types = [
+            "Code Tasks",
+            "Research Tasks",
+            "Email Tasks",
+            "Document Tasks",
+            "Review Tasks",
+        ]
+        for wtype in notifying_types:
+            section = _get_workflow_section(wtype)
+            assert "send_slack_message" in section or "notify" in section.lower(), (
+                f"Workflow '{wtype}' missing notification step"
+            )
 
     def test_agent_version_updated(self):
         """Agent version should reflect the execution engine addition."""

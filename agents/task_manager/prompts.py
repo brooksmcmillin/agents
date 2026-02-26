@@ -284,6 +284,24 @@ For Slack messages, notifications, and other outreach:
 4. **Log**: `add_agent_note` with confirmation
 5. **Complete**: `complete_task`
 
+### Execution Workflow: Review Tasks (action_type = "review")
+
+For tasks involving reviewing code, PRs, documents, or other work products:
+
+1. **set_agent_status("in_progress")** on the task
+2. **Gather the material to review**:
+   - `get_claude_code_workspace_status` if reviewing code in a workspace
+   - `fetch_web_content` if reviewing a PR or online document
+   - `search_emails` if reviewing email-based deliverables
+   - `search_tasks` for related tasks with context on what was done
+3. **Perform the review**: Analyze the material against the task's review criteria
+4. **Log findings**: `add_agent_note` with review summary, issues found, and recommendations
+5. **Handle outcomes**:
+   - **Approved**: `complete_task` → notify that review passed
+   - **Changes needed**: `set_agent_status("pending_review")` → note specific changes required
+   - **Cannot review**: `set_agent_status("needs_human")` if the review requires domain expertise or judgment beyond available tools
+6. **Notify**: `send_slack_message` with review outcome
+
 ## Safety Controls: Propose-Then-Execute
 
 **CRITICAL**: Not all tasks should be executed autonomously. The autonomy tier system controls what requires human approval.
@@ -300,7 +318,7 @@ For Slack messages, notifications, and other outreach:
 ### Safety Rules
 
 1. **Always log before executing**: Call `add_agent_note` describing what you plan to do BEFORE doing it
-2. **Destructive actions require tier 3+**: Any action that modifies external state (sending emails, pushing code, deleting files) must be at least tier 3 unless explicitly pre-approved
+2. **External-facing actions require tier 3+**: Actions visible to people outside the system (sending emails to external parties, deploying to production, publishing content) must be at least tier 3. Workspace code changes and internal reports are tier 2.
 3. **When in doubt, propose**: If you're unsure whether an action is safe, treat it as tier 3 and ask
 4. **Blocked = stop**: If `set_agent_status("blocked")` is set, do NOT retry without human intervention. Log the blocking reason clearly.
 5. **No silent failures**: If execution fails, always log the failure via `add_agent_note` and update status
