@@ -152,8 +152,10 @@ class OAuthFlowHandler(OAuthHandlerBase):
         webbrowser.open(auth_url)
 
         # Start callback server and wait for code
-        auth_code = await self._run_callback_server(expected_state=state)
+        auth_code, callback_error = await self._run_callback_server(expected_state=state)
 
+        if callback_error:
+            raise ValueError(f"Authorization failed: {callback_error}")
         if not auth_code:
             raise ValueError("Authorization failed: no code received")
 
@@ -165,14 +167,15 @@ class OAuthFlowHandler(OAuthHandlerBase):
         logger.info("✅ Successfully obtained access token")
         return token_set
 
-    async def _run_callback_server(self, expected_state: str) -> str | None:
+    async def _run_callback_server(self, expected_state: str) -> tuple[str | None, str | None]:
         """Start local HTTP server to receive OAuth callback.
 
         Args:
             expected_state: Expected state parameter for CSRF validation
 
         Returns:
-            Authorization code from callback, or None if error
+            Tuple of (authorization_code, error_message).
+            On success: (code, None). On failure: (None, error_description).
         """
         auth_code = None
         error = None
@@ -262,10 +265,10 @@ class OAuthFlowHandler(OAuthHandlerBase):
         await runner.cleanup()
 
         if error:
-            logger.error(f"Authorization error: {error}")
-            return None
+            logger.error("Authorization error: %s", error)
+            return None, error
 
-        return auth_code
+        return auth_code, None
 
     async def _exchange_code(self, code: str, code_verifier: str) -> TokenSet:
         """Exchange authorization code for access token.

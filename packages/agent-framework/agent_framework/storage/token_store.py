@@ -117,11 +117,12 @@ class TokenStore:
             except FileExistsError:
                 return key_file.read_text().strip()
             try:
-                with os.fdopen(fd, "w") as f:
-                    f.write(key)
+                f = os.fdopen(fd, "w")
             except Exception:
                 os.close(fd)
                 raise
+            with f:
+                f.write(key)
             # nosem: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
             logger.info("Auto-generated token encryption key (stored at %s)", key_file)
             return key
@@ -230,12 +231,12 @@ class TokenStore:
 
             fd = os.open(token_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
             try:
-                with os.fdopen(fd, "wb") as f:
-                    f.write(data)
+                f = os.fdopen(fd, "wb")
             except Exception:
-                # If write fails, close the fd and re-raise
                 os.close(fd)
                 raise
+            with f:
+                f.write(data)
 
             logger.info(f"Saved token for {platform}:{user_id}")
             return True

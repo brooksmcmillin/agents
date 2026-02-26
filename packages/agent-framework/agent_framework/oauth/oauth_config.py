@@ -6,6 +6,7 @@ and RFC 9908 (OAuth Protected Resource Metadata).
 
 import logging
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 import httpx
 
@@ -79,8 +80,6 @@ async def discover_oauth_config(base_url: str) -> OAuthConfig:
     """
     # Enforce HTTPS for OAuth discovery to prevent credential interception.
     # Allow localhost/127.0.0.1 for local development.
-    from urllib.parse import urlparse
-
     parsed = urlparse(base_url)
     is_localhost = parsed.hostname in ("localhost", "127.0.0.1", "::1")
     if parsed.scheme != "https" and not is_localhost:
@@ -120,6 +119,13 @@ async def discover_oauth_config(base_url: str) -> OAuthConfig:
             raise ValueError("Resource metadata missing 'authorization_servers' field")
 
         auth_server_url = auth_servers[0].rstrip("/")  # Remove trailing slash
+
+        # Validate auth server URL uses HTTPS (same localhost exception)
+        auth_parsed = urlparse(auth_server_url)
+        auth_is_localhost = auth_parsed.hostname in ("localhost", "127.0.0.1", "::1")
+        if auth_parsed.scheme != "https" and not auth_is_localhost:
+            raise ValueError(f"Authorization server must use HTTPS, got {auth_parsed.scheme}://")
+
         logger.debug(f"Found authorization server: {auth_server_url}")
 
         # Step 2: Discover authorization server metadata (RFC 8414)
@@ -151,6 +157,16 @@ async def discover_oauth_config(base_url: str) -> OAuthConfig:
                 "Authorization server metadata missing required endpoints "
                 "(authorization_endpoint, token_endpoint)"
             )
+
+        # Validate discovered endpoints use HTTPS (same localhost exception)
+        for endpoint_name, endpoint_url in [
+            ("authorization_endpoint", authorization_endpoint),
+            ("token_endpoint", token_endpoint),
+        ]:
+            ep_parsed = urlparse(endpoint_url)
+            ep_is_localhost = ep_parsed.hostname in ("localhost", "127.0.0.1", "::1")
+            if ep_parsed.scheme != "https" and not ep_is_localhost:
+                raise ValueError(f"{endpoint_name} must use HTTPS, got {ep_parsed.scheme}://")
 
         # Build config
         config = OAuthConfig(

@@ -96,11 +96,17 @@ class TokenStorage:
     on a hash of the server URL. Tokens are encrypted at rest using Fernet.
     """
 
-    def __init__(self, storage_dir: Path | None = None) -> None:
+    def __init__(
+        self,
+        storage_dir: Path | None = None,
+        require_encryption: bool = False,
+    ) -> None:
         """Initialize token storage.
 
         Args:
             storage_dir: Directory to store token files (default: ~/.agents/tokens)
+            require_encryption: If True, raise RuntimeError when encryption
+                cannot be established. Use in production deployments.
         """
         if storage_dir is None:
             storage_dir = Path.home() / ".agents" / "tokens"
@@ -118,7 +124,13 @@ class TokenStorage:
                 self.cipher = Fernet(encryption_key.encode())
                 logger.debug("OAuth token encryption enabled")
             except Exception as e:
+                if require_encryption:
+                    raise RuntimeError(f"Encryption required but failed to initialize: {e}") from e
+                # nosem: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
                 logger.warning("Failed to initialize token encryption: %s", e)
+
+        if require_encryption and self.cipher is None:
+            raise RuntimeError("Encryption required but no key could be generated or loaded.")
 
         logger.debug(f"Token storage directory: {self.storage_dir}")
 
@@ -135,11 +147,12 @@ class TokenStorage:
             except FileExistsError:
                 return key_file.read_text().strip()
             try:
-                with os.fdopen(fd, "w") as f:
-                    f.write(key)
+                f = os.fdopen(fd, "w")
             except Exception:
                 os.close(fd)
                 raise
+            with f:
+                f.write(key)
             logger.info("Auto-generated OAuth token encryption key (stored at %s)", key_file)
             return key
         except Exception as e:
@@ -184,12 +197,12 @@ class TokenStorage:
             # Using os.open ensures permissions are set atomically during file creation
             fd = os.open(token_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
             try:
-                with os.fdopen(fd, "wb") as f:
-                    f.write(raw_data)
+                f = os.fdopen(fd, "wb")
             except Exception:
-                # If write fails, close the fd and re-raise
                 os.close(fd)
                 raise
+            with f:
+                f.write(raw_data)
             logger.debug(f"Saved token for {server_url}")
         except Exception as e:
             logger.error(f"Failed to save token: {e}")

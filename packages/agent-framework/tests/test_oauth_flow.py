@@ -612,7 +612,7 @@ class TestOAuthFlowHandler:
         flow_handler.register_client.side_effect = lambda: setattr(
             flow_handler, "client_id", "registered_id"
         )
-        flow_handler._run_callback_server = AsyncMock(return_value="auth_code_123")
+        flow_handler._run_callback_server = AsyncMock(return_value=("auth_code_123", None))
         flow_handler._exchange_code = AsyncMock(
             return_value=TokenSet(access_token="tok", token_type="Bearer")
         )
@@ -627,10 +627,22 @@ class TestOAuthFlowHandler:
     async def test_authorize_fails_without_code(self, flow_handler: OAuthFlowHandler) -> None:
         """Test authorize() raises when callback returns None (line 153-154)."""
         flow_handler.client_id = "test_id"
-        flow_handler._run_callback_server = AsyncMock(return_value=None)
+        flow_handler._run_callback_server = AsyncMock(return_value=(None, None))
 
         with patch("webbrowser.open"):
             with pytest.raises(ValueError, match="no code received"):
+                await flow_handler.authorize()
+
+    @pytest.mark.asyncio
+    async def test_authorize_fails_with_csrf_error(self, flow_handler: OAuthFlowHandler) -> None:
+        """Test authorize() propagates CSRF state mismatch error."""
+        flow_handler.client_id = "test_id"
+        flow_handler._run_callback_server = AsyncMock(
+            return_value=(None, "CSRF state mismatch detected")
+        )
+
+        with patch("webbrowser.open"):
+            with pytest.raises(ValueError, match="CSRF state mismatch"):
                 await flow_handler.authorize()
 
 
@@ -968,3 +980,62 @@ class TestDiscoverOAuthConfigHTTPS:
 
             with pytest.raises(ValueError, match="Failed to fetch"):
                 await discover_oauth_config("http://127.0.0.1:8080/mcp/")
+
+    @pytest.mark.asyncio
+    async def test_allows_ipv6_loopback_http(self) -> None:
+        """Test that IPv6 loopback (::1) HTTP URLs are allowed for development."""
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client_class.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client_class.return_value.__aexit__ = AsyncMock(return_value=None)
+            mock_client.get = AsyncMock(side_effect=httpx.HTTPError("Connection refused"))
+
+            with pytest.raises(ValueError, match="Failed to fetch"):
+                await discover_oauth_config("http://[::1]:8080/mcp/")
+
+    @pytest.mark.asyncio
+    async def test_rejects_http_auth_server_in_metadata(self) -> None:
+        """Test that HTTP auth server URLs in metadata are rejected."""
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client_class.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client_class.return_value.__aexit__ = AsyncMock(return_value=None)
+
+            resource_response = MagicMock()
+            resource_response.json.return_value = {
+                "resource": "https://mcp.example.com",
+                "authorization_servers": ["http://evil.example.com"],  # HTTP!
+            }
+            resource_response.raise_for_status = MagicMock()
+
+            mock_client.get = AsyncMock(return_value=resource_response)
+
+            with pytest.raises(ValueError, match="Authorization server must use HTTPS"):
+                await discover_oauth_config("https://mcp.example.com")
+
+    @pytest.mark.asyncio
+    async def test_rejects_http_endpoints_in_auth_metadata(self) -> None:
+        """Test that HTTP authorization/token endpoints in metadata are rejected."""
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client_class.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client_class.return_value.__aexit__ = AsyncMock(return_value=None)
+
+            resource_response = MagicMock()
+            resource_response.json.return_value = {
+                "resource": "https://mcp.example.com",
+                "authorization_servers": ["https://auth.example.com"],
+            }
+            resource_response.raise_for_status = MagicMock()
+
+            auth_response = MagicMock()
+            auth_response.json.return_value = {
+                "authorization_endpoint": "http://auth.example.com/authorize",  # HTTP!
+                "token_endpoint": "https://auth.example.com/token",
+            }
+            auth_response.raise_for_status = MagicMock()
+
+            mock_client.get = AsyncMock(side_effect=[resource_response, auth_response])
+
+            with pytest.raises(ValueError, match="authorization_endpoint must use HTTPS"):
+                await discover_oauth_config("https://mcp.example.com")
