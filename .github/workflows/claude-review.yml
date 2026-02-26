@@ -201,16 +201,14 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: write
       issues: read
     steps:
-      - name: Evaluate reviews and submit formal verdict
+      - name: Evaluate reviews and gate merge
         env:
-          GH_TOKEN: ${{ secrets.REVIEW_GATE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           PR_NUMBER=${{ github.event.pull_request.number }}
           REPO=${{ github.repository }}
-          HEAD_SHA=${{ github.event.pull_request.head.sha }}
 
           echo "=== Fetching CI reviewer comments ==="
 
@@ -223,41 +221,26 @@ jobs:
             --jq '[.[] | select(.body | contains("<!-- claude-security-review -->"))] | last | .body // empty')
 
           HAS_ISSUES=false
-          BODY=""
 
           # Check code review for unresolved issues
           if echo "$CODE_REVIEW" | grep -qE '### (New Issues|Still Open)'; then
-            echo "Code review has unresolved issues"
+            echo "::error::Code review has unresolved issues"
             HAS_ISSUES=true
-            BODY="${BODY}**Code Review:** has unresolved issues (see comment above)\n"
           else
-            echo "Code review is clean"
-            BODY="${BODY}**Code Review:** clean\n"
+            echo "Code review: clean"
           fi
 
           # Check security review for unresolved issues
           if echo "$SECURITY_REVIEW" | grep -qE '### (New Issues|Still Open)'; then
-            echo "Security review has unresolved issues"
+            echo "::error::Security review has unresolved issues"
             HAS_ISSUES=true
-            BODY="${BODY}**Security Review:** has unresolved issues (see comment above)\n"
           else
-            echo "Security review is clean"
-            BODY="${BODY}**Security Review:** clean\n"
+            echo "Security review: clean"
           fi
 
-          # Submit formal review verdict
           if [ "$HAS_ISSUES" = true ]; then
-            echo "=== Requesting changes ==="
-            gh api "repos/${REPO}/pulls/${PR_NUMBER}/reviews" \
-              -X POST \
-              -f commit_id="$HEAD_SHA" \
-              -f event="REQUEST_CHANGES" \
-              -f body="$(echo -e "## Review Gate\n\n${BODY}\nPlease address the issues flagged by the CI reviewers above.")"
-          else
-            echo "=== Approving ==="
-            gh api "repos/${REPO}/pulls/${PR_NUMBER}/reviews" \
-              -X POST \
-              -f commit_id="$HEAD_SHA" \
-              -f event="APPROVE" \
-              -f body="$(echo -e "## Review Gate\n\n${BODY}\nAll CI reviews passed.")"
+            echo "::error::Review Gate FAILED — address the issues flagged by CI reviewers above."
+            exit 1
           fi
+
+          echo "Review Gate passed — all CI reviews clean."
