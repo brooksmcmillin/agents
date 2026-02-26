@@ -112,17 +112,23 @@ This guidance is automatically added by `bin/run-voice-agent`.
 To make a new agent available for voice mode:
 
 1. Create the agent in `agents/your_agent/`
-2. Add it to the AGENTS registry in both:
-   - `bin/run-agent` (for text mode)
-   - `bin/run-voice-agent` (for voice mode)
+2. Register it in `shared/registry.py` inside `build_agent_registry()` — this
+   is the single source of truth used by both `bin/run-agent` (text mode) and
+   `bin/run-voice-agent` (voice mode).
 
 Example:
 
 ```python
-# In both bin/run-agent and bin/run-voice-agent
-AGENTS: dict[str, tuple[type, dict | None]] = {
+# In shared/registry.py, inside build_agent_registry()
+from agents.your_agent.main import YourAgent
+
+return {
     # ... existing agents ...
-    "your_agent": (YourAgent, None),
+    "your-agent": (
+        YourAgent,
+        None,
+        "Description of your agent",
+    ),
 }
 ```
 

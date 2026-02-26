@@ -104,7 +104,7 @@ uv run python scripts/testing/test_mcp_tool.py get_memories -v --pretty
 For testing remote MCP servers (HTTP/SSE transport):
 
 ```bash
-uv run python scripts/mcp_scripts/debug_mcp_handshake.py
+uv run python scripts/mcp/debug_mcp_handshake.py
 ```
 
 This script:
