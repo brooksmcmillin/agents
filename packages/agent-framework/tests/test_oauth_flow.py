@@ -6,10 +6,12 @@ This module tests the OAuth flow implementation including:
 - OAuth discovery
 - Token exchange
 - Token storage and retrieval
+- Callback app CSRF state validation, code capture, and error capture
 """
 
 import hashlib
 import json
+import secrets
 import tempfile
 import time
 from base64 import urlsafe_b64encode
@@ -18,6 +20,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+from aiohttp.test_utils import TestClient, TestServer
 
 from agent_framework.oauth.oauth_config import OAuthConfig, discover_oauth_config
 from agent_framework.oauth.oauth_flow import OAuthFlowHandler, generate_pkce_pair
@@ -1039,3 +1042,129 @@ class TestDiscoverOAuthConfigHTTPS:
 
             with pytest.raises(ValueError, match="authorization_endpoint must use HTTPS"):
                 await discover_oauth_config("https://mcp.example.com")
+
+
+class TestBuildCallbackApp:
+    """Tests for build_callback_app OAuth callback handler.
+
+    Exercises lines 170-242 of oauth_flow.py: state mismatch (CSRF),
+    valid code capture, and error parameter capture branches.
+    Uses aiohttp.test_utils.TestClient for realistic HTTP testing.
+    """
+
+    @pytest.fixture
+    def expected_state(self) -> str:
+        """Generate a random state token for CSRF validation."""
+        return secrets.token_urlsafe(32)
+
+    @pytest.mark.asyncio
+    async def test_valid_code_capture(self, expected_state: str) -> None:
+        """Callback with correct state and code param captures the auth code."""
+        app, auth_result = OAuthFlowHandler.build_callback_app(expected_state)
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.get(
+                "/callback",
+                params={"state": expected_state, "code": "auth_code_42"},
+            )
+            assert resp.status == 200
+            body = await resp.text()
+            assert "Successful" in body
+            assert auth_result["code"] == "auth_code_42"
+            assert auth_result["error"] is None
+
+    @pytest.mark.asyncio
+    async def test_state_mismatch_returns_400(self, expected_state: str) -> None:
+        """Callback with wrong state value is rejected as CSRF (state_mismatch)."""
+        app, auth_result = OAuthFlowHandler.build_callback_app(expected_state)
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.get(
+                "/callback",
+                params={"state": "totally-wrong-state", "code": "abc"},
+            )
+            assert resp.status == 400
+            body = await resp.text()
+            assert "Failed" in body
+            assert auth_result["error"] == "state_mismatch"
+            assert auth_result["code"] is None
+
+    @pytest.mark.asyncio
+    async def test_missing_state_returns_400(self, expected_state: str) -> None:
+        """Callback with no state parameter is rejected as CSRF."""
+        app, auth_result = OAuthFlowHandler.build_callback_app(expected_state)
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.get("/callback", params={"code": "abc"})
+            assert resp.status == 400
+            assert auth_result["error"] == "state_mismatch"
+            assert auth_result["code"] is None
+
+    @pytest.mark.asyncio
+    async def test_empty_state_returns_400(self, expected_state: str) -> None:
+        """Callback with empty string state is rejected as CSRF."""
+        app, auth_result = OAuthFlowHandler.build_callback_app(expected_state)
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.get("/callback", params={"state": "", "code": "abc"})
+            assert resp.status == 400
+            assert auth_result["error"] == "state_mismatch"
+
+    @pytest.mark.asyncio
+    async def test_error_param_captured(self, expected_state: str) -> None:
+        """Callback with valid state and error param captures the error."""
+        app, auth_result = OAuthFlowHandler.build_callback_app(expected_state)
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.get(
+                "/callback",
+                params={
+                    "state": expected_state,
+                    "error": "access_denied",
+                    "error_description": "User refused consent",
+                },
+            )
+            assert resp.status == 200
+            body = await resp.text()
+            assert "Failed" in body
+            assert "User refused consent" in body
+            assert auth_result["error"] == "access_denied"
+            assert auth_result["code"] is None
+
+    @pytest.mark.asyncio
+    async def test_error_param_without_description(self, expected_state: str) -> None:
+        """Callback with error but no error_description still captures error."""
+        app, auth_result = OAuthFlowHandler.build_callback_app(expected_state)
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.get(
+                "/callback",
+                params={"state": expected_state, "error": "server_error"},
+            )
+            assert resp.status == 200
+            body = await resp.text()
+            assert "server_error" in body or "Failed" in body
+            assert auth_result["error"] == "server_error"
+            assert auth_result["code"] is None
+
+    @pytest.mark.asyncio
+    async def test_no_code_no_error_returns_400(self, expected_state: str) -> None:
+        """Callback with valid state but neither code nor error returns 400."""
+        app, auth_result = OAuthFlowHandler.build_callback_app(expected_state)
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.get("/callback", params={"state": expected_state})
+            assert resp.status == 400
+            body = await resp.text()
+            assert "Invalid callback" in body
+
+    @pytest.mark.asyncio
+    async def test_error_description_html_escaped(self, expected_state: str) -> None:
+        """Error description containing HTML is escaped in the response."""
+        app, _auth_result = OAuthFlowHandler.build_callback_app(expected_state)
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.get(
+                "/callback",
+                params={
+                    "state": expected_state,
+                    "error": "invalid_request",
+                    "error_description": '<script>alert("xss")</script>',
+                },
+            )
+            body = await resp.text()
+            # html.escape should convert < and > to entities
+            assert "<script>" not in body
+            assert "&lt;script&gt;" in body
