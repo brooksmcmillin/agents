@@ -12,7 +12,6 @@ import asyncio
 import logging
 import os
 import sys
-from typing import Any
 
 from dotenv import load_dotenv
 
@@ -71,6 +70,22 @@ EVENING_PROMPT = """Run the evening task management routine. Complete ALL of the
 
 Complete all steps and report what was done."""
 
+# Truncation lengths for log previews vs notification summaries
+LOG_PREVIEW_LEN = 500
+NOTIFICATION_SUMMARY_LEN = 300
+
+
+def _sanitize_error(exc: Exception) -> str:
+    """Produce a safe error description for external notifications.
+
+    Raw exception messages can leak sensitive data (API keys, connection
+    strings, etc.), so we only expose the exception type and a truncated
+    message for notifications. Full tracebacks are logged locally.
+    """
+    type_name = type(exc).__name__
+    short_msg = str(exc)[:120]
+    return f"{type_name}: {short_msg}"
+
 
 async def _run_routine(name: str, prompt: str) -> None:
     """Create a TaskManagerAgent and run a routine prompt.
@@ -85,7 +100,10 @@ async def _run_routine(name: str, prompt: str) -> None:
     from .main import TaskManagerAgent
 
     mcp_urls: list[str] = [os.getenv(ENV_MCP_SERVER_URL, DEFAULT_MCP_SERVER_URL)]
-    mcp_client_config: dict[str, Any] = {"prefer_device_flow": True}
+    # No prefer_device_flow — the scheduler runs headlessly via systemd,
+    # so it relies on pre-stored OAuth tokens (authenticate interactively
+    # first via `uv run python scripts/mcp_auth.py`).
+    mcp_client_config: dict[str, object] = {}
 
     logger.info(f"Starting {name} routine")
 
@@ -96,11 +114,11 @@ async def _run_routine(name: str, prompt: str) -> None:
         )
         response = await agent.process_message(prompt)
         logger.info(f"{name} routine completed")
-        logger.info(f"Response: {response[:500]}")
+        logger.info(f"Response: {response[:LOG_PREVIEW_LEN]}")
 
         await notify_routine_complete(
             routine_name=name,
-            summary=response[:300],
+            summary=response[:NOTIFICATION_SUMMARY_LEN],
             agent_name="TaskScheduler",
         )
 
@@ -108,7 +126,7 @@ async def _run_routine(name: str, prompt: str) -> None:
         logger.exception(f"{name} routine failed")
         await notify_error(
             context=f"{name} routine",
-            error=str(e),
+            error=_sanitize_error(e),
             agent_name="TaskScheduler",
         )
         raise

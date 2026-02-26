@@ -36,7 +36,8 @@ ROUTINES = {
     },
 }
 
-LOG_FILE = "/tmp/task-scheduler.log"
+LOG_DIR = Path.home() / ".local" / "share" / "agents" / "logs"
+LOG_FILE = str(LOG_DIR / "task-scheduler.log")
 SYSTEMD_USER_DIR = Path.home() / ".config" / "systemd" / "user"
 
 
@@ -215,8 +216,10 @@ def install() -> bool:
         print("Installation cancelled")
         return False
 
-    # Create systemd user directory
+    # Create directories
     SYSTEMD_USER_DIR.mkdir(parents=True, exist_ok=True)
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    LOG_DIR.chmod(0o700)
 
     # Write service and timer files for each routine
     for routine, config in ROUTINES.items():

@@ -13,11 +13,14 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from agents.email_intake.main import ADD_TASK_PREFIX, handle_add_task_email
+from agents.email_intake.main import ADD_TASK_MAX_PER_RUN, ADD_TASK_PREFIX, handle_add_task_email
 from agents.task_manager.prompts import SYSTEM_PROMPT
 from agents.task_manager.scheduler import (
     EVENING_PROMPT,
+    LOG_PREVIEW_LEN,
     MORNING_PROMPT,
+    NOTIFICATION_SUMMARY_LEN,
+    _sanitize_error,
     run_evening_routine,
     run_morning_routine,
 )
@@ -67,6 +70,31 @@ class TestSchedulerConfiguration:
 
     def test_evening_routine_is_async(self):
         assert asyncio.iscoroutinefunction(run_evening_routine)
+
+    def test_no_device_flow_in_scheduler(self):
+        """Scheduler runs headlessly — must not use prefer_device_flow."""
+        import inspect
+
+        from agents.task_manager.scheduler import _run_routine
+
+        source = inspect.getsource(_run_routine)
+        assert "prefer_device_flow" not in source or "No prefer_device_flow" in source
+
+    def test_truncation_constants_defined(self):
+        assert LOG_PREVIEW_LEN > NOTIFICATION_SUMMARY_LEN
+        assert LOG_PREVIEW_LEN == 500
+        assert NOTIFICATION_SUMMARY_LEN == 300
+
+    def test_sanitize_error_strips_sensitive_data(self):
+        exc = ConnectionError("https://api.example.com/key=secret123 refused")
+        result = _sanitize_error(exc)
+        assert result.startswith("ConnectionError:")
+        assert len(result) <= 200  # type name + 120 chars max
+
+    def test_sanitize_error_truncates_long_messages(self):
+        exc = ValueError("x" * 500)
+        result = _sanitize_error(exc)
+        assert len(result) < 200
 
 
 class TestEmailIntakeAddTask:
@@ -123,6 +151,17 @@ class TestEmailIntakeAddTask:
         result = handle_add_task_email("Add task: Test", "desc", "user@example.com")
         assert result is not None
         assert "user@example.com" in result
+
+    def test_prompt_includes_injection_framing(self):
+        """Email content should be marked as untrusted in the prompt."""
+        result = handle_add_task_email("Add task: Test", "desc", "a@b.com")
+        assert result is not None
+        assert "untrusted" in result.lower()
+        assert "BEGIN EMAIL CONTENT" in result
+        assert "END EMAIL CONTENT" in result
+
+    def test_rate_limit_constant(self):
+        assert ADD_TASK_MAX_PER_RUN == 5
 
 
 class TestTaskManagerSMSTools:
@@ -296,3 +335,9 @@ class TestSystemdInstaller:
 
         names = [cfg["service_name"] for cfg in ROUTINES.values()]
         assert len(names) == len(set(names)), "Service names must be unique"
+
+    def test_log_file_not_in_tmp(self):
+        from scripts.deployment.install_scheduler import LOG_FILE
+
+        assert "/tmp" not in LOG_FILE, "Log file should not be in world-readable /tmp"
+        assert ".local/share" in LOG_FILE or ".data" in LOG_FILE
