@@ -321,7 +321,7 @@ class TestSafeRequestRedirectChain:
                 headers={"location": f"http://a.com/r/{n + 1}"},
             )
 
-        responses = [make_redirect(i) for i in range(_MAX_REDIRECTS + 1)]
+        responses = [make_redirect(i) for i in range(_MAX_REDIRECTS)]
 
         client = AsyncMock(spec=httpx.AsyncClient)
         client.request = AsyncMock(side_effect=responses)
@@ -484,6 +484,29 @@ class TestSafeRequestRedirectChain:
         assert "content" not in second_call_kwargs
         assert "json" not in second_call_kwargs
         assert "data" not in second_call_kwargs
+
+    async def test_303_strips_files_kwarg(self) -> None:
+        """On method downgrade (303), files kwarg is also removed to prevent data exfiltration."""
+        redirect_resp = _make_response(
+            303,
+            "http://a.com/upload",
+            headers={"location": "http://a.com/result"},
+        )
+        final_resp = _make_response(200, "http://a.com/result", content=b"ok")
+
+        client = AsyncMock(spec=httpx.AsyncClient)
+        client.request = AsyncMock(side_effect=[redirect_resp, final_resp])
+
+        with patch(_ALLOWLIST_PATCH, side_effect=_allow_all_targets):
+            await _safe_request(
+                client,
+                "POST",
+                "http://a.com/upload",
+                files={"file": ("test.txt", b"secret-data")},
+            )
+
+        second_call_kwargs = client.request.call_args_list[1][1]
+        assert "files" not in second_call_kwargs
 
     async def test_301_get_preserves_method(self) -> None:
         """A 301 with GET should keep GET (only POST triggers method change)."""
