@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import quote
 
@@ -104,13 +104,28 @@ def sanitize_error_message(error: Exception) -> str:
     Returns:
         Sanitized error message safe for logging
     """
-    error_str = str(error)
-    # Remove any potential auth tokens or credentials from error messages
-    # Twilio auth tokens are 32 hex characters
-    sanitized = re.sub(r"[a-f0-9]{32}", "[REDACTED]", error_str, flags=re.IGNORECASE)
-    # Also redact anything that looks like a bearer token or basic auth
+    return _redact_sensitive_text(str(error))
+
+
+def _redact_sensitive_text(text: str) -> str:
+    """Remove credentials, tokens, and phone numbers from arbitrary text.
+
+    Used to sanitize both exception messages and Twilio API error response
+    bodies before they reach callers or log sinks.
+
+    Args:
+        text: The raw text to sanitize.
+
+    Returns:
+        Sanitized text safe for logging and returning to callers.
+    """
+    # Twilio auth tokens / account SIDs are 32 hex characters
+    sanitized = re.sub(r"[a-f0-9]{32}", "[REDACTED]", text, flags=re.IGNORECASE)
+    # Bearer / Basic auth headers
     sanitized = re.sub(r"Bearer\s+\S+", "Bearer [REDACTED]", sanitized, flags=re.IGNORECASE)
     sanitized = re.sub(r"Basic\s+\S+", "Basic [REDACTED]", sanitized, flags=re.IGNORECASE)
+    # Phone numbers in E.164 or near-E.164 formats
+    sanitized = re.sub(r"\+?\d[\d\-\s]{8,}\d", "[PHONE REDACTED]", sanitized)
     return sanitized
 
 
@@ -124,7 +139,7 @@ class TwilioCredentials:
     """Validated Twilio credentials ready for API use."""
 
     account_sid: str
-    auth_token: str
+    auth_token: str = field(repr=False)
 
 
 def validate_twilio_credentials() -> TwilioCredentials | str:
@@ -219,11 +234,12 @@ async def post_twilio_message(
                 }
             else:
                 error_code = result.get("code")
-                error_message = result.get("message", "Unknown error")
-                logger.error("Twilio API error: %s - %s", error_code, error_message)
+                raw_message = result.get("message", "Unknown error")
+                safe_message = _redact_sensitive_text(raw_message)
+                logger.error("Twilio API error: %s - %s", error_code, safe_message)
                 return {
                     "success": False,
-                    "error": f"Twilio error {error_code}: {error_message}",
+                    "error": f"Twilio error {error_code}: {safe_message}",
                     "status_code": response.status_code,
                 }
 
@@ -238,6 +254,75 @@ async def post_twilio_message(
     except Exception as e:
         sanitized = sanitize_error_message(e)
         logger.error("Error sending SMS: %s", sanitized)
+        return {
+            "success": False,
+            "error": f"Unexpected error: {sanitized}",
+        }
+
+
+async def get_twilio_resource(
+    credentials: TwilioCredentials,
+    url: str,
+) -> dict[str, Any]:
+    """Fetch a resource from the Twilio REST API.
+
+    Performs an authenticated GET request and returns a normalised result dict.
+
+    Args:
+        credentials: Validated Twilio credentials.
+        url: Full Twilio API URL to fetch.
+
+    Returns:
+        Dictionary with at least ``"success"`` (bool).  On success the dict
+        also contains ``"result"`` (the parsed Twilio JSON response) and
+        ``"status_code"`` (200).  On failure it contains ``"error"`` (str) and,
+        when available, ``"status_code"``.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(
+                url,
+                auth=(credentials.account_sid, credentials.auth_token),
+            )
+
+            try:
+                result = response.json()
+            except ValueError:
+                logger.error("Invalid JSON response from Twilio API")
+                return {
+                    "success": False,
+                    "error": f"Invalid response from Twilio API (status {response.status_code})",
+                    "status_code": response.status_code,
+                }
+
+            if response.status_code == 200:
+                return {
+                    "success": True,
+                    "result": result,
+                    "status_code": response.status_code,
+                }
+            else:
+                error_code = result.get("code")
+                raw_message = result.get("message", "Unknown error")
+                safe_message = _redact_sensitive_text(raw_message)
+                logger.error("Twilio API error: %s - %s", error_code, safe_message)
+                return {
+                    "success": False,
+                    "error": f"Twilio error {error_code}: {safe_message}",
+                    "status_code": response.status_code,
+                }
+
+    except httpx.HTTPError as e:
+        sanitized = sanitize_error_message(e)
+        logger.error("HTTP error fetching Twilio resource: %s", sanitized)
+        return {
+            "success": False,
+            "error": f"Failed to fetch resource: {sanitized}",
+        }
+
+    except Exception as e:
+        sanitized = sanitize_error_message(e)
+        logger.error("Error fetching Twilio resource: %s", sanitized)
         return {
             "success": False,
             "error": f"Unexpected error: {sanitized}",

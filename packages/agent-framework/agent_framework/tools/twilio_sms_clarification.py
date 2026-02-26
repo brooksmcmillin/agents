@@ -291,7 +291,7 @@ Please reply to this email or contact the system directly."""
         )
 
         if result.get("status") == "success":
-            logger.info(f"Clarification sent via email fallback: {fallback_reason}")
+            logger.info("Clarification sent via email fallback")
             return {
                 "success": True,
                 "method": "email",
@@ -300,7 +300,7 @@ Please reply to this email or contact the system directly."""
                 "message": "SMS unavailable, clarification request sent via email instead.",
             }
         else:
-            logger.error(f"Email fallback also failed: {result.get('error')}")
+            logger.error("Email fallback also failed: %s", result.get("error"))
             return {
                 "success": False,
                 "method": "email",

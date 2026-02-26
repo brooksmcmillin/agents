@@ -12,15 +12,11 @@ import logging
 from typing import Any
 from urllib.parse import quote
 
-import httpx
-
 from ..core.config import settings
 from .twilio_utils import (
+    get_twilio_resource,
     post_twilio_message,
     validate_twilio_credentials,
-)
-from .twilio_utils import (
-    sanitize_error_message as _sanitize_error_message,
 )
 from .twilio_utils import (
     validate_message_sid as _validate_message_sid,
@@ -207,67 +203,31 @@ async def get_sms_status(message_sid: str) -> dict[str, Any]:
         f"Messages/{quote(message_sid, safe='')}.json"
     )
 
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(
-                url,
-                auth=(creds.account_sid, creds.auth_token),
-            )
+    # Fetch via shared helper
+    get_result = await get_twilio_resource(credentials=creds, url=url)
 
-            # Parse response with error handling for invalid JSON
-            try:
-                result = response.json()
-            except ValueError:
-                logger.error("Invalid JSON response from Twilio API")
-                return {
-                    "success": False,
-                    "error": f"Invalid response from Twilio API (status {response.status_code})",
-                    "message_sid": message_sid,
-                }
-
-            if response.status_code == 200:
-                logger.info("Message status: %s", result.get("status"))
-
-                return {
-                    "success": True,
-                    "message_sid": result.get("sid"),
-                    "status": result.get("status"),
-                    "to": result.get("to"),
-                    "from": result.get("from"),
-                    "body": result.get("body"),
-                    "date_sent": result.get("date_sent"),
-                    "date_updated": result.get("date_updated"),
-                    "error_code": result.get("error_code"),
-                    "error_message": result.get("error_message"),
-                }
-            else:
-                error_code = result.get("code")
-                error_message = result.get("message", "Unknown error")
-                logger.error("Twilio API error: %s - %s", error_code, error_message)
-
-                return {
-                    "success": False,
-                    "error": f"Twilio error {error_code}: {error_message}",
-                    "message_sid": message_sid,
-                }
-
-    except httpx.HTTPError as e:
-        sanitized_error = _sanitize_error_message(e)
-        logger.error("HTTP error getting SMS status: %s", sanitized_error)
+    if not get_result["success"]:
         return {
             "success": False,
-            "error": f"Failed to get SMS status: {sanitized_error}",
+            "error": get_result["error"],
             "message_sid": message_sid,
         }
 
-    except Exception as e:
-        sanitized_error = _sanitize_error_message(e)
-        logger.error("Error getting SMS status: %s", sanitized_error)
-        return {
-            "success": False,
-            "error": f"Unexpected error: {sanitized_error}",
-            "message_sid": message_sid,
-        }
+    result = get_result["result"]
+    logger.info("Message status: %s", result.get("status"))
+
+    return {
+        "success": True,
+        "message_sid": result.get("sid"),
+        "status": result.get("status"),
+        "to": result.get("to"),
+        "from": result.get("from"),
+        "body": result.get("body"),
+        "date_sent": result.get("date_sent"),
+        "date_updated": result.get("date_updated"),
+        "error_code": result.get("error_code"),
+        "error_message": result.get("error_message"),
+    }
 
 
 # ---------------------------------------------------------------------------
