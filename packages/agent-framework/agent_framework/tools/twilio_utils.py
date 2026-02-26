@@ -4,7 +4,19 @@ Common validation and sanitization logic used by both twilio_sms and
 twilio_sms_clarification modules.
 """
 
+from __future__ import annotations
+
+import logging
 import re
+from dataclasses import dataclass
+from typing import Any
+from urllib.parse import quote
+
+import httpx
+
+from ..core.config import settings
+
+logger = logging.getLogger(__name__)
 
 # E.164 phone number format: +[country code][number]
 E164_PATTERN = re.compile(r"^\+[1-9]\d{1,14}$")
@@ -100,3 +112,133 @@ def sanitize_error_message(error: Exception) -> str:
     sanitized = re.sub(r"Bearer\s+\S+", "Bearer [REDACTED]", sanitized, flags=re.IGNORECASE)
     sanitized = re.sub(r"Basic\s+\S+", "Basic [REDACTED]", sanitized, flags=re.IGNORECASE)
     return sanitized
+
+
+# ---------------------------------------------------------------------------
+# Credential validation and Twilio API helpers
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class TwilioCredentials:
+    """Validated Twilio credentials ready for API use."""
+
+    account_sid: str
+    auth_token: str
+
+
+def validate_twilio_credentials() -> TwilioCredentials | str:
+    """Validate that Twilio account_sid and auth_token are configured and well-formed.
+
+    Reads credentials from the global ``settings`` object and checks that both
+    are present and that the account SID matches the expected format.
+
+    Returns:
+        A ``TwilioCredentials`` instance on success, or a human-readable error
+        string describing the first validation failure encountered.
+    """
+    account_sid = settings.twilio_account_sid
+    auth_token = settings.twilio_auth_token
+
+    if not account_sid:
+        return (
+            "TWILIO_ACCOUNT_SID is required. Set it in your environment or .env file. "
+            "Get it from: https://console.twilio.com/"
+        )
+
+    if not validate_account_sid(account_sid):
+        return "Invalid TWILIO_ACCOUNT_SID format. Must be 'AC' followed by 32 hex characters."
+
+    if not auth_token:
+        return (
+            "TWILIO_AUTH_TOKEN is required. Set it in your environment or .env file. "
+            "Get it from: https://console.twilio.com/"
+        )
+
+    return TwilioCredentials(account_sid=account_sid, auth_token=auth_token)
+
+
+async def post_twilio_message(
+    credentials: TwilioCredentials,
+    to: str,
+    from_number: str,
+    body: str,
+) -> dict[str, Any]:
+    """Send an SMS via the Twilio REST API.
+
+    Builds the Twilio Messages endpoint URL, POSTs the message, and returns a
+    normalised result dict that both ``twilio_sms`` and
+    ``twilio_sms_clarification`` can consume directly.
+
+    Args:
+        credentials: Validated Twilio credentials.
+        to: Recipient phone number in E.164 format.
+        from_number: Sender phone number in E.164 format.
+        body: Message text to send.
+
+    Returns:
+        Dictionary with at least ``"success"`` (bool).  On success the dict
+        also contains ``"result"`` (the parsed Twilio JSON response) and
+        ``"status_code"`` (201).  On failure it contains ``"error"`` (str) and,
+        when available, ``"status_code"``.
+    """
+    url = (
+        f"https://api.twilio.com/2010-04-01/Accounts/"
+        f"{quote(credentials.account_sid, safe='')}/Messages.json"
+    )
+
+    payload = {
+        "To": to,
+        "From": from_number,
+        "Body": body,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                url,
+                data=payload,
+                auth=(credentials.account_sid, credentials.auth_token),
+            )
+
+            try:
+                result = response.json()
+            except ValueError:
+                logger.error("Invalid JSON response from Twilio API")
+                return {
+                    "success": False,
+                    "error": f"Invalid response from Twilio API (status {response.status_code})",
+                    "status_code": response.status_code,
+                }
+
+            if response.status_code == 201:
+                return {
+                    "success": True,
+                    "result": result,
+                    "status_code": response.status_code,
+                }
+            else:
+                error_code = result.get("code")
+                error_message = result.get("message", "Unknown error")
+                logger.error("Twilio API error: %s - %s", error_code, error_message)
+                return {
+                    "success": False,
+                    "error": f"Twilio error {error_code}: {error_message}",
+                    "status_code": response.status_code,
+                }
+
+    except httpx.HTTPError as e:
+        sanitized = sanitize_error_message(e)
+        logger.error("HTTP error sending SMS: %s", sanitized)
+        return {
+            "success": False,
+            "error": f"Failed to send SMS: {sanitized}",
+        }
+
+    except Exception as e:
+        sanitized = sanitize_error_message(e)
+        logger.error("Error sending SMS: %s", sanitized)
+        return {
+            "success": False,
+            "error": f"Unexpected error: {sanitized}",
+        }
