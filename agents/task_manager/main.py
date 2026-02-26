@@ -5,8 +5,11 @@ and prioritize work.
 """
 
 from shared import (
+    CLAUDE_CODE_TOOLS,
     COMMUNICATION_TOOLS,
+    FASTMAIL_TOOLS,
     MEMORY_TOOLS,
+    WEB_RESEARCH_TOOLS,
     create_simple_agent,
 )
 
@@ -17,9 +20,12 @@ TaskManagerAgent = create_simple_agent(
     system_prompt=SYSTEM_PROMPT,
     greeting=USER_GREETING_PROMPT,
     allowed_tools=(
-        ["fetch_web_content", "get_social_media_stats", "suggest_content_topics"]
+        ["get_social_media_stats", "suggest_content_topics"]
+        + WEB_RESEARCH_TOOLS
         + MEMORY_TOOLS
         + COMMUNICATION_TOOLS
+        + CLAUDE_CODE_TOOLS
+        + FASTMAIL_TOOLS
     ),
 )
 
