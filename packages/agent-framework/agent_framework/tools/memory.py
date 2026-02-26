@@ -17,11 +17,13 @@ Configure via environment variables:
     MEMORY_DATABASE_URL=postgresql://user:pass@host:5432/dbname  # pragma: allowlist secret
 """
 
+from __future__ import annotations
+
 import logging
 import os
 import re
 import threading
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 from ..storage.database_memory_store import DatabaseMemoryStore
 from ..storage.embedding import EmbeddingClient
@@ -82,7 +84,117 @@ def validate_agent_name(agent_name: str) -> str:
     return agent_name
 
 
+# ---------------------------------------------------------------------------
+# Unified memory store protocol and async adapter
+# ---------------------------------------------------------------------------
+
+
+@runtime_checkable
+class MemoryStoreProtocol(Protocol):
+    """Async protocol shared by both file and database memory backends.
+
+    Every tool function calls ``get_active_memory_store()`` which returns
+    an object satisfying this protocol, eliminating per-call backend
+    dispatch.
+    """
+
+    async def save_memory(
+        self,
+        key: str,
+        value: str,
+        category: str | None = None,
+        tags: list[str] | None = None,
+        importance: int = 5,
+    ) -> Memory: ...
+
+    async def get_all_memories(
+        self,
+        category: str | None = None,
+        tags: list[str] | None = None,
+        min_importance: int | None = None,
+    ) -> list[Memory]: ...
+
+    async def search_memories(self, query: str) -> list[Memory]: ...
+
+    async def delete_memory(self, key: str) -> bool: ...
+
+    async def get_stats(self) -> dict[str, Any]: ...
+
+    async def recall_memories(
+        self,
+        query: str,
+        limit: int = 10,
+        min_score: float = 0.3,
+        category: str | None = None,
+    ) -> list[tuple[Memory, float]]: ...
+
+    @property
+    def has_embeddings(self) -> bool: ...
+
+
+class AsyncFileMemoryAdapter:
+    """Wraps a synchronous :class:`MemoryStore` behind the async
+    :class:`MemoryStoreProtocol` interface.
+
+    All methods delegate to the underlying sync store so existing
+    file-based storage logic is unchanged.
+    """
+
+    def __init__(self, store: MemoryStore) -> None:
+        self._store = store
+
+    @property
+    def has_embeddings(self) -> bool:
+        """File backend never has embedding support."""
+        return False
+
+    async def save_memory(
+        self,
+        key: str,
+        value: str,
+        category: str | None = None,
+        tags: list[str] | None = None,
+        importance: int = 5,
+    ) -> Memory:
+        return self._store.save_memory(
+            key=key, value=value, category=category, tags=tags, importance=importance
+        )
+
+    async def get_all_memories(
+        self,
+        category: str | None = None,
+        tags: list[str] | None = None,
+        min_importance: int | None = None,
+    ) -> list[Memory]:
+        return self._store.get_all_memories(
+            category=category, tags=tags, min_importance=min_importance
+        )
+
+    async def search_memories(self, query: str) -> list[Memory]:
+        return self._store.search_memories(query)
+
+    async def delete_memory(self, key: str) -> bool:
+        return self._store.delete_memory(key)
+
+    async def get_stats(self) -> dict[str, Any]:
+        return self._store.get_stats()
+
+    async def recall_memories(
+        self,
+        query: str,
+        limit: int = 10,
+        min_score: float = 0.3,
+        category: str | None = None,
+    ) -> list[tuple[Memory, float]]:
+        """File backend: fall back to keyword search with score=0."""
+        results = self._store.search_memories(query)
+        return [(m, 0.0) for m in results[:limit]]
+
+
+# ---------------------------------------------------------------------------
 # Global store instances - keyed by agent_name for isolation
+# ---------------------------------------------------------------------------
+
 _file_memory_stores: dict[str, MemoryStore] = {}
 _database_memory_stores: dict[str, DatabaseMemoryStore] = {}
 
@@ -159,6 +271,31 @@ async def get_database_memory_store(agent_name: str = DEFAULT_AGENT_NAME) -> Dat
                 )
                 await _database_memory_stores[validated_name].initialize()
     return _database_memory_stores[validated_name]
+
+
+async def get_active_memory_store(
+    agent_name: str = DEFAULT_AGENT_NAME,
+) -> MemoryStoreProtocol:
+    """Return the appropriate memory store for the configured backend.
+
+    This is the single entry point used by all tool functions.  It
+    checks ``MEMORY_BACKEND`` and returns either a
+    :class:`DatabaseMemoryStore` (which already satisfies the async
+    protocol) or an :class:`AsyncFileMemoryAdapter` wrapping the sync
+    file store.
+
+    Args:
+        agent_name: Agent identifier for memory isolation (default: "shared")
+
+    Returns:
+        An object satisfying :class:`MemoryStoreProtocol`.
+    """
+    backend = _get_backend()
+
+    if backend == "database":
+        return await get_database_memory_store(agent_name)
+
+    return AsyncFileMemoryAdapter(get_memory_store(agent_name))
 
 
 async def configure_memory_store(
@@ -249,26 +386,14 @@ async def save_memory(
     logger.info(f"Saving memory for agent '{agent_name}': {key}")
 
     try:
-        backend = _get_backend()
-
-        if backend == "database":
-            store = await get_database_memory_store(agent_name)
-            memory = await store.save_memory(
-                key=key,
-                value=value,
-                category=category,
-                tags=tags,
-                importance=importance,
-            )
-        else:
-            store = get_memory_store(agent_name)
-            memory = store.save_memory(
-                key=key,
-                value=value,
-                category=category,
-                tags=tags,
-                importance=importance,
-            )
+        store = await get_active_memory_store(agent_name)
+        memory = await store.save_memory(
+            key=key,
+            value=value,
+            category=category,
+            tags=tags,
+            importance=importance,
+        )
 
         return {
             "status": "success",
@@ -315,22 +440,12 @@ async def get_memories(
     )
 
     try:
-        backend = _get_backend()
-
-        if backend == "database":
-            store = await get_database_memory_store(agent_name)
-            memories = await store.get_all_memories(
-                category=category,
-                tags=tags,
-                min_importance=min_importance,
-            )
-        else:
-            store = get_memory_store(agent_name)
-            memories = store.get_all_memories(
-                category=category,
-                tags=tags,
-                min_importance=min_importance,
-            )
+        store = await get_active_memory_store(agent_name)
+        memories = await store.get_all_memories(
+            category=category,
+            tags=tags,
+            min_importance=min_importance,
+        )
 
         # Limit results
         memories = memories[:limit]
@@ -374,14 +489,8 @@ async def search_memories(
     logger.info(f"Searching memories for agent '{agent_name}': {query}")
 
     try:
-        backend = _get_backend()
-
-        if backend == "database":
-            store = await get_database_memory_store(agent_name)
-            memories = await store.search_memories(query)
-        else:
-            store = get_memory_store(agent_name)
-            memories = store.search_memories(query)
+        store = await get_active_memory_store(agent_name)
+        memories = await store.search_memories(query)
 
         # Limit results
         memories = memories[:limit]
@@ -421,14 +530,8 @@ async def delete_memory(
     logger.info(f"Deleting memory for agent '{agent_name}': {key}")
 
     try:
-        backend = _get_backend()
-
-        if backend == "database":
-            store = await get_database_memory_store(agent_name)
-            deleted = await store.delete_memory(key)
-        else:
-            store = get_memory_store(agent_name)
-            deleted = store.delete_memory(key)
+        store = await get_active_memory_store(agent_name)
+        deleted = await store.delete_memory(key)
 
         if deleted:
             return {
@@ -464,18 +567,12 @@ async def get_memory_stats(
         Statistics including total count, categories, and date range
     """
     try:
-        backend = _get_backend()
-
-        if backend == "database":
-            store = await get_database_memory_store(agent_name)
-            stats = await store.get_stats()
-        else:
-            store = get_memory_store(agent_name)
-            stats = store.get_stats()
+        store = await get_active_memory_store(agent_name)
+        stats = await store.get_stats()
 
         return {
             "status": "success",
-            "backend": backend,
+            "backend": _get_backend(),
             **stats,
         }
 
@@ -515,36 +612,29 @@ async def recall_memories(
     logger.info(f"Recalling memories for agent '{agent_name}': {query}")
 
     try:
-        backend = _get_backend()
+        store = await get_active_memory_store(agent_name)
+        results = await store.recall_memories(
+            query=query,
+            limit=limit,
+            min_score=min_score,
+            category=category,
+        )
 
-        if backend == "database":
-            store = await get_database_memory_store(agent_name)
-            results = await store.recall_memories(
-                query=query,
-                limit=limit,
-                min_score=min_score,
-                category=category,
-            )
-            memories_out = []
-            for memory, score in results:
-                d = _memory_to_dict(memory)
-                d["score"] = round(score, 4)
-                memories_out.append(d)
+        memories_out = []
+        for memory, score in results:
+            d = _memory_to_dict(memory)
+            d["score"] = round(score, 4)
+            memories_out.append(d)
 
-            return {
-                "status": "success",
-                "agent_name": agent_name,
-                "query": query,
-                "method": "semantic" if store.has_embeddings else "keyword",
-                "count": len(memories_out),
-                "memories": memories_out,
-                "message": f"Found {len(memories_out)} memories matching '{query}'",
-            }
-        else:
-            # File backend: fall back to keyword search
-            result = await search_memories(query=query, limit=limit, agent_name=agent_name)
-            result["method"] = "keyword"
-            return result
+        return {
+            "status": "success",
+            "agent_name": agent_name,
+            "query": query,
+            "method": "semantic" if store.has_embeddings else "keyword",
+            "count": len(memories_out),
+            "memories": memories_out,
+            "message": f"Found {len(memories_out)} memories matching '{query}'",
+        }
 
     except Exception as e:
         logger.error(f"Failed to recall memories for agent '{agent_name}': {e}")
