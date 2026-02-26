@@ -188,6 +188,8 @@ class AsyncFileMemoryAdapter:
     ) -> list[tuple[Memory, float]]:
         """File backend: fall back to keyword search with score=0."""
         results = self._store.search_memories(query)
+        if category is not None:
+            results = [m for m in results if m.category == category]
         return [(m, 0.0) for m in results[:limit]]
 
 
@@ -320,8 +322,13 @@ async def configure_memory_store(
 
     Raises:
         InvalidAgentNameError: If the agent name contains invalid characters
-        ValueError: If database backend is selected but database_url is not provided
+        ValueError: If backend is not 'file' or 'database', or if database
+            backend is selected but database_url is not provided
     """
+    _VALID_BACKENDS = ("file", "database")
+    if backend not in _VALID_BACKENDS:
+        raise ValueError(f"Invalid backend '{backend}'. Must be one of {_VALID_BACKENDS}.")
+
     # Validate agent_name first
     validated_name = validate_agent_name(agent_name)
 
