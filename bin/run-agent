@@ -10,101 +10,19 @@ Usage:
 
 import argparse
 import asyncio
-import logging
-import os
 import sys
 
-# Add project root to path for imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from shared import GITHUB_MCP_AGENTS, build_agent_registry, github_mcp_config, run_agent
 
-from agents.business_advisor.main import BusinessAdvisorAgent
-from agents.chatbot.main import ChatbotAgent
-from agents.code_analysis.main import CodeAnalysisAgent
-from agents.events.main import EventsAgent
-from agents.pr_agent.main import PRAgent
-from agents.red_team.main import RedTeamAgent
-from agents.security_researcher.main import SecurityResearcherAgent
-from agents.task_manager.main import TaskManagerAgent
-from shared import DEFAULT_MCP_SERVER_URL, ENV_MCP_SERVER_URL, run_agent
-
-logger = logging.getLogger(__name__)
-
-_GITHUB_PAT_PREFIXES = ("ghp_", "github_pat_", "gho_", "ghu_", "ghs_", "ghr_")
-
-
-def _get_github_pat() -> str:
-    """Get and validate GitHub PAT from environment.
-
-    Returns:
-        The GitHub PAT token
-
-    Raises:
-        ValueError: If the token is not set
-    """
-    token = os.getenv("GITHUB_MCP_PAT")
-    if not token:
-        raise ValueError(
-            "GITHUB_MCP_PAT environment variable is required for GitHub MCP. "
-            "Set it in your .env file or environment."
-        )
-    if not token.startswith(_GITHUB_PAT_PREFIXES):
-        logger.warning(
-            "GITHUB_MCP_PAT has unexpected format (expected prefix: %s). "
-            "Verify your token is valid.",
-            ", ".join(_GITHUB_PAT_PREFIXES),
-        )
-    return token
-
-
-def _github_mcp_config() -> dict:
-    """Build MCP config for GitHub Copilot MCP server."""
-    return {
-        "mcp_urls": ["https://api.githubcopilot.com/mcp/"],
-        "mcp_client_config": {
-            "auth_token": _get_github_pat(),
-        },
-    }
-
-
-# Registry of available agents
-# Agents requiring GitHub PAT use _github_mcp_config() which is called
-# at agent construction time (not import time) so --list still works.
-AGENTS: dict[str, tuple[type, dict | None]] = {
-    "chatbot": (ChatbotAgent, None),
-    "code-analysis": (
-        CodeAnalysisAgent,
-        {
-            "mcp_urls": [os.getenv(ENV_MCP_SERVER_URL, DEFAULT_MCP_SERVER_URL)],
-            "mcp_client_config": {
-                "prefer_device_flow": True,
-            },
-        },
-    ),
-    "events": (EventsAgent, None),
-    "pr": (PRAgent, None),
-    "red-team": (RedTeamAgent, None),
-    "tasks": (
-        TaskManagerAgent,
-        {
-            "mcp_urls": [os.getenv(ENV_MCP_SERVER_URL, DEFAULT_MCP_SERVER_URL)],
-            "mcp_client_config": {
-                "prefer_device_flow": True,  # Use Device Flow instead of browser
-            },
-        },
-    ),
-    "security": (SecurityResearcherAgent, None),  # Config built lazily
-    "business": (BusinessAdvisorAgent, None),  # Config built lazily
-}
-
-# Agents that need GitHub MCP config built at runtime (not import time)
-_GITHUB_MCP_AGENTS = {"security", "business"}
+# Build registry lazily — agent imports happen here, not at module scope.
+AGENTS = build_agent_registry()
 
 
 def list_agents() -> None:
     """Print available agents."""
     print("Available agents:")
-    for name in AGENTS:
-        print(f"  • {name}")
+    for name, (_, _, desc) in AGENTS.items():
+        print(f"  • {name:15s} {desc}")
 
 
 async def run_once(
@@ -224,11 +142,11 @@ One-off mode:
         parser.print_help()
         sys.exit(1)
 
-    agent_class, agent_kwargs = AGENTS[args.agent]
+    agent_class, agent_kwargs, _ = AGENTS[args.agent]
 
     # Build GitHub MCP config lazily so --list works without GITHUB_MCP_PAT
-    if args.agent in _GITHUB_MCP_AGENTS:
-        agent_kwargs = _github_mcp_config()
+    if args.agent in GITHUB_MCP_AGENTS:
+        agent_kwargs = github_mcp_config()
 
     if args.message:
         # One-off mode: process single message and exit

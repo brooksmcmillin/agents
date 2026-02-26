@@ -105,90 +105,21 @@ def _sanitize_log_input(value: str) -> str:
 # ---------------------------------------------------------------------------
 # Agent registry
 #
-# Maps short name -> (AgentClass, constructor kwargs, human description).
-# Populated lazily by _build_registry() on first access so that imports
-# only happen when the server actually starts.
+# Uses the shared registry (shared/registry.py) as single source of truth.
+# Populated lazily on first access so that imports only happen when the
+# server actually starts.
 # ---------------------------------------------------------------------------
 
 _registry: dict[str, tuple[type[Agent], dict[str, Any] | None, str]] | None = None
 
 
-def _build_registry() -> dict[str, tuple[type[Agent], dict[str, Any] | None, str]]:
-    """Build the agent registry.
-
-    Imports are deferred to here so the module can be imported without
-    triggering heavyweight side-effects (Anthropic client init, etc.).
-    """
-    from agents.business_advisor.main import BusinessAdvisorAgent
-    from agents.chatbot.main import ChatbotAgent
-    from agents.code_analysis.main import CodeAnalysisAgent
-    from agents.events.main import EventsAgent
-    from agents.pr_agent.main import PRAgent
-    from agents.red_team.main import RedTeamAgent
-    from agents.security_researcher.main import SecurityResearcherAgent
-    from agents.task_manager.main import TaskManagerAgent
-    from shared import DEFAULT_MCP_SERVER_URL, ENV_MCP_SERVER_URL
-
-    return {
-        "chatbot": (
-            ChatbotAgent,
-            None,
-            "General-purpose chatbot with full MCP tool access",
-        ),
-        "events": (
-            EventsAgent,
-            None,
-            "Local events discovery with preference learning",
-        ),
-        "pr": (
-            PRAgent,
-            None,
-            "PR and content strategy assistant",
-        ),
-        "tasks": (
-            TaskManagerAgent,
-            {
-                "mcp_urls": [os.getenv(ENV_MCP_SERVER_URL, DEFAULT_MCP_SERVER_URL)],
-                "mcp_client_config": {"prefer_device_flow": True},
-            },
-            "Interactive task management agent",
-        ),
-        "security": (
-            SecurityResearcherAgent,
-            None,
-            "Security research assistant",
-        ),
-        "business": (
-            BusinessAdvisorAgent,
-            {
-                "mcp_urls": ["https://api.githubcopilot.com/mcp/"],
-                "mcp_client_config": {
-                    "auth_token": os.getenv("GITHUB_MCP_PAT"),
-                },
-            },
-            "Business strategy and monetization advisor",
-        ),
-        "redteam": (
-            RedTeamAgent,
-            None,
-            "Red team security testing agent",
-        ),
-        "code-analysis": (
-            CodeAnalysisAgent,
-            {
-                "mcp_urls": [os.getenv(ENV_MCP_SERVER_URL, DEFAULT_MCP_SERVER_URL)],
-                "mcp_client_config": {"prefer_device_flow": True},
-            },
-            "Repository analysis agent for security, logic, performance, and architecture improvements",
-        ),
-    }
-
-
 def _get_registry() -> dict[str, tuple[type[Agent], dict[str, Any] | None, str]]:
     global _registry
     if _registry is None:
-        _registry = _build_registry()
-    return _registry
+        from shared.registry import build_agent_registry  # noqa: PLC0415
+
+        _registry = build_agent_registry()
+    return _registry  # type: ignore[return-value]
 
 
 def _create_agent(name: str) -> Agent:
@@ -197,9 +128,16 @@ def _create_agent(name: str) -> Agent:
     if name not in registry:
         raise HTTPException(
             status_code=404,
-            detail=f"Agent '{name}' not found. Available: {list(registry.keys())}",
+            detail=f"Agent '{name}' not found",
         )
     agent_class, kwargs, _ = registry[name]
+
+    # Inject GitHub MCP config lazily for agents that need it
+    from shared.registry import GITHUB_MCP_AGENTS, github_mcp_config  # noqa: PLC0415
+
+    if name in GITHUB_MCP_AGENTS:
+        kwargs = github_mcp_config()
+
     return agent_class(**(kwargs or {}))
 
 
@@ -294,10 +232,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info("Conversation persistence disabled (no DATABASE_URL)")
 
     if not _api_key:
-        logger.warning(
-            "SECURITY: API_KEY not set — all endpoints are publicly accessible. "
-            "Set API_KEY environment variable to enable authentication."
-        )
+        _disable_auth = os.getenv("DISABLE_AUTH", "").lower() in ("true", "1", "yes")
+        if _disable_auth:
+            logger.warning(
+                "SECURITY: Authentication disabled via DISABLE_AUTH=true. "
+                "All endpoints are publicly accessible."
+            )
+        else:
+            raise RuntimeError(
+                "API_KEY environment variable is required. "
+                "Set API_KEY to enable authentication, or set DISABLE_AUTH=true "
+                "to explicitly run without authentication (development only)."
+            )
 
     logger.info("Agent REST API started")
     yield
@@ -382,7 +328,7 @@ async def add_correlation_id(
 
 
 # ---------------------------------------------------------------------------
-# Authentication (optional)
+# Authentication
 # ---------------------------------------------------------------------------
 
 _api_key = os.getenv("API_KEY")
@@ -392,11 +338,10 @@ _security = HTTPBearer(auto_error=False)
 async def verify_api_key(
     credentials: HTTPAuthorizationCredentials | None = Security(_security),
 ) -> None:
-    """Verify API key if configured.
+    """Verify API key.
 
-    If API_KEY environment variable is not set, authentication is disabled
-    and all requests are allowed. If set, requests must include a valid
-    Authorization: Bearer <API_KEY> header.
+    Requires a valid Authorization: Bearer <API_KEY> header when API_KEY
+    is set. When DISABLE_AUTH=true (no API_KEY), all requests are allowed.
 
     Uses constant-time comparison to prevent timing attacks.
     """

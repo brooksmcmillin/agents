@@ -218,6 +218,7 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/agents_test
           DEV_MODE: "true"
+          DISABLE_AUTH: "true"
         run: |
           uv run python -m api &
           echo $! > api.pid

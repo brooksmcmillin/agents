@@ -32,6 +32,7 @@ Security:
 
 import argparse
 import asyncio
+import hmac
 import logging
 import re
 import sys
@@ -182,7 +183,7 @@ async def run_agent_task(
     # Import agent classes dynamically to avoid circular imports
     from agent_framework import Agent
 
-    from api.server import _build_registry
+    from shared.registry import build_agent_registry as _build_registry
 
     registry = _build_registry()
 
@@ -357,7 +358,7 @@ async def check_and_process_emails(
 
         # Security: Validate shared secret is present in the email
         # This prevents email spoofing attacks where an attacker forges the From header
-        if shared_secret not in body:
+        if not _contains_secret(body, shared_secret):
             logger.warning(
                 f"SECURITY: Rejecting email - missing shared secret. "
                 f"Subject: {subject}, From: {sender_email}"
@@ -441,6 +442,19 @@ Processed by Email Intake Agent at {datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     return processed
 
 
+def _contains_secret(body: str, secret: str) -> bool:
+    """Check if body contains the shared secret using timing-safe comparison.
+
+    Scans the body for the secret by comparing each possible substring
+    position with constant-time comparison to avoid timing side-channels.
+    """
+    secret_len = len(secret)
+    for i in range(len(body) - secret_len + 1):
+        if hmac.compare_digest(body[i : i + secret_len], secret):
+            return True
+    return False
+
+
 def _strip_html(html: str) -> str:
     """Strip HTML tags from content."""
     if not html:
@@ -475,7 +489,7 @@ def show_status() -> None:
 
     # Check which agents are available
     try:
-        from api.server import _build_registry
+        from shared.registry import build_agent_registry as _build_registry
 
         registry = _build_registry()
         print("Available Agents:")

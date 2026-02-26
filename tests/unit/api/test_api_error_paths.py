@@ -3,6 +3,7 @@
 Tests validation errors, 404s, agent processing errors, and authentication.
 """
 
+import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -14,8 +15,9 @@ def client():
     """Create a test client for the API server."""
     from api.server import app
 
-    with TestClient(app) as c:
-        yield c
+    with patch.dict(os.environ, {"DISABLE_AUTH": "true"}):
+        with TestClient(app) as c:
+            yield c
 
 
 class TestValidationErrors:
@@ -96,7 +98,10 @@ class TestAgentProcessingErrors:
         mock_agent.total_input_tokens = 0
         mock_agent.total_output_tokens = 0
 
-        with patch("api.server._create_agent", return_value=mock_agent):
+        with (
+            patch("api.server._create_agent", return_value=mock_agent),
+            patch.dict(os.environ, {"DISABLE_AUTH": "true"}),
+        ):
             with TestClient(app) as client:
                 response = client.post("/agents/chatbot/message", json={"message": "test"})
                 assert response.status_code == 500
@@ -180,49 +185,34 @@ class TestConversationEndpointsWithoutDatabase:
 
     def test_list_conversations_no_database(self):
         """List conversations without database should return 503."""
-        import os
-
-        orig_url = os.environ.pop("DATABASE_URL", None)
-        try:
+        env = {"DATABASE_URL": "", "DISABLE_AUTH": "true"}
+        with patch.dict(os.environ, env, clear=False):
             server_module = self._reload_server()
             with TestClient(server_module.app) as client:
                 response = client.get("/conversations")
                 assert response.status_code == 503
                 assert "not configured" in response.json()["detail"].lower()
-        finally:
-            if orig_url:
-                os.environ["DATABASE_URL"] = orig_url
-            self._reload_server()
+        self._reload_server()
 
     def test_get_conversation_no_database(self):
         """Get conversation without database should return 503."""
-        import os
-
-        orig_url = os.environ.pop("DATABASE_URL", None)
-        try:
+        env = {"DATABASE_URL": "", "DISABLE_AUTH": "true"}
+        with patch.dict(os.environ, env, clear=False):
             server_module = self._reload_server()
             with TestClient(server_module.app) as client:
                 response = client.get("/conversations/some-id")
                 assert response.status_code == 503
-        finally:
-            if orig_url:
-                os.environ["DATABASE_URL"] = orig_url
-            self._reload_server()
+        self._reload_server()
 
     def test_conversation_stats_no_database(self):
         """Get stats without database should return 503."""
-        import os
-
-        orig_url = os.environ.pop("DATABASE_URL", None)
-        try:
+        env = {"DATABASE_URL": "", "DISABLE_AUTH": "true"}
+        with patch.dict(os.environ, env, clear=False):
             server_module = self._reload_server()
             with TestClient(server_module.app) as client:
                 response = client.get("/conversations/stats")
                 assert response.status_code == 503
-        finally:
-            if orig_url:
-                os.environ["DATABASE_URL"] = orig_url
-            self._reload_server()
+        self._reload_server()
 
 
 class TestHealthEndpoint:

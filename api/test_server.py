@@ -11,8 +11,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-# Mock the database before importing the server
-with patch.dict(os.environ, {"DATABASE_URL": ""}):
+# Mock the database and disable auth requirement before importing the server
+with patch.dict(os.environ, {"DATABASE_URL": "", "DISABLE_AUTH": "true"}):
     from api.server import (
         _sanitize_log_input,
         _validate_cors_origin,
@@ -131,8 +131,9 @@ class TestAgentEndpoints:
 class TestConversationEndpoints:
     """Tests for conversation management endpoints."""
 
-    def test_list_conversations_no_database(self, client):
+    def test_list_conversations_no_database(self, client, monkeypatch):
         """Test listing conversations without database configured."""
+        monkeypatch.setattr("api.server._conversation_store", None)
         response = client.get("/conversations")
         assert response.status_code == 503
         assert "not configured" in response.json()["detail"]
