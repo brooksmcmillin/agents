@@ -1137,7 +1137,7 @@ class TestBuildCallbackApp:
             )
             assert resp.status == 200
             body = await resp.text()
-            assert "server_error" in body or "Failed" in body
+            assert "server_error" in body
             assert auth_result["error"] == "server_error"
             assert auth_result["code"] is None
 
@@ -1150,11 +1150,13 @@ class TestBuildCallbackApp:
             assert resp.status == 400
             body = await resp.text()
             assert "Invalid callback" in body
+            assert auth_result["code"] is None
+            assert auth_result["error"] is None
 
     @pytest.mark.asyncio
     async def test_error_description_html_escaped(self, expected_state: str) -> None:
         """Error description containing HTML is escaped in the response."""
-        app, _auth_result = OAuthFlowHandler.build_callback_app(expected_state)
+        app, auth_result = OAuthFlowHandler.build_callback_app(expected_state)
         async with TestClient(TestServer(app)) as client:
             resp = await client.get(
                 "/callback",
@@ -1164,7 +1166,26 @@ class TestBuildCallbackApp:
                     "error_description": '<script>alert("xss")</script>',
                 },
             )
+            assert resp.status == 200
             body = await resp.text()
             # html.escape should convert < and > to entities
             assert "<script>" not in body
             assert "&lt;script&gt;" in body
+            assert auth_result["error"] == "invalid_request"
+
+    @pytest.mark.asyncio
+    async def test_error_param_html_escaped(self, expected_state: str) -> None:
+        """Error query param without error_description is also HTML-escaped."""
+        app, auth_result = OAuthFlowHandler.build_callback_app(expected_state)
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.get(
+                "/callback",
+                params={
+                    "state": expected_state,
+                    "error": '<script>alert("xss")</script>',
+                },
+            )
+            body = await resp.text()
+            assert "<script>" not in body
+            assert "&lt;script&gt;" in body
+            assert auth_result["error"] == '<script>alert("xss")</script>'
