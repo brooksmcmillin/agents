@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 # Mock the database and disable auth requirement before importing the server
 with patch.dict(os.environ, {"DATABASE_URL": "", "DISABLE_AUTH": "true"}):
     from api.server import (
+        _get_rate_limit_key,
         _sanitize_log_input,
         _validate_cors_origin,
         app,
@@ -345,6 +346,84 @@ class TestCorsOriginValidation:
 
     def test_accepts_https(self):
         assert _validate_cors_origin("https://example.com") is True
+
+
+class TestRateLimitKey:
+    """Tests for _get_rate_limit_key.
+
+    Rate limits must be keyed on the API key (Bearer token prefix), not on
+    X-Forwarded-For or other spoofable IP headers.
+    """
+
+    def _make_request(
+        self, headers: dict[str, str] | None = None, client_host: str = "1.2.3.4"
+    ) -> MagicMock:
+        """Build a minimal mock Request with given headers and client address."""
+        req = MagicMock()
+        req.headers = headers or {}
+        req.client = MagicMock()
+        req.client.host = client_host
+        return req
+
+    def test_keys_on_bearer_token_prefix(self):
+        """Should use first 16 chars of Bearer token as key."""
+        token = "abcdefghijklmnopqrstuvwxyz"  # nosec B105
+        req = self._make_request(headers={"authorization": f"Bearer {token}"})
+        key = _get_rate_limit_key(req)
+        assert key == f"apikey:{token[:16]}"
+
+    def test_bearer_case_insensitive(self):
+        """Authorization header scheme is case-insensitive per RFC 7235."""
+        token = "abcdefghijklmnopqrstuvwxyz"  # nosec B105
+        req = self._make_request(headers={"authorization": f"bearer {token}"})
+        key = _get_rate_limit_key(req)
+        assert key == f"apikey:{token[:16]}"
+
+    def test_different_tokens_produce_different_keys(self):
+        """Two distinct API keys must produce distinct rate-limit buckets."""
+        req_a = self._make_request(headers={"authorization": "Bearer aaaa_key_one_xxx"})
+        req_b = self._make_request(headers={"authorization": "Bearer bbbb_key_two_xxx"})
+        assert _get_rate_limit_key(req_a) != _get_rate_limit_key(req_b)
+
+    def test_same_token_different_ips_same_bucket(self):
+        """Same API key from different IPs should share one rate-limit bucket."""
+        token = "shared_api_key_1234567890"  # nosec B105
+        req_a = self._make_request(
+            headers={"authorization": f"Bearer {token}"}, client_host="10.0.0.1"
+        )
+        req_b = self._make_request(
+            headers={"authorization": f"Bearer {token}"}, client_host="10.0.0.2"
+        )
+        assert _get_rate_limit_key(req_a) == _get_rate_limit_key(req_b)
+
+    def test_falls_back_to_client_host_without_auth(self):
+        """Without Authorization header, fall back to peer IP (not X-Forwarded-For)."""
+        req = self._make_request(client_host="192.168.1.100")
+        key = _get_rate_limit_key(req)
+        assert key == "ip:192.168.1.100"
+
+    def test_ignores_x_forwarded_for(self):
+        """X-Forwarded-For must NOT influence the rate-limit key."""
+        req = self._make_request(
+            headers={"x-forwarded-for": "spoofed.ip.1.1"},
+            client_host="192.168.1.100",
+        )
+        key = _get_rate_limit_key(req)
+        assert "spoofed" not in key
+        assert key == "ip:192.168.1.100"
+
+    def test_no_client_returns_unknown(self):
+        """If request.client is None (e.g. test), return ip:unknown."""
+        req = MagicMock()
+        req.headers = {}
+        req.client = None
+        assert _get_rate_limit_key(req) == "ip:unknown"
+
+    def test_short_token(self):
+        """Tokens shorter than 16 chars should still work (uses full token)."""
+        req = self._make_request(headers={"authorization": "Bearer short"})
+        key = _get_rate_limit_key(req)
+        assert key == "apikey:short"
 
 
 class TestWebSocketAuth:

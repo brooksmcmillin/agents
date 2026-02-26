@@ -383,15 +383,35 @@ async def _authenticate_websocket(websocket: WebSocket) -> bool:
 
 _rate_limit_enabled = os.getenv("RATE_LIMIT_ENABLED", "true").lower() == "true"
 
+
+def _get_rate_limit_key(request: Request) -> str:
+    """Extract a rate-limit key from the request.
+
+    Keys on the Bearer token prefix (first 16 chars) so that rate limits
+    are tied to the authenticated identity rather than a spoofable IP.
+    Falls back to the connecting client IP (request.client.host) when no
+    Authorization header is present -- this avoids reading X-Forwarded-For,
+    which clients can trivially forge.
+    """
+    auth_header: str | None = request.headers.get("authorization")
+    if auth_header and auth_header.lower().startswith("bearer "):
+        token = auth_header[7:]  # strip "Bearer "
+        # Use a prefix so we never store full secrets in rate-limit backends.
+        return f"apikey:{token[:16]}"
+    # Unauthenticated / health-check traffic: fall back to real peer IP.
+    if request.client:
+        return f"ip:{request.client.host}"
+    return "ip:unknown"
+
+
 if _rate_limit_enabled:
     from slowapi import Limiter, _rate_limit_exceeded_handler
     from slowapi.errors import RateLimitExceeded
-    from slowapi.util import get_remote_address
 
-    limiter = Limiter(key_func=get_remote_address)
+    limiter = Limiter(key_func=_get_rate_limit_key)
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
-    logger.info("Rate limiting enabled")
+    logger.info("Rate limiting enabled (keyed on API key, not IP)")
 else:
     limiter = None
 
