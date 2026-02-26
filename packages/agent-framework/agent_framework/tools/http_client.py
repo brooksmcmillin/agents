@@ -215,6 +215,7 @@ async def _safe_request(
             kwargs.pop("content", None)
             kwargs.pop("json", None)
             kwargs.pop("data", None)
+            kwargs.pop("files", None)
 
         current_url = next_url
 
