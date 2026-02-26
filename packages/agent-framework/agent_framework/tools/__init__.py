@@ -28,7 +28,7 @@ from .fastmail import (
     update_email_flags,
 )
 from .filesystem import TOOL_SCHEMAS as _filesystem_schemas
-from .filesystem import glob_files, grep_files, list_directory, read_file
+from .filesystem import edit_file, glob_files, grep_files, list_directory, read_file, write_file
 from .http_client import TOOL_SCHEMAS as _http_client_schemas
 from .http_client import (
     http_check_rate_limit,
@@ -157,6 +157,8 @@ __all__ = [
     "http_clear_session",
     # Filesystem tools
     "read_file",
+    "write_file",
+    "edit_file",
     "list_directory",
     "glob_files",
     "grep_files",

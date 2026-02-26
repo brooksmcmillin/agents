@@ -1,10 +1,10 @@
-"""Read-only filesystem tools for code analysis.
+"""Filesystem tools for code analysis and modification.
 
-Provides tools to read files, list directories, glob for files, and grep
-file contents.  All operations are scoped to directories listed in the
-``FILESYSTEM_ALLOWED_DIRS`` environment variable (comma-separated absolute
-paths).  Paths are resolved through symlinks before validation so that
-symlink escapes are caught.
+Provides tools to read, write, and edit files, list directories, glob for
+files, and grep file contents.  All operations are scoped to directories
+listed in the ``FILESYSTEM_ALLOWED_DIRS`` environment variable
+(comma-separated absolute paths).  Paths are resolved through symlinks
+before validation so that symlink escapes are caught.
 """
 
 import fnmatch
@@ -457,6 +457,176 @@ async def grep_files(
         return {"error": str(e)}
 
 
+async def write_file(
+    path: str,
+    content: str,
+    create_dirs: bool = False,
+) -> dict[str, Any]:
+    """Write content to a file.
+
+    Creates a new file or overwrites an existing one.  Parent directories
+    can optionally be created.
+
+    Args:
+        path: Absolute path to the file to write.
+        content: Text content to write.
+        create_dirs: If True, create parent directories as needed.
+
+    Returns:
+        Dict with ``success``, ``path``, ``size_bytes``, ``created``,
+        and ``error`` (if any).
+    """
+    validator = _get_validator()
+    try:
+        resolved = validator.validate(path)
+
+        content_bytes = content.encode("utf-8")
+        if len(content_bytes) > MAX_FILE_SIZE:
+            return {
+                "error": (
+                    f"Content too large ({len(content_bytes):,} bytes). "
+                    f"Max is {MAX_FILE_SIZE:,} bytes."
+                ),
+                "path": str(resolved),
+            }
+
+        if resolved.is_dir():
+            return {"error": f"Path is a directory, not a file: {resolved}", "path": str(resolved)}
+
+        created = not resolved.exists()
+
+        if not resolved.parent.exists():
+            if create_dirs:
+                # Validate the parent is also within allowed dirs
+                validator.validate(str(resolved.parent))
+                resolved.parent.mkdir(parents=True, exist_ok=True)
+            else:
+                return {
+                    "error": (
+                        f"Parent directory does not exist: {resolved.parent}. "
+                        "Set create_dirs=true to create it."
+                    ),
+                    "path": str(resolved),
+                }
+
+        resolved.write_bytes(content_bytes)
+        size = len(content_bytes)
+
+        action = "created" if created else "overwrote"
+        logger.info("write_file: %s %s (%d bytes)", action, resolved, size)
+
+        return {
+            "success": True,
+            "path": str(resolved),
+            "size_bytes": size,
+            "created": created,
+        }
+
+    except (PermissionError, ValueError) as e:
+        return {"error": str(e)}
+    except Exception as e:
+        logger.error("write_file error: %s", e)
+        return {"error": str(e)}
+
+
+async def edit_file(
+    path: str,
+    old_string: str,
+    new_string: str,
+    replace_all: bool = False,
+) -> dict[str, Any]:
+    """Edit a file by replacing an exact string match.
+
+    Reads the file, finds ``old_string``, and replaces it with
+    ``new_string``.  By default the match must be unique (appear exactly
+    once); set ``replace_all=True`` to replace every occurrence.
+
+    Args:
+        path: Absolute path to the file to edit.
+        old_string: The exact text to find and replace.
+        new_string: The replacement text.
+        replace_all: Replace all occurrences instead of requiring uniqueness.
+
+    Returns:
+        Dict with ``success``, ``path``, ``replacements``, ``size_bytes``,
+        and ``error`` (if any).
+    """
+    validator = _get_validator()
+    try:
+        resolved = validator.validate(path)
+
+        if not resolved.is_file():
+            return {"error": f"Not a file: {path}"}
+
+        raw = resolved.read_bytes()
+        if len(raw) > MAX_FILE_SIZE:
+            return {
+                "error": f"File too large ({len(raw):,} bytes). Max is {MAX_FILE_SIZE:,} bytes.",
+                "path": str(resolved),
+            }
+
+        if _is_binary(raw):
+            return {"error": f"Binary file: {path}", "path": str(resolved)}
+
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return {"error": f"Not a UTF-8 text file: {path}", "path": str(resolved)}
+
+        if not old_string:
+            return {"error": "old_string cannot be empty", "path": str(resolved)}
+
+        if old_string == new_string:
+            return {"error": "old_string and new_string are identical", "path": str(resolved)}
+
+        count = text.count(old_string)
+        if count == 0:
+            return {"error": "old_string not found in file", "path": str(resolved)}
+
+        if not replace_all and count > 1:
+            return {
+                "error": (
+                    f"old_string found {count} times. "
+                    "Provide more context to make it unique, or set replace_all=true."
+                ),
+                "path": str(resolved),
+            }
+
+        if replace_all:
+            new_text = text.replace(old_string, new_string)
+        else:
+            new_text = text.replace(old_string, new_string, 1)
+
+        new_bytes = new_text.encode("utf-8")
+        if len(new_bytes) > MAX_FILE_SIZE:
+            return {
+                "error": (
+                    f"Edited content too large ({len(new_bytes):,} bytes). "
+                    f"Max is {MAX_FILE_SIZE:,} bytes."
+                ),
+                "path": str(resolved),
+            }
+
+        resolved.write_bytes(new_bytes)
+
+        logger.info(
+            "edit_file: %d replacement(s) in %s (%d bytes)", count, resolved, len(new_bytes)
+        )
+
+        return {
+            "success": True,
+            "path": str(resolved),
+            "replacements": count,
+            "size_bytes": len(new_bytes),
+        }
+
+    except (PermissionError, ValueError) as e:
+        return {"error": str(e)}
+    except Exception as e:
+        logger.error("edit_file error: %s", e)
+        return {"error": str(e)}
+
+
 # ---------------------------------------------------------------------------
 # Tool schemas for MCP server auto-registration
 # ---------------------------------------------------------------------------
@@ -574,5 +744,66 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "required": ["pattern", "path"],
         },
         "handler": grep_files,
+    },
+    {
+        "name": "write_file",
+        "description": (
+            "Write text content to a file. Creates a new file or overwrites an "
+            "existing one. Optionally creates parent directories. "
+            "Only works within FILESYSTEM_ALLOWED_DIRS. "
+            "Content must be UTF-8 and under FILESYSTEM_MAX_FILE_SIZE (default 1MB)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Absolute path to the file to write",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Text content to write to the file",
+                },
+                "create_dirs": {
+                    "type": "boolean",
+                    "description": "Create parent directories if they don't exist (default: false)",
+                    "default": False,
+                },
+            },
+            "required": ["path", "content"],
+        },
+        "handler": write_file,
+    },
+    {
+        "name": "edit_file",
+        "description": (
+            "Edit a file by finding and replacing an exact string. "
+            "The old_string must appear exactly once unless replace_all is true. "
+            "Only works on text files within FILESYSTEM_ALLOWED_DIRS."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Absolute path to the file to edit",
+                },
+                "old_string": {
+                    "type": "string",
+                    "description": "The exact text to find and replace",
+                },
+                "new_string": {
+                    "type": "string",
+                    "description": "The replacement text",
+                },
+                "replace_all": {
+                    "type": "boolean",
+                    "description": "Replace all occurrences instead of requiring uniqueness (default: false)",
+                    "default": False,
+                },
+            },
+            "required": ["path", "old_string", "new_string"],
+        },
+        "handler": edit_file,
     },
 ]
