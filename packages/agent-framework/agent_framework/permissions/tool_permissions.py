@@ -81,12 +81,14 @@ TOOL_PERMISSIONS: dict[str, set[Permission]] = {
     # =========================================================================
     "suggest_content_topics": {Permission.READ},
     # =========================================================================
-    # Filesystem Tools - READ only (scoped to FILESYSTEM_ALLOWED_DIRS)
+    # Filesystem Tools (scoped to FILESYSTEM_ALLOWED_DIRS)
     # =========================================================================
     "read_file": {Permission.READ},
     "list_directory": {Permission.READ},
     "glob_files": {Permission.READ},
     "grep_files": {Permission.READ},
+    "write_file": {Permission.WRITE},
+    "edit_file": {Permission.WRITE},
     # =========================================================================
     # Claude Code Tools - EXECUTE required for running code
     # =========================================================================
@@ -285,6 +287,7 @@ def get_tool_permissions_by_category() -> dict[str, dict[str, set[Permission]]]:
         "communication": {},
         "social_media": {},
         "content": {},
+        "filesystem": {},
         "claude_code": {},
     }
 
@@ -320,6 +323,14 @@ def get_tool_permissions_by_category() -> dict[str, dict[str, set[Permission]]]:
         "communication": ["send_slack"],
         "social_media": ["get_social_media"],
         "content": ["suggest_content"],
+        "filesystem": [
+            "read_file",
+            "list_directory",
+            "glob_files",
+            "grep_files",
+            "write_file",
+            "edit_file",
+        ],
         "claude_code": [
             "run_claude_code",
             "list_claude_code",

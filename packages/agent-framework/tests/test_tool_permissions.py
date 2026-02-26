@@ -303,6 +303,7 @@ class TestGetToolPermissionsByCategory:
             "communication",
             "social_media",
             "content",
+            "filesystem",
             "claude_code",
         }
         assert set(categories.keys()) == expected

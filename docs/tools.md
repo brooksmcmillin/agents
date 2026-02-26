@@ -1,6 +1,6 @@
 # MCP Tools Reference
 
-The MCP server exposes **50 tools** across 13 categories (defined in `packages/agent-framework/agent_framework/tools/`).
+The MCP server exposes **52 tools** across 13 categories (defined in `packages/agent-framework/agent_framework/tools/`).
 
 ## Web Analysis Tools (2 tools)
 - `fetch_web_content` - Fetch web content as clean markdown for LLM reading and analysis
@@ -82,12 +82,14 @@ The MCP server exposes **50 tools** across 13 categories (defined in `packages/a
 - `write_markdown_file` - Write/create markdown file contents
 - `delete_markdown_file` - Delete a markdown file
 
-## Filesystem Tools (4 tools)
+## Filesystem Tools (6 tools)
 *Requires `FILESYSTEM_ALLOWED_DIRS` env var (fail-secure: denied when unset)*
 - `read_file` - Read file contents with line numbers (cat -n style)
 - `list_directory` - List directory entries with type and size
 - `glob_files` - Search for files by glob pattern
 - `grep_files` - Search file contents by regex pattern with ReDoS protection
+- `write_file` - Write text content to a file (create or overwrite), optionally creating parent directories
+- `edit_file` - Edit a file by finding and replacing an exact string match (unique or replace-all)
 
 ## Tool Usage Examples
 
