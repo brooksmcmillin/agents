@@ -594,7 +594,7 @@ async def session_message(
 
 
 @app.get("/sessions/{session_id}", response_model=SessionInfo)
-async def get_session(session_id: str) -> SessionInfo:
+async def get_session(session_id: str, _: None = Depends(verify_api_key)) -> SessionInfo:
     """Get metadata about an active session."""
     session = session_mgr.get(session_id)
     if session is None:
@@ -608,7 +608,7 @@ async def get_session(session_id: str) -> SessionInfo:
 
 
 @app.delete("/sessions/{session_id}", status_code=204)
-async def delete_session(session_id: str) -> None:
+async def delete_session(session_id: str, _: None = Depends(verify_api_key)) -> None:
     """End a session and free its resources."""
     if not session_mgr.delete(session_id):
         raise HTTPException(status_code=404, detail="Session not found or expired")
@@ -624,6 +624,7 @@ async def list_conversations(
     agent: str | None = Query(None, description="Filter by agent name"),
     limit: int = Query(50, ge=1, le=100, description="Max conversations to return"),
     offset: int = Query(0, ge=0, description="Number to skip for pagination"),
+    _: None = Depends(verify_api_key),
 ) -> ConversationListResponse:
     """List all persistent conversations.
 
@@ -697,7 +698,7 @@ async def create_conversation(
 
 
 @app.get("/conversations/stats", response_model=ConversationStatsResponse)
-async def get_conversation_stats() -> ConversationStatsResponse:
+async def get_conversation_stats(_: None = Depends(verify_api_key)) -> ConversationStatsResponse:
     """Get statistics about stored conversations."""
     store = _get_conversation_store()
     stats = await store.get_stats()
@@ -712,7 +713,9 @@ async def get_conversation_stats() -> ConversationStatsResponse:
 
 
 @app.get("/conversations/{conversation_id}", response_model=ConversationDetail)
-async def get_conversation(conversation_id: str) -> ConversationDetail:
+async def get_conversation(
+    conversation_id: str, _: None = Depends(verify_api_key)
+) -> ConversationDetail:
     """Get a conversation with its full message history."""
     store = _get_conversation_store()
     conv = await store.get_conversation_with_messages(conversation_id)
@@ -819,7 +822,7 @@ async def conversation_message(
 
 @app.patch("/conversations/{conversation_id}", response_model=ConversationInfo)
 async def update_conversation(
-    conversation_id: str, body: ConversationUpdateRequest
+    conversation_id: str, body: ConversationUpdateRequest, _: None = Depends(verify_api_key)
 ) -> ConversationInfo:
     """Update conversation title or metadata."""
     store = _get_conversation_store()
@@ -844,7 +847,7 @@ async def update_conversation(
 
 
 @app.delete("/conversations/{conversation_id}", status_code=204)
-async def delete_conversation(conversation_id: str) -> None:
+async def delete_conversation(conversation_id: str, _: None = Depends(verify_api_key)) -> None:
     """Delete a conversation and all its messages."""
     store = _get_conversation_store()
     if not await store.delete_conversation(conversation_id):
@@ -852,7 +855,9 @@ async def delete_conversation(conversation_id: str) -> None:
 
 
 @app.post("/conversations/{conversation_id}/clear", status_code=200)
-async def clear_conversation_messages(conversation_id: str) -> dict[str, Any]:
+async def clear_conversation_messages(
+    conversation_id: str, _: None = Depends(verify_api_key)
+) -> dict[str, Any]:
     """Clear all messages from a conversation (keeps the conversation itself)."""
     store = _get_conversation_store()
 
@@ -866,7 +871,9 @@ async def clear_conversation_messages(conversation_id: str) -> dict[str, Any]:
 
 
 @app.get("/conversations/{conversation_id}/export", response_model=ConversationExport)
-async def export_conversation(conversation_id: str) -> ConversationExport:
+async def export_conversation(
+    conversation_id: str, _: None = Depends(verify_api_key)
+) -> ConversationExport:
     """Export a conversation as JSON for backup or analysis."""
     store = _get_conversation_store()
     conv = await store.get_conversation_with_messages(conversation_id)
@@ -903,6 +910,7 @@ async def get_conversation_messages(
     conversation_id: str,
     limit: int = Query(50, ge=1, le=500, description="Max messages to return"),
     offset: int = Query(0, ge=0, description="Number to skip for pagination"),
+    _: None = Depends(verify_api_key),
 ) -> dict[str, Any]:
     """Get paginated messages from a conversation."""
     store = _get_conversation_store()
@@ -938,7 +946,9 @@ async def get_conversation_messages(
 
 
 @app.get("/claude-code/workspaces", response_model=list[ClaudeCodeWorkspaceInfo])
-async def list_claude_code_workspaces() -> list[ClaudeCodeWorkspaceInfo]:
+async def list_claude_code_workspaces(
+    _: None = Depends(verify_api_key),
+) -> list[ClaudeCodeWorkspaceInfo]:
     """List available Claude Code workspaces."""
     workspaces = await claude_code_mgr.list_workspaces()
     return [
@@ -957,6 +967,7 @@ async def list_claude_code_workspaces() -> list[ClaudeCodeWorkspaceInfo]:
 @app.post("/claude-code/workspaces", response_model=ClaudeCodeWorkspaceInfo, status_code=201)
 async def create_claude_code_workspace(
     body: ClaudeCodeCreateWorkspaceRequest,
+    _: None = Depends(verify_api_key),
 ) -> ClaudeCodeWorkspaceInfo:
     """Create a new Claude Code workspace."""
     try:
@@ -983,6 +994,7 @@ async def create_claude_code_workspace(
 async def delete_claude_code_workspace(
     workspace_name: str,
     force: bool = Query(False, description="Force deletion even with uncommitted changes"),
+    _: None = Depends(verify_api_key),
 ) -> None:
     """Delete a Claude Code workspace."""
     try:
@@ -994,7 +1006,9 @@ async def delete_claude_code_workspace(
 
 
 @app.get("/claude-code/sessions", response_model=list[ClaudeCodeSessionInfo])
-async def list_claude_code_sessions() -> list[ClaudeCodeSessionInfo]:
+async def list_claude_code_sessions(
+    _: None = Depends(verify_api_key),
+) -> list[ClaudeCodeSessionInfo]:
     """List active Claude Code sessions."""
     sessions = claude_code_mgr.list_sessions()
     return [
@@ -1012,6 +1026,7 @@ async def list_claude_code_sessions() -> list[ClaudeCodeSessionInfo]:
 @app.post("/claude-code/sessions", response_model=ClaudeCodeSessionInfo, status_code=201)
 async def create_claude_code_session(
     body: ClaudeCodeSessionCreateRequest,
+    _: None = Depends(verify_api_key),
 ) -> ClaudeCodeSessionInfo:
     """Create a new Claude Code session.
 
@@ -1040,7 +1055,9 @@ async def create_claude_code_session(
 
 
 @app.get("/claude-code/sessions/{session_id}", response_model=ClaudeCodeSessionInfo)
-async def get_claude_code_session(session_id: str) -> ClaudeCodeSessionInfo:
+async def get_claude_code_session(
+    session_id: str, _: None = Depends(verify_api_key)
+) -> ClaudeCodeSessionInfo:
     """Get information about a Claude Code session."""
     session = claude_code_mgr.get_session(session_id)
     if session is None:
@@ -1056,7 +1073,7 @@ async def get_claude_code_session(session_id: str) -> ClaudeCodeSessionInfo:
 
 
 @app.delete("/claude-code/sessions/{session_id}", status_code=204)
-async def delete_claude_code_session(session_id: str) -> None:
+async def delete_claude_code_session(session_id: str, _: None = Depends(verify_api_key)) -> None:
     """Terminate a Claude Code session."""
     if not await claude_code_mgr.terminate_session(session_id):
         raise HTTPException(status_code=404, detail="Session not found")
@@ -1066,6 +1083,7 @@ async def delete_claude_code_session(session_id: str) -> None:
 async def send_claude_code_input(
     session_id: str,
     body: ClaudeCodeInputRequest,
+    _: None = Depends(verify_api_key),
 ) -> None:
     """Send input to a Claude Code session (alternative to WebSocket)."""
     session = claude_code_mgr.get_session(session_id)
@@ -1082,6 +1100,7 @@ async def send_claude_code_input(
 async def respond_claude_code_permission(
     session_id: str,
     body: ClaudeCodePermissionResponse,
+    _: None = Depends(verify_api_key),
 ) -> None:
     """Respond to a permission request in a Claude Code session."""
     session = claude_code_mgr.get_session(session_id)
@@ -1098,6 +1117,7 @@ async def respond_claude_code_permission(
 async def resize_claude_code_terminal(
     session_id: str,
     body: ClaudeCodeResizeRequest,
+    _: None = Depends(verify_api_key),
 ) -> None:
     """Resize the terminal for a Claude Code session."""
     session = claude_code_mgr.get_session(session_id)
