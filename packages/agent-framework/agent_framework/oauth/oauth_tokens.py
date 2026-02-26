@@ -6,10 +6,13 @@ This module handles storage, retrieval, and refresh of OAuth access tokens.
 import hashlib
 import json
 import logging
+import os
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
+
+from cryptography.fernet import Fernet
 
 logger = logging.getLogger(__name__)
 
@@ -88,15 +91,22 @@ class TokenSet:
 class TokenStorage:
     """File-based token storage for OAuth credentials.
 
-    Stores tokens in JSON files in a configured directory (~/.agents/tokens by default).
-    Each server gets its own file based on a hash of the server URL.
+    Stores tokens encrypted in JSON files in a configured directory
+    (~/.agents/tokens by default). Each server gets its own file based
+    on a hash of the server URL. Tokens are encrypted at rest using Fernet.
     """
 
-    def __init__(self, storage_dir: Path | None = None) -> None:
+    def __init__(
+        self,
+        storage_dir: Path | None = None,
+        require_encryption: bool = False,
+    ) -> None:
         """Initialize token storage.
 
         Args:
             storage_dir: Directory to store token files (default: ~/.agents/tokens)
+            require_encryption: If True, raise RuntimeError when encryption
+                cannot be established. Use in production deployments.
         """
         if storage_dir is None:
             storage_dir = Path.home() / ".agents" / "tokens"
@@ -105,7 +115,49 @@ class TokenStorage:
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         # Set restrictive directory permissions (owner only) to protect token files
         self.storage_dir.chmod(0o700)
+
+        # Initialize encryption
+        self.cipher: Fernet | None = None
+        encryption_key = self._load_or_generate_key()
+        if encryption_key:
+            try:
+                self.cipher = Fernet(encryption_key.encode())
+                logger.debug("OAuth token encryption enabled")
+            except Exception as e:
+                if require_encryption:
+                    raise RuntimeError(f"Encryption required but failed to initialize: {e}") from e
+                # nosem: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
+                logger.warning("Failed to initialize token encryption: %s", e)
+
+        if require_encryption and self.cipher is None:
+            raise RuntimeError("Encryption required but no key could be generated or loaded.")
+
         logger.debug(f"Token storage directory: {self.storage_dir}")
+
+    def _load_or_generate_key(self) -> str | None:
+        """Load existing encryption key or generate and persist a new one."""
+        key_file = self.storage_dir / ".encryption.key"
+        try:
+            if key_file.exists():
+                return key_file.read_text().strip()
+            key = Fernet.generate_key().decode()
+            # O_EXCL ensures atomic creation to prevent race conditions
+            try:
+                fd = os.open(key_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            except FileExistsError:
+                return key_file.read_text().strip()
+            try:
+                f = os.fdopen(fd, "w")
+            except Exception:
+                os.close(fd)
+                raise
+            with f:
+                f.write(key)
+            logger.info("Auto-generated OAuth token encryption key (stored at %s)", key_file)
+            return key
+        except Exception as e:
+            logger.warning("Failed to auto-generate encryption key: %s", e)
+            return None
 
     def _get_token_file(self, server_url: str) -> Path:
         """Get token file path for a server.
@@ -134,18 +186,23 @@ class TokenStorage:
         }
 
         try:
+            # Serialize to JSON bytes
+            raw_data = json.dumps(data, indent=2).encode()
+
+            # Encrypt if encryption is available
+            if self.cipher:
+                raw_data = self.cipher.encrypt(raw_data)
+
             # Write token data with secure file permissions from the start
             # Using os.open ensures permissions are set atomically during file creation
-            import os
-
             fd = os.open(token_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
             try:
-                with os.fdopen(fd, "w") as f:
-                    json.dump(data, f, indent=2)
+                f = os.fdopen(fd, "wb")
             except Exception:
-                # If write fails, close the fd and re-raise
                 os.close(fd)
                 raise
+            with f:
+                f.write(raw_data)
             logger.debug(f"Saved token for {server_url}")
         except Exception as e:
             logger.error(f"Failed to save token: {e}")
@@ -167,8 +224,14 @@ class TokenStorage:
             return None
 
         try:
-            with open(token_file) as f:
-                data = json.load(f)
+            with open(token_file, "rb") as f:
+                raw_data = f.read()
+
+            # Decrypt if encryption is available
+            if self.cipher:
+                raw_data = self.cipher.decrypt(raw_data)
+
+            data = json.loads(raw_data.decode())
 
             # Verify server URL matches
             if data.get("server_url") != server_url:

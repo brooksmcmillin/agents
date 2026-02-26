@@ -612,7 +612,7 @@ class TestOAuthFlowHandler:
         flow_handler.register_client.side_effect = lambda: setattr(
             flow_handler, "client_id", "registered_id"
         )
-        flow_handler._run_callback_server = AsyncMock(return_value="auth_code_123")
+        flow_handler._run_callback_server = AsyncMock(return_value=("auth_code_123", None))
         flow_handler._exchange_code = AsyncMock(
             return_value=TokenSet(access_token="tok", token_type="Bearer")
         )
@@ -627,10 +627,22 @@ class TestOAuthFlowHandler:
     async def test_authorize_fails_without_code(self, flow_handler: OAuthFlowHandler) -> None:
         """Test authorize() raises when callback returns None (line 153-154)."""
         flow_handler.client_id = "test_id"
-        flow_handler._run_callback_server = AsyncMock(return_value=None)
+        flow_handler._run_callback_server = AsyncMock(return_value=(None, None))
 
         with patch("webbrowser.open"):
             with pytest.raises(ValueError, match="no code received"):
+                await flow_handler.authorize()
+
+    @pytest.mark.asyncio
+    async def test_authorize_fails_with_csrf_error(self, flow_handler: OAuthFlowHandler) -> None:
+        """Test authorize() propagates CSRF state mismatch error."""
+        flow_handler.client_id = "test_id"
+        flow_handler._run_callback_server = AsyncMock(
+            return_value=(None, "CSRF state mismatch detected")
+        )
+
+        with patch("webbrowser.open"):
+            with pytest.raises(ValueError, match="CSRF state mismatch"):
                 await flow_handler.authorize()
 
 
@@ -830,15 +842,18 @@ class TestTokenStorage:
         server_url = "https://mcp.example.com"
         token_storage.save_token(server_url, sample_token)
 
-        # Should have created exactly one file
+        # Should have created exactly one .json file (plus .encryption.key)
         files = list(temp_storage_dir.glob("*.json"))
         assert len(files) == 1
 
-        # File should contain the token data
-        with open(files[0]) as f:
-            data = json.load(f)
-            assert data["server_url"] == server_url
-            assert data["token"]["access_token"] == sample_token.access_token
+        # File should be encrypted (not readable as plaintext JSON)
+        raw_content = files[0].read_bytes()
+        assert sample_token.access_token.encode() not in raw_content
+
+        # But should be loadable via the storage API
+        loaded = token_storage.load_token(server_url)
+        assert loaded is not None
+        assert loaded.access_token == sample_token.access_token
 
     def test_load_token_url_mismatch(
         self, token_storage: TokenStorage, sample_token: TokenSet, temp_storage_dir: Path
@@ -847,21 +862,23 @@ class TestTokenStorage:
         server_url = "https://mcp.example.com"
         token_storage.save_token(server_url, sample_token)
 
-        # Manually corrupt the stored URL
+        # Manually corrupt the stored URL by re-encrypting with wrong URL
         files = list(temp_storage_dir.glob("*.json"))
-        with open(files[0]) as f:
-            data = json.load(f)
-        data["server_url"] = "https://different.example.com"
-        with open(files[0], "w") as f:
-            json.dump(data, f)
+        corrupted_data = {
+            "server_url": "https://different.example.com",
+            "token": sample_token.to_dict(),
+        }
+        raw_data = json.dumps(corrupted_data).encode()
+        if token_storage.cipher:
+            raw_data = token_storage.cipher.encrypt(raw_data)
+        with open(files[0], "wb") as f:
+            f.write(raw_data)
 
         # Should return None due to URL mismatch
         loaded = token_storage.load_token(server_url)
         assert loaded is None
 
-    def test_load_corrupted_token_file(
-        self, token_storage: TokenStorage, temp_storage_dir: Path
-    ) -> None:
+    def test_load_corrupted_token_file(self, token_storage: TokenStorage) -> None:
         """Test handling of corrupted token files."""
         server_url = "https://mcp.example.com"
 
@@ -873,3 +890,152 @@ class TestTokenStorage:
         # Should return None and not raise
         loaded = token_storage.load_token(server_url)
         assert loaded is None
+
+    def test_tokens_encrypted_at_rest(
+        self, token_storage: TokenStorage, sample_token: TokenSet, temp_storage_dir: Path
+    ) -> None:
+        """Test that tokens are encrypted on disk (not stored as plaintext)."""
+        server_url = "https://mcp.example.com"
+        token_storage.save_token(server_url, sample_token)
+
+        # Verify encryption cipher was initialized
+        assert token_storage.cipher is not None
+
+        # Read raw file content
+        files = list(temp_storage_dir.glob("*.json"))
+        assert len(files) == 1
+        raw_content = files[0].read_bytes()
+
+        # Plaintext token should NOT appear in raw file
+        assert b"test_access_token" not in raw_content
+        assert b"test_refresh_token" not in raw_content
+
+    def test_encryption_key_persists(self, temp_storage_dir: Path) -> None:
+        """Test that encryption key is persisted and reused across instances."""
+        storage1 = TokenStorage(storage_dir=temp_storage_dir)
+        token = TokenSet(access_token="persist_test")
+        storage1.save_token("https://example.com", token)
+
+        # Create new instance with same directory
+        storage2 = TokenStorage(storage_dir=temp_storage_dir)
+
+        # Should load successfully with same key
+        loaded = storage2.load_token("https://example.com")
+        assert loaded is not None
+        assert loaded.access_token == "persist_test"
+
+    def test_directory_permissions_are_700(self, temp_storage_dir: Path) -> None:
+        """Test that token storage directory has 700 permissions."""
+        storage_path = temp_storage_dir / "secure_tokens"
+        TokenStorage(storage_dir=storage_path)
+
+        mode = storage_path.stat().st_mode
+        permissions = oct(mode)[-3:]
+        assert permissions == "700"
+
+
+class TestDiscoverOAuthConfigHTTPS:
+    """Tests for HTTPS enforcement in OAuth discovery."""
+
+    @pytest.mark.asyncio
+    async def test_rejects_http_url(self) -> None:
+        """Test that HTTP URLs are rejected for OAuth discovery."""
+        with pytest.raises(ValueError, match="OAuth discovery requires HTTPS"):
+            await discover_oauth_config("http://mcp.example.com/mcp/")
+
+    @pytest.mark.asyncio
+    async def test_allows_https_url(self) -> None:
+        """Test that HTTPS URLs are accepted."""
+        # Will fail on the HTTP call, but should NOT fail on scheme validation
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client_class.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client_class.return_value.__aexit__ = AsyncMock(return_value=None)
+            mock_client.get = AsyncMock(side_effect=httpx.HTTPError("Connection refused"))
+
+            with pytest.raises(ValueError, match="Failed to fetch"):
+                await discover_oauth_config("https://mcp.example.com/mcp/")
+
+    @pytest.mark.asyncio
+    async def test_allows_localhost_http(self) -> None:
+        """Test that localhost HTTP URLs are allowed for development."""
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client_class.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client_class.return_value.__aexit__ = AsyncMock(return_value=None)
+            mock_client.get = AsyncMock(side_effect=httpx.HTTPError("Connection refused"))
+
+            # Should NOT raise ValueError about HTTPS
+            with pytest.raises(ValueError, match="Failed to fetch"):
+                await discover_oauth_config("http://localhost:8080/mcp/")
+
+    @pytest.mark.asyncio
+    async def test_allows_127_0_0_1_http(self) -> None:
+        """Test that 127.0.0.1 HTTP URLs are allowed for development."""
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client_class.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client_class.return_value.__aexit__ = AsyncMock(return_value=None)
+            mock_client.get = AsyncMock(side_effect=httpx.HTTPError("Connection refused"))
+
+            with pytest.raises(ValueError, match="Failed to fetch"):
+                await discover_oauth_config("http://127.0.0.1:8080/mcp/")
+
+    @pytest.mark.asyncio
+    async def test_allows_ipv6_loopback_http(self) -> None:
+        """Test that IPv6 loopback (::1) HTTP URLs are allowed for development."""
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client_class.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client_class.return_value.__aexit__ = AsyncMock(return_value=None)
+            mock_client.get = AsyncMock(side_effect=httpx.HTTPError("Connection refused"))
+
+            with pytest.raises(ValueError, match="Failed to fetch"):
+                await discover_oauth_config("http://[::1]:8080/mcp/")
+
+    @pytest.mark.asyncio
+    async def test_rejects_http_auth_server_in_metadata(self) -> None:
+        """Test that HTTP auth server URLs in metadata are rejected."""
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client_class.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client_class.return_value.__aexit__ = AsyncMock(return_value=None)
+
+            resource_response = MagicMock()
+            resource_response.json.return_value = {
+                "resource": "https://mcp.example.com",
+                "authorization_servers": ["http://evil.example.com"],  # HTTP!
+            }
+            resource_response.raise_for_status = MagicMock()
+
+            mock_client.get = AsyncMock(return_value=resource_response)
+
+            with pytest.raises(ValueError, match="Authorization server must use HTTPS"):
+                await discover_oauth_config("https://mcp.example.com")
+
+    @pytest.mark.asyncio
+    async def test_rejects_http_endpoints_in_auth_metadata(self) -> None:
+        """Test that HTTP authorization/token endpoints in metadata are rejected."""
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client_class.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client_class.return_value.__aexit__ = AsyncMock(return_value=None)
+
+            resource_response = MagicMock()
+            resource_response.json.return_value = {
+                "resource": "https://mcp.example.com",
+                "authorization_servers": ["https://auth.example.com"],
+            }
+            resource_response.raise_for_status = MagicMock()
+
+            auth_response = MagicMock()
+            auth_response.json.return_value = {
+                "authorization_endpoint": "http://auth.example.com/authorize",  # HTTP!
+                "token_endpoint": "https://auth.example.com/token",
+            }
+            auth_response.raise_for_status = MagicMock()
+
+            mock_client.get = AsyncMock(side_effect=[resource_response, auth_response])
+
+            with pytest.raises(ValueError, match="authorization_endpoint must use HTTPS"):
+                await discover_oauth_config("https://mcp.example.com")
