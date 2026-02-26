@@ -395,9 +395,10 @@ def _get_rate_limit_key(request: Request) -> str:
     """
     auth_header: str | None = request.headers.get("authorization")
     if auth_header and auth_header.lower().startswith("bearer "):
-        token = auth_header[7:]  # strip "Bearer "
-        # Use a prefix so we never store full secrets in rate-limit backends.
-        return f"apikey:{token[:16]}"
+        token = auth_header[7:].strip()  # strip "Bearer " and any whitespace
+        if token:
+            # Use a prefix so we never store full secrets in rate-limit backends.
+            return f"apikey:{token[:16]}"
     # Unauthenticated / health-check traffic: fall back to real peer IP.
     if request.client:
         return f"ip:{request.client.host}"

@@ -425,6 +425,24 @@ class TestRateLimitKey:
         key = _get_rate_limit_key(req)
         assert key == "apikey:short"
 
+    def test_empty_bearer_token_falls_back_to_ip(self):
+        """Bare 'Bearer ' with no token falls back to peer IP."""
+        req = self._make_request(
+            headers={"authorization": "Bearer "},
+            client_host="10.0.0.5",
+        )
+        key = _get_rate_limit_key(req)
+        assert key == "ip:10.0.0.5"
+
+    def test_non_bearer_auth_falls_back_to_ip(self):
+        """Non-Bearer auth schemes (e.g. Basic) fall back to peer IP."""
+        req = self._make_request(
+            headers={"authorization": "Basic dXNlcjpwYXNz"},
+            client_host="10.0.0.6",
+        )
+        key = _get_rate_limit_key(req)
+        assert key == "ip:10.0.0.6"
+
 
 class TestWebSocketAuth:
     """Tests for WebSocket message-based authentication.
