@@ -185,49 +185,34 @@ class TestConversationEndpointsWithoutDatabase:
 
     def test_list_conversations_no_database(self):
         """List conversations without database should return 503."""
-        orig_url = os.environ.pop("DATABASE_URL", None)
-        os.environ["DISABLE_AUTH"] = "true"
-        try:
+        env = {"DATABASE_URL": "", "DISABLE_AUTH": "true"}
+        with patch.dict(os.environ, env, clear=False):
             server_module = self._reload_server()
             with TestClient(server_module.app) as client:
                 response = client.get("/conversations")
                 assert response.status_code == 503
                 assert "not configured" in response.json()["detail"].lower()
-        finally:
-            os.environ.pop("DISABLE_AUTH", None)
-            if orig_url:
-                os.environ["DATABASE_URL"] = orig_url
-            self._reload_server()
+        self._reload_server()
 
     def test_get_conversation_no_database(self):
         """Get conversation without database should return 503."""
-        orig_url = os.environ.pop("DATABASE_URL", None)
-        os.environ["DISABLE_AUTH"] = "true"
-        try:
+        env = {"DATABASE_URL": "", "DISABLE_AUTH": "true"}
+        with patch.dict(os.environ, env, clear=False):
             server_module = self._reload_server()
             with TestClient(server_module.app) as client:
                 response = client.get("/conversations/some-id")
                 assert response.status_code == 503
-        finally:
-            os.environ.pop("DISABLE_AUTH", None)
-            if orig_url:
-                os.environ["DATABASE_URL"] = orig_url
-            self._reload_server()
+        self._reload_server()
 
     def test_conversation_stats_no_database(self):
         """Get stats without database should return 503."""
-        orig_url = os.environ.pop("DATABASE_URL", None)
-        os.environ["DISABLE_AUTH"] = "true"
-        try:
+        env = {"DATABASE_URL": "", "DISABLE_AUTH": "true"}
+        with patch.dict(os.environ, env, clear=False):
             server_module = self._reload_server()
             with TestClient(server_module.app) as client:
                 response = client.get("/conversations/stats")
                 assert response.status_code == 503
-        finally:
-            os.environ.pop("DISABLE_AUTH", None)
-            if orig_url:
-                os.environ["DATABASE_URL"] = orig_url
-            self._reload_server()
+        self._reload_server()
 
 
 class TestHealthEndpoint:

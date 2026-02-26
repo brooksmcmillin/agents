@@ -167,28 +167,29 @@ class OAuthFlowHandler(OAuthHandlerBase):
         logger.info("✅ Successfully obtained access token")
         return token_set
 
-    async def _run_callback_server(self, expected_state: str) -> tuple[str | None, str | None]:
-        """Start local HTTP server to receive OAuth callback.
+    @staticmethod
+    def build_callback_app(
+        expected_state: str,
+    ) -> tuple[web.Application, dict[str, str | None]]:
+        """Build the aiohttp app for the OAuth callback server.
+
+        Extracted so the same handler logic can be tested directly without
+        starting a real server.
 
         Args:
-            expected_state: Expected state parameter for CSRF validation
+            expected_state: Expected state parameter for CSRF validation.
 
         Returns:
-            Tuple of (authorization_code, error_message).
-            On success: (code, None). On failure: (None, error_description).
+            Tuple of (app, auth_result) where auth_result is a dict with
+            "code" and "error" keys, populated by the callback handler.
         """
-        auth_code = None
-        error = None
-
-        app = web.Application()
+        auth_result: dict[str, str | None] = {"code": None, "error": None}
 
         async def callback(request: web.Request) -> web.Response:
-            nonlocal auth_code, error
-
             # Validate state parameter for CSRF protection
             returned_state = request.query.get("state")
             if not secrets.compare_digest(returned_state or "", expected_state):
-                error = "state_mismatch"
+                auth_result["error"] = "state_mismatch"
                 logger.error("OAuth callback state mismatch (possible CSRF attack)")
                 return web.Response(
                     text="""
@@ -202,11 +203,12 @@ class OAuthFlowHandler(OAuthHandlerBase):
                     </html>
                     """,
                     content_type="text/html",
+                    status=400,
                 )
 
             # Check for authorization code
             if "code" in request.query:
-                auth_code = request.query["code"]
+                auth_result["code"] = request.query["code"]
                 return web.Response(
                     text="""
                     <html>
@@ -222,7 +224,7 @@ class OAuthFlowHandler(OAuthHandlerBase):
 
             # Check for error
             if "error" in request.query:
-                error = request.query.get("error", "Unknown error")
+                auth_result["error"] = request.query.get("error", "Unknown error")
                 error_description = request.query.get("error_description", "")
                 return web.Response(
                     text=f"""
@@ -230,7 +232,7 @@ class OAuthFlowHandler(OAuthHandlerBase):
                     <head><title>Authorization Failed</title></head>
                     <body style="font-family: sans-serif; text-align: center; padding: 50px;">
                         <h1 style="color: red;">Authorization Failed</h1>
-                        <p><strong>Error:</strong> {html.escape(error)}</p>
+                        <p><strong>Error:</strong> {html.escape(error_description or auth_result["error"] or "Unknown")}</p>
                         <p>{html.escape(error_description)}</p>
                         <p>Please close this window and try again.</p>
                     </body>
@@ -241,7 +243,21 @@ class OAuthFlowHandler(OAuthHandlerBase):
 
             return web.Response(text="Invalid callback", status=400)
 
+        app = web.Application()
         app.router.add_get("/callback", callback)
+        return app, auth_result
+
+    async def _run_callback_server(self, expected_state: str) -> tuple[str | None, str | None]:
+        """Start local HTTP server to receive OAuth callback.
+
+        Args:
+            expected_state: Expected state parameter for CSRF validation
+
+        Returns:
+            Tuple of (authorization_code, error_message).
+            On success: (code, None). On failure: (None, error_description).
+        """
+        app, auth_result = self.build_callback_app(expected_state)
 
         # Start server
         runner = web.AppRunner(app)
@@ -256,7 +272,7 @@ class OAuthFlowHandler(OAuthHandlerBase):
         timeout = 300  # 5 minutes
         start_time = asyncio.get_event_loop().time()
 
-        while auth_code is None and error is None:
+        while auth_result["code"] is None and auth_result["error"] is None:
             await asyncio.sleep(0.1)
             if asyncio.get_event_loop().time() - start_time > timeout:
                 logger.error("Authorization timeout")
@@ -264,11 +280,11 @@ class OAuthFlowHandler(OAuthHandlerBase):
 
         await runner.cleanup()
 
-        if error:
-            logger.error("Authorization error: %s", error)
-            return None, error
+        if auth_result["error"]:
+            logger.error("Authorization error: %s", auth_result["error"])
+            return None, auth_result["error"]
 
-        return auth_code, None
+        return auth_result["code"], None
 
     async def _exchange_code(self, code: str, code_verifier: str) -> TokenSet:
         """Exchange authorization code for access token.

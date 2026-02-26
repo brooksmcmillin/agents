@@ -32,6 +32,7 @@ Security:
 
 import argparse
 import asyncio
+import hmac
 import logging
 import re
 import sys
@@ -357,7 +358,7 @@ async def check_and_process_emails(
 
         # Security: Validate shared secret is present in the email
         # This prevents email spoofing attacks where an attacker forges the From header
-        if shared_secret not in body:
+        if not _contains_secret(body, shared_secret):
             logger.warning(
                 f"SECURITY: Rejecting email - missing shared secret. "
                 f"Subject: {subject}, From: {sender_email}"
@@ -439,6 +440,19 @@ Processed by Email Intake Agent at {datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         processed += 1
 
     return processed
+
+
+def _contains_secret(body: str, secret: str) -> bool:
+    """Check if body contains the shared secret using timing-safe comparison.
+
+    Scans the body for the secret by comparing each possible substring
+    position with constant-time comparison to avoid timing side-channels.
+    """
+    secret_len = len(secret)
+    for i in range(len(body) - secret_len + 1):
+        if hmac.compare_digest(body[i : i + secret_len], secret):
+            return True
+    return False
 
 
 def _strip_html(html: str) -> str:

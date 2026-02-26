@@ -128,9 +128,16 @@ def _create_agent(name: str) -> Agent:
     if name not in registry:
         raise HTTPException(
             status_code=404,
-            detail=f"Agent '{name}' not found. Available: {list(registry.keys())}",
+            detail=f"Agent '{name}' not found",
         )
     agent_class, kwargs, _ = registry[name]
+
+    # Inject GitHub MCP config lazily for agents that need it
+    from shared.registry import GITHUB_MCP_AGENTS, github_mcp_config  # noqa: PLC0415
+
+    if name in GITHUB_MCP_AGENTS:
+        kwargs = github_mcp_config()
+
     return agent_class(**(kwargs or {}))
 
 

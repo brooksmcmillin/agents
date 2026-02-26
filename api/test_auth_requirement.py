@@ -32,7 +32,11 @@ class TestLifespanAuthRequirement:
     @pytest.mark.asyncio
     async def test_starts_with_api_key_set(self) -> None:
         """Server should start normally when API_KEY is set."""
-        with patch("api.server._api_key", "test-secret-key"):
+        env = {"DATABASE_URL": ""}
+        with (
+            patch.dict(os.environ, env, clear=False),
+            patch("api.server._api_key", "test-secret-key"),
+        ):
             from api.server import app, lifespan
 
             # Should not raise — lifespan completes startup
