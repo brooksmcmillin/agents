@@ -2,12 +2,14 @@
 """Live demo: Memory Isolation, SSRF + Permissions, Security Event Trimming.
 
 Three-step demo showing agent-framework security features.
+Pauses between sections so you can narrate. Press Enter to advance.
 
 Usage:
-    uv run python scripts/demo_live.py           # Run all 3 steps
-    uv run python scripts/demo_live.py memory     # Step 1 only
-    uv run python scripts/demo_live.py ssrf       # Step 2 only
-    uv run python scripts/demo_live.py trimming   # Step 3 only
+    uv run python scripts/demo_live.py               # Run all 3 steps (interactive)
+    uv run python scripts/demo_live.py memory         # Step 1 only
+    uv run python scripts/demo_live.py ssrf           # Step 2 only
+    uv run python scripts/demo_live.py trimming       # Step 3 only
+    uv run python scripts/demo_live.py --no-pause     # Run all, skip pauses
 """
 
 import asyncio
@@ -70,6 +72,17 @@ def info(msg: str) -> None:
     print(f"  {DIM}→{RESET} {msg}")
 
 
+def pause(msg: str = "continue") -> None:
+    """Wait for Enter key. Pass --no-pause to skip all pauses."""
+    if "--no-pause" in sys.argv:
+        return
+    try:
+        input(f"\n  {DIM}[Enter to {msg}]{RESET}")
+    except (EOFError, KeyboardInterrupt):
+        print()
+        sys.exit(0)
+
+
 def section(title: str) -> None:
     print(f"\n  {YELLOW}{BOLD}{title}{RESET}")
     print(f"  {YELLOW}{'─' * len(title)}{RESET}")
@@ -89,6 +102,7 @@ async def demo_memory_namespace() -> None:
     try:
         # ── Save memories under each namespace ──────────────────────────────
         section("Saving memories into two namespaces")
+        pause("save memories")
 
         await save_memory(
             key="demo-project-status",
@@ -110,6 +124,7 @@ async def demo_memory_namespace() -> None:
 
         # ── Search with the same query from each namespace ──────────────────
         section('Searching both namespaces for "project"')
+        pause("search both namespaces")
 
         result_a = await search_memories(query="project", agent_name=agent_a)
         result_b = await search_memories(query="project", agent_name=agent_b)
@@ -127,6 +142,7 @@ async def demo_memory_namespace() -> None:
 
         # ── Cross-namespace check ───────────────────────────────────────────
         section("Cross-namespace verification")
+        pause("test cross-namespace isolation")
 
         # Search Agent A's namespace for Agent B's content
         cross = await search_memories(query="underwater", agent_name=agent_a)
@@ -153,6 +169,7 @@ async def demo_ssrf_permissions() -> None:
 
     # ── Layer 1: SSRF URL Validation ────────────────────────────────────────
     section("Layer 1 — SSRF URL validation")
+    pause("test SSRF validation")
 
     test_urls = [
         ("https://example.com/api/data", "legitimate external URL"),
@@ -171,6 +188,7 @@ async def demo_ssrf_permissions() -> None:
 
     # ── Layer 2: Permission enforcement ─────────────────────────────────────
     section("Layer 2 — Tool permission enforcement")
+    pause("show permission requirements")
 
     # Show what permissions each tool requires
     tools_to_check = [
@@ -188,6 +206,7 @@ async def demo_ssrf_permissions() -> None:
 
     # Show what an email-triggered agent CAN and CANNOT do
     section("Layer 2 — Email-triggered agent (READ + SEND only)")
+    pause("test email agent permissions")
 
     email_perms = {Permission.READ, Permission.SEND}
     email_tools = [
@@ -209,6 +228,7 @@ async def demo_ssrf_permissions() -> None:
 
     # ── Layer 3: Permission intersection on delegation ──────────────────────
     section("Layer 3 — Permission intersection on delegation")
+    pause("show delegation intersection")
 
     # Email intake agent (READ + SEND) delegates to code reviewer (full access)
     intake_ctx = ExecutionContext(
@@ -330,6 +350,7 @@ async def demo_security_trimming() -> None:
 
     # ── Show classification before trimming ─────────────────────────────────
     section("Message classification")
+    pause("classify messages")
     critical_count = 0
     for i, msg in enumerate(messages):
         cm = classify_message(msg)
@@ -342,6 +363,7 @@ async def demo_security_trimming() -> None:
     # ── Trim to 20 messages ─────────────────────────────────────────────────
     target = 20
     section(f"Trimming from {total} → {target} messages")
+    pause("trim conversation")
 
     trimmed, num_removed, num_pinned = trim_with_security_awareness(messages, max_messages=target)
 
@@ -351,6 +373,7 @@ async def demo_security_trimming() -> None:
 
     # ── Verify security events survived ─────────────────────────────────────
     section("Verifying security events survived")
+    pause("verify results")
 
     surviving_critical = 0
     for msg in trimmed:
@@ -379,7 +402,8 @@ DEMOS = {
 
 
 async def main() -> None:
-    step = sys.argv[1] if len(sys.argv) > 1 else None
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    step = args[0] if args else None
 
     if step and step not in DEMOS:
         print(f"Unknown step: {step}")
@@ -393,8 +417,11 @@ async def main() -> None:
     if step:
         await DEMOS[step]()
     else:
-        for demo_fn in DEMOS.values():
+        demo_list = list(DEMOS.values())
+        for i, demo_fn in enumerate(demo_list):
             await demo_fn()
+            if i < len(demo_list) - 1:
+                pause("next demo")
 
     print(f"\n{GREEN}{BOLD}  Demo complete.{RESET}\n")
 
