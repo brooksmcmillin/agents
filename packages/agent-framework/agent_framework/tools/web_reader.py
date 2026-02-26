@@ -5,6 +5,7 @@ Useful for reading articles, blog posts, documentation, and other web content.
 """
 
 import logging
+import re
 from typing import Any
 
 import httpx
@@ -117,7 +118,7 @@ async def fetch_web_content(url: str, max_length: int = 50000) -> dict[str, Any]
         word_count = len(markdown_content.split())
         char_count = len(markdown_content)
         has_images = "![" in markdown_content
-        has_links = "](" in markdown_content and "![" not in markdown_content
+        has_links = bool(re.search(r"(?<!!)\]\(", markdown_content))
 
         result = {
             "url": final_url,
