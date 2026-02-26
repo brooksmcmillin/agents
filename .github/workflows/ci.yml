@@ -55,7 +55,6 @@ jobs:
 
   pip-audit:
     name: Dependency Audit
-    needs: lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -73,8 +72,8 @@ jobs:
       - name: Audit production dependencies
         run: |
           uv export --format requirements-txt --no-dev \
-            | grep -v '^-e \|agent-framework' > /tmp/reqs.txt
-          uv run --with pip-audit pip-audit -r /tmp/reqs.txt
+            | grep -vE '^-e |agent-framework' > /tmp/reqs.txt
+          uv run --with 'pip-audit>=2.10,<3' pip-audit -r /tmp/reqs.txt
 
   unit-tests:
     name: Unit Tests (${{ matrix.python-version }})
