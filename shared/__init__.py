@@ -46,6 +46,7 @@ from .constants import (
 from .env_utils import check_env_vars, env_file_exists
 from .json_parsing import strip_and_parse_json, strip_markdown_fences
 from .logging_config import setup_logging
+from .registry import GITHUB_MCP_AGENTS, build_agent_registry, github_mcp_config
 from .task_utils import format_priority_emoji, parse_priority, parse_task_result
 
 __all__ = [
@@ -63,16 +64,19 @@ __all__ = [
     "ENV_SLACK_WEBHOOK_URL",
     "FASTMAIL_TOOLS",
     "FILESYSTEM_TOOLS",
+    "GITHUB_MCP_AGENTS",
     "HTTP_CLIENT_TOOLS",
     "MEMORY_TOOLS",
     "RAG_TOOLS",
     "SSRFValidator",
     "WEB_RESEARCH_TOOLS",
+    "build_agent_registry",
     "check_env_vars",
     "create_simple_agent",
     "env_file_exists",
     "format_priority_emoji",
     "get_valid_token_for_mcp",
+    "github_mcp_config",
     "parse_priority",
     "parse_task_result",
     "run_agent",
