@@ -48,6 +48,7 @@ memories/
 htmlcov/
 coverage.xml
 coverage.json
+coverage_new.json
 root_coverage.json
 coverage/
 *.cover
