@@ -64,6 +64,19 @@ class TestToolPermissionMappings:
         for tool in email_tools:
             assert tool in TOOL_PERMISSIONS, f"Missing mapping for {tool}"
 
+    def test_all_filesystem_tools_mapped(self):
+        """Verify all filesystem tools have permission mappings."""
+        filesystem_tools = [
+            "read_file",
+            "list_directory",
+            "glob_files",
+            "grep_files",
+            "write_file",
+            "edit_file",
+        ]
+        for tool in filesystem_tools:
+            assert tool in TOOL_PERMISSIONS, f"Missing mapping for {tool}"
+
     def test_all_claude_code_tools_mapped(self):
         """Verify all Claude Code tools have permission mappings."""
         claude_code_tools = [
@@ -110,6 +123,8 @@ class TestToolPermissionMappings:
             "move_email",
             "update_email_flags",
             "create_claude_code_workspace",
+            "write_file",
+            "edit_file",
         ]
         for tool in write_tools:
             assert Permission.WRITE in TOOL_PERMISSIONS[tool], f"{tool} should require WRITE"
@@ -303,6 +318,7 @@ class TestGetToolPermissionsByCategory:
             "communication",
             "social_media",
             "content",
+            "filesystem",
             "claude_code",
         }
         assert set(categories.keys()) == expected
