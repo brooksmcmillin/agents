@@ -239,32 +239,23 @@ await configure_memory_store(
 
 ### Migration: File to Database
 
-**Step 1**: Set up PostgreSQL database
-```bash
-createdb agent_memory
-psql agent_memory < packages/agent-framework/schema/memory.sql
-```
+> **Note:** Database-backed memory is not yet implemented. The steps below
+> are a planned migration path and the referenced schema/scripts do not
+> exist yet.
 
-**Step 2**: Export file-based memories
+**Step 1**: Back up file-based memories
 ```bash
 cp memories/memories.json memories/memories.backup.json
 ```
 
-**Step 3**: Configure database backend
+**Step 2**: Configure database backend
 ```bash
 # .env
 MEMORY_BACKEND=database
 MEMORY_DATABASE_URL=postgresql://user:pass@localhost:5432/agent_memory
 ```
 
-**Step 4**: Import memories (if migration script exists)
-```bash
-uv run python scripts/migrate_memory.py \
-  --from-file memories/memories.json \
-  --to-db $MEMORY_DATABASE_URL
-```
-
-**Step 5**: Test
+**Step 3**: Test
 ```bash
 # Start agent and verify memories are accessible
 uv run python -m agents.chatbot.main
@@ -721,38 +712,29 @@ DEEPGRAM_MODEL=nova-2      # STT model
 
 ### Running Voice-Enabled Agents
 
-```python
-# agents/chatbot/main_voice.py
-import asyncio
-from chasm import VoiceInterface
-from agents.chatbot.main import ChatbotAgent
-
-async def main():
-    agent = ChatbotAgent()
-    voice = VoiceInterface(agent)
-    await voice.start()
-
-if __name__ == "__main__":
-    asyncio.run(main())
-```
+Voice mode is provided by the `bin/run-voice-agent` script, which wraps any
+registered agent with the chasm `VoiceAdapter`:
 
 ```bash
-# Start voice interface
-uv run python -m agents.chatbot.main_voice
+# Start voice interface for the chatbot agent
+uv run python bin/run-voice-agent chatbot
+
+# List available agents
+uv run python bin/run-voice-agent --list
 ```
 
 ### User Experience
 
 ```
-$ uv run python -m agents.chatbot.main_voice
+$ uv run python bin/run-voice-agent chatbot
 
-🎤 Voice interface started
+Voice interface started
 Listening... (Press Ctrl+C to exit)
 
 [User speaks: "What is prompt injection?"]
-🔊 Transcribed: "What is prompt injection?"
-🤖 Agent: "Prompt injection is a security vulnerability..."
-🔉 [Text-to-speech plays response]
+Transcribed: "What is prompt injection?"
+Agent: "Prompt injection is a security vulnerability..."
+[Text-to-speech plays response]
 
 Listening...
 ```
