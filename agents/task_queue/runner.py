@@ -14,6 +14,7 @@ import logging
 import os
 from datetime import date
 from pathlib import Path
+from typing import Literal
 
 from agent_framework.tools import send_slack_message
 
@@ -182,7 +183,9 @@ class TaskQueueRunner(BatchAgent):
         title: str,
         triage_verdict: TriageVerdict,
         confidence: float,
-        outcome: str,
+        outcome: Literal[
+            "completed", "partial", "failed", "researched", "blocked", "skipped", "needs_human"
+        ],
         *,
         notes: str = "",
         error: str | None = None,
@@ -197,8 +200,8 @@ class TaskQueueRunner(BatchAgent):
             title: Human-readable task title.
             triage_verdict: Verdict from the triage phase.
             confidence: Triage confidence score (0.0 – 1.0).
-            outcome: Outcome string: "completed", "partial", "failed", "researched",
-                "blocked", "skipped", "needs_human".
+            outcome: Outcome string — one of "completed", "partial", "failed",
+                "researched", "blocked", "skipped", "needs_human".
             notes: Optional free-text notes about the outcome.
             error: Optional error message (for failed outcomes).
             estimated_hours: Optional estimated hours from triage.
@@ -259,7 +262,7 @@ class TaskQueueRunner(BatchAgent):
             if agent_note is not None:
                 await self.call_tool(
                     "add_agent_note",
-                    {"task_id": task_id, "note": agent_note},
+                    {"task_id": task_id, "note": agent_note[:_AGENT_NOTE]},
                 )
         except Exception as e:
             logger.warning(f"Failed to set {status} status for {task_id}: {e}")
