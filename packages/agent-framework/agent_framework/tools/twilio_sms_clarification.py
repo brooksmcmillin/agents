@@ -23,7 +23,6 @@ import os
 from typing import Any
 
 from ..core.config import settings
-from ..security import mask_phone_number
 from ..storage.sms_phone_pool import SMSPhonePoolManager
 from .twilio_utils import (
     post_twilio_message,
@@ -234,10 +233,8 @@ async def send_sms_clarification(
     # Update phone entry with message SID
     await phone_pool.update_message_sid(phone_entry.phone_number, message_sid)
 
-    masked_from = mask_phone_number(from_normalized)
     logger.info(
-        "SMS clarification sent from %s for conversation %s (agent: %s)",
-        masked_from,
+        "SMS clarification sent for conversation %s (agent: %s)",
         conversation_id,
         agent_name or "unknown",
     )
