@@ -447,11 +447,11 @@ def rate_limit(limit_string: str) -> Callable[[F], F]:
 
 @app.get("/health", response_model=HealthResponse)
 async def health() -> HealthResponse:
-    return HealthResponse(agents_available=len(_get_registry()))
+    return HealthResponse()
 
 
 @app.get("/agents", response_model=AgentListResponse)
-async def list_agents() -> AgentListResponse:
+async def list_agents(_: None = Depends(verify_api_key)) -> AgentListResponse:
     registry = _get_registry()
     return AgentListResponse(
         agents=[AgentInfo(name=name, description=desc) for name, (_, _, desc) in registry.items()]

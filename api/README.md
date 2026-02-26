@@ -126,8 +126,7 @@ Health check endpoint.
 **Response**:
 ```json
 {
-  "status": "ok",
-  "agents_available": 5
+  "status": "ok"
 }
 ```
 
@@ -140,7 +139,7 @@ curl http://localhost:8080/health
 
 #### GET /agents
 
-List all available agents.
+List all available agents. **Requires authentication.**
 
 **Response**:
 ```json
@@ -172,7 +171,7 @@ List all available agents.
 
 **Example**:
 ```bash
-curl http://localhost:8080/agents
+curl -H "Authorization: Bearer $API_KEY" http://localhost:8080/agents
 ```
 
 ---

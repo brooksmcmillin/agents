@@ -170,6 +170,29 @@ class TestAuthenticationErrors:
         # Restore module without API_KEY
         self._reload_server()
 
+    def test_list_agents_requires_auth(self):
+        """GET /agents should return 401 when API_KEY is set and no token is provided."""
+        with patch.dict("os.environ", {"API_KEY": "secret123"}):
+            server_module = self._reload_server()
+            with TestClient(server_module.app) as client:
+                response = client.get("/agents")
+                assert response.status_code == 401
+        # Restore module without API_KEY
+        self._reload_server()
+
+    def test_list_agents_rejects_invalid_key(self):
+        """GET /agents should return 401 when an invalid API key is provided."""
+        with patch.dict("os.environ", {"API_KEY": "secret123"}):
+            server_module = self._reload_server()
+            with TestClient(server_module.app) as client:
+                response = client.get(
+                    "/agents",
+                    headers={"Authorization": "Bearer wrongkey"},
+                )
+                assert response.status_code == 401
+        # Restore module without API_KEY
+        self._reload_server()
+
 
 class TestConversationEndpointsWithoutDatabase:
     """Test conversation endpoints when database is not configured."""
@@ -219,10 +242,12 @@ class TestHealthEndpoint:
     """Test health check endpoint."""
 
     def test_health_returns_200(self, client: TestClient):
-        """Health endpoint should always return 200."""
+        """Health endpoint should always return 200 without leaking agent count."""
         response = client.get("/health")
         assert response.status_code == 200
-        assert "agents_available" in response.json()
+        data = response.json()
+        assert data["status"] == "ok"
+        assert "agents_available" not in data
 
     def test_list_agents(self, client: TestClient):
         """List agents endpoint should return available agents."""

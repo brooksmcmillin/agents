@@ -98,12 +98,12 @@ class TestHealthAndAgentEndpoints:
     """Tests for health check and agent listing endpoints."""
 
     def test_health_endpoint(self, client):
-        """Test the health check endpoint."""
+        """Test the health check endpoint returns status without leaking agent count."""
         response = client.get("/health")
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "ok"
-        assert "agents_available" in data
+        assert "agents_available" not in data
 
     def test_list_agents(self, client):
         """Test listing available agents."""
