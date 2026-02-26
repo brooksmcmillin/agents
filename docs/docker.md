@@ -115,7 +115,6 @@ docker-compose logs -f
 # View specific service logs
 docker-compose logs -f backend
 docker-compose logs -f frontend
-docker-compose logs -f postgres
 
 # Stop all services
 docker-compose down
@@ -401,8 +400,6 @@ docker-compose exec backend bash
 # Frontend shell (dev mode)
 docker-compose exec frontend sh
 
-# Database shell
-docker-compose exec postgres psql -U agents
 ```
 
 ### Viewing live logs
