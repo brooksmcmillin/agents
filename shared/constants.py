@@ -51,6 +51,11 @@ COMMUNICATION_TOOLS = [
     "send_slack_message",
 ]
 
+SMS_TOOLS = [
+    "send_sms_to_admin",
+    "get_sms_status",
+]
+
 EMAIL_TOOLS = [
     "send_agent_report",
 ]

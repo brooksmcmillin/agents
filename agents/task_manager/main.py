@@ -10,6 +10,7 @@ from shared import (
     CONTENT_TOOLS,
     FASTMAIL_TOOLS,
     MEMORY_TOOLS,
+    SMS_TOOLS,
     create_simple_agent,
 )
 
@@ -20,7 +21,12 @@ TaskManagerAgent = create_simple_agent(
     system_prompt=SYSTEM_PROMPT,
     greeting=USER_GREETING_PROMPT,
     allowed_tools=(
-        CONTENT_TOOLS + MEMORY_TOOLS + COMMUNICATION_TOOLS + CLAUDE_CODE_TOOLS + FASTMAIL_TOOLS
+        CONTENT_TOOLS
+        + MEMORY_TOOLS
+        + COMMUNICATION_TOOLS
+        + SMS_TOOLS
+        + CLAUDE_CODE_TOOLS
+        + FASTMAIL_TOOLS
     ),
 )
 

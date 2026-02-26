@@ -41,6 +41,7 @@ from .constants import (
     HTTP_CLIENT_TOOLS,
     MEMORY_TOOLS,
     RAG_TOOLS,
+    SMS_TOOLS,
     WEB_RESEARCH_TOOLS,
 )
 from .env_utils import check_env_vars, env_file_exists
@@ -68,6 +69,7 @@ __all__ = [
     "HTTP_CLIENT_TOOLS",
     "MEMORY_TOOLS",
     "RAG_TOOLS",
+    "SMS_TOOLS",
     "SSRFValidator",
     "WEB_RESEARCH_TOOLS",
     "build_agent_registry",
