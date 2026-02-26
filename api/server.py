@@ -1286,14 +1286,14 @@ async def handle_incoming_sms(request: Request) -> Response:
 
     logger.info(f"Incoming SMS from {from_phone} to {to_phone}")
 
-    # Validate Twilio signature (skip in development)
-    is_dev = os.getenv("CHASM_ENVIRONMENT", "production").lower() in (
-        "development",
-        "dev",
-        "local",
-        "test",
-    )
-    if not is_dev:
+    # Validate Twilio signature (can be explicitly skipped for local development)
+    skip_validation = os.getenv("SKIP_TWILIO_SIGNATURE_VALIDATION", "").lower() == "true"
+    if skip_validation:
+        logger.warning(
+            "SECURITY: Twilio signature validation is DISABLED via "
+            "SKIP_TWILIO_SIGNATURE_VALIDATION=true. Do NOT use in production."
+        )
+    if not skip_validation:
         signature = request.headers.get("X-Twilio-Signature", "")
         url = str(request.url)
         params = {k: str(v) for k, v in form.items()}
