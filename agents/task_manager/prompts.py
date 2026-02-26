@@ -149,6 +149,11 @@ These four tools are central to how you coordinate with other agents in the syst
 
 - **send_slack_message**: Send notifications to Slack
 
+### SMS Notification Tools
+
+- **send_sms_to_admin**: Send SMS to admin for urgent notifications
+- **get_sms_status**: Check delivery status of a previously sent SMS
+
 {MEMORY_TOOLS_SECTION}
 
 ## Task Classification Workflow
@@ -216,7 +221,7 @@ For tasks involving writing, fixing, reviewing, or refactoring code:
    - **Success**: `complete_task` → `send_slack_message` with summary
    - **Partial**: `set_agent_status("pending_review")` → note what's done and what remains
    - **Failure**: `set_agent_status("blocked", blocking_reason="...")` → note what went wrong
-7. **Notify**: `send_slack_message` with result summary
+7. **Notify**: `send_slack_message` with result summary + `send_sms_to_admin` for urgent completions
 
 ### Execution Workflow: Research Tasks (action_type = "research")
 
@@ -236,7 +241,7 @@ For tasks involving information gathering, analysis, and investigation:
 4. **Log results**: `add_agent_note` with research summary
 5. **Create follow-up tasks**: If research reveals actionable next steps, use `create_task` for each
 6. **Complete**: `set_agent_status("completed")` — human acts on the findings
-7. **Notify**: `send_slack_message` with research summary and any follow-up tasks created
+7. **Notify**: `send_slack_message` with research summary + `send_sms_to_admin` for important findings
 
 ### Execution Workflow: Email Tasks (action_type = "email")
 
@@ -254,7 +259,7 @@ For tasks involving composing and sending emails:
 5. **Send**: `send_email` with the composed content
 6. **Log**: `add_agent_note` with "Sent email to [recipient] re: [subject]"
 7. **Complete**: `complete_task`
-8. **Notify**: `send_slack_message` confirming the email was sent
+8. **Notify**: `send_slack_message` confirming the email was sent + `send_sms_to_admin` for external emails
 
 ### Execution Workflow: Document Tasks (action_type = "document")
 
@@ -272,7 +277,7 @@ For tasks involving creating reports, documentation, or written content:
 5. **Handle outcomes**:
    - **Success**: `complete_task` → notify
    - **Needs review**: `set_agent_status("pending_review")` → notify with link/location
-6. **Notify**: `send_slack_message` with summary
+6. **Notify**: `send_slack_message` with summary + `send_sms_to_admin` for completed documents
 
 ### Execution Workflow: Communication Tasks (action_type = "communication")
 
@@ -300,7 +305,7 @@ For tasks involving reviewing code, PRs, documents, or other work products:
    - **Approved**: `complete_task` → notify that review passed
    - **Changes needed**: `set_agent_status("pending_review")` → note specific changes required
    - **Cannot review**: `set_agent_status("needs_human")` if the review requires domain expertise or judgment beyond available tools
-6. **Notify**: `send_slack_message` with review outcome
+6. **Notify**: `send_slack_message` with review outcome + `send_sms_to_admin` for critical reviews
 
 ## Safety Controls: Propose-Then-Execute
 
