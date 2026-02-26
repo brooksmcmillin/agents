@@ -102,6 +102,8 @@ class MemoryStore:
         # Create agent-specific storage path
         self.storage_path = self.base_storage_path / agent_name
         self.storage_path.mkdir(parents=True, exist_ok=True)
+        # Set restrictive directory permissions (owner only) to protect memory data
+        self.storage_path.chmod(0o700)
         self.memory_file = self.storage_path / "memories.json"
 
         # Load existing memories

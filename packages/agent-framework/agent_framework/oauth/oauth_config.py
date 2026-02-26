@@ -74,8 +74,21 @@ async def discover_oauth_config(base_url: str) -> OAuthConfig:
         OAuthConfig with discovered endpoints and capabilities
 
     Raises:
-        ValueError: If OAuth discovery fails or required endpoints are missing
+        ValueError: If OAuth discovery fails, required endpoints are missing,
+            or the URL does not use HTTPS (except localhost for development)
     """
+    # Enforce HTTPS for OAuth discovery to prevent credential interception.
+    # Allow localhost/127.0.0.1 for local development.
+    from urllib.parse import urlparse
+
+    parsed = urlparse(base_url)
+    is_localhost = parsed.hostname in ("localhost", "127.0.0.1", "::1")
+    if parsed.scheme != "https" and not is_localhost:
+        raise ValueError(
+            f"OAuth discovery requires HTTPS, got {parsed.scheme}:// "
+            f"(HTTP is only allowed for localhost development)"
+        )
+
     # Normalize URL - remove trailing /mcp/ or /mcp if present
     if base_url.endswith("/mcp/"):
         server_root = base_url[:-5]  # Remove "/mcp/"

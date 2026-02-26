@@ -70,6 +70,8 @@ class TokenStore:
         """
         self.storage_path = storage_path
         self.storage_path.mkdir(parents=True, exist_ok=True)
+        # Set restrictive directory permissions (owner only) to protect token files
+        self.storage_path.chmod(0o700)
 
         # Initialize encryption -- auto-generate key if none provided
         self.cipher: Fernet | None = None

@@ -130,6 +130,9 @@ class OAuthFlowHandler(OAuthHandlerBase):
         # Generate PKCE pair
         code_verifier, code_challenge = generate_pkce_pair()
 
+        # Generate state parameter for CSRF protection (RFC 6749 Section 10.12)
+        state = secrets.token_urlsafe(32)
+
         # Build authorization URL
         auth_params = {
             "response_type": "code",
@@ -138,6 +141,7 @@ class OAuthFlowHandler(OAuthHandlerBase):
             "scope": self.scopes,
             "code_challenge": code_challenge,
             "code_challenge_method": "S256",
+            "state": state,
         }
         auth_url = f"{self.oauth_config.authorization_endpoint}?{urlencode(auth_params)}"
 
@@ -148,7 +152,7 @@ class OAuthFlowHandler(OAuthHandlerBase):
         webbrowser.open(auth_url)
 
         # Start callback server and wait for code
-        auth_code = await self._run_callback_server()
+        auth_code = await self._run_callback_server(expected_state=state)
 
         if not auth_code:
             raise ValueError("Authorization failed: no code received")
@@ -161,8 +165,11 @@ class OAuthFlowHandler(OAuthHandlerBase):
         logger.info("✅ Successfully obtained access token")
         return token_set
 
-    async def _run_callback_server(self) -> str | None:
+    async def _run_callback_server(self, expected_state: str) -> str | None:
         """Start local HTTP server to receive OAuth callback.
+
+        Args:
+            expected_state: Expected state parameter for CSRF validation
 
         Returns:
             Authorization code from callback, or None if error
@@ -175,6 +182,25 @@ class OAuthFlowHandler(OAuthHandlerBase):
         async def callback(request: web.Request) -> web.Response:
             nonlocal auth_code, error
 
+            # Validate state parameter for CSRF protection
+            returned_state = request.query.get("state")
+            if not secrets.compare_digest(returned_state or "", expected_state):
+                error = "state_mismatch"
+                logger.error("OAuth callback state mismatch (possible CSRF attack)")
+                return web.Response(
+                    text="""
+                    <html>
+                    <head><title>Authorization Failed</title></head>
+                    <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+                        <h1 style="color: red;">Authorization Failed</h1>
+                        <p><strong>Error:</strong> State parameter mismatch (possible CSRF attack)</p>
+                        <p>Please close this window and try again.</p>
+                    </body>
+                    </html>
+                    """,
+                    content_type="text/html",
+                )
+
             # Check for authorization code
             if "code" in request.query:
                 auth_code = request.query["code"]
@@ -183,7 +209,7 @@ class OAuthFlowHandler(OAuthHandlerBase):
                     <html>
                     <head><title>Authorization Successful</title></head>
                     <body style="font-family: sans-serif; text-align: center; padding: 50px;">
-                        <h1 style="color: green;">✅ Authorization Successful!</h1>
+                        <h1 style="color: green;">Authorization Successful!</h1>
                         <p>You can close this window and return to the terminal.</p>
                     </body>
                     </html>
@@ -200,7 +226,7 @@ class OAuthFlowHandler(OAuthHandlerBase):
                     <html>
                     <head><title>Authorization Failed</title></head>
                     <body style="font-family: sans-serif; text-align: center; padding: 50px;">
-                        <h1 style="color: red;">❌ Authorization Failed</h1>
+                        <h1 style="color: red;">Authorization Failed</h1>
                         <p><strong>Error:</strong> {html.escape(error)}</p>
                         <p>{html.escape(error_description)}</p>
                         <p>Please close this window and try again.</p>
