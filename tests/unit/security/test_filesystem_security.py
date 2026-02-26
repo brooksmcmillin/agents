@@ -304,6 +304,13 @@ class TestWriteFile:
         result = await write_file(str(link / "evil.txt"), "bad content")
         assert "error" in result
 
+    @pytest.mark.asyncio
+    async def test_rejects_directory_path(self, workspace: Path) -> None:
+        """Writing to a path that is a directory returns a clear error."""
+        result = await write_file(str(workspace), "content")
+        assert "error" in result
+        assert "directory" in result["error"].lower()
+
 
 class TestEditFile:
     """Test edit_file security and functionality."""
@@ -363,3 +370,21 @@ class TestEditFile:
         result = await edit_file(str(workspace), "old", "new")
         assert "error" in result
         assert "Not a file" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_rejects_empty_old_string(self, workspace: Path) -> None:
+        result = await edit_file(str(workspace / "hello.txt"), "", "inserted")
+        assert "error" in result
+        assert "empty" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_symlink_escape_blocked(self, workspace: Path) -> None:
+        """Editing through a symlink that escapes allowed dirs is rejected."""
+        outside = workspace.parent / "outside_edit"
+        outside.mkdir(exist_ok=True)
+        secret = outside / "secret.txt"
+        secret.write_text("sensitive data\n")
+        link = workspace / "escape_edit"
+        link.symlink_to(str(secret))
+        result = await edit_file(str(link), "sensitive", "hacked")
+        assert "error" in result

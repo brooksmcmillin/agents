@@ -490,6 +490,9 @@ async def write_file(
                 "path": str(resolved),
             }
 
+        if resolved.is_dir():
+            return {"error": f"Path is a directory, not a file: {resolved}", "path": str(resolved)}
+
         created = not resolved.exists()
 
         if not resolved.parent.exists():
@@ -508,6 +511,9 @@ async def write_file(
 
         resolved.write_bytes(content_bytes)
         size = len(content_bytes)
+
+        action = "created" if created else "overwrote"
+        logger.info("write_file: %s %s (%d bytes)", action, resolved, size)
 
         return {
             "success": True,
@@ -567,6 +573,9 @@ async def edit_file(
         except UnicodeDecodeError:
             return {"error": f"Not a UTF-8 text file: {path}", "path": str(resolved)}
 
+        if not old_string:
+            return {"error": "old_string cannot be empty", "path": str(resolved)}
+
         if old_string == new_string:
             return {"error": "old_string and new_string are identical", "path": str(resolved)}
 
@@ -600,10 +609,14 @@ async def edit_file(
 
         resolved.write_bytes(new_bytes)
 
+        logger.info(
+            "edit_file: %d replacement(s) in %s (%d bytes)", count, resolved, len(new_bytes)
+        )
+
         return {
             "success": True,
             "path": str(resolved),
-            "replacements": count if replace_all else 1,
+            "replacements": count,
             "size_bytes": len(new_bytes),
         }
 
