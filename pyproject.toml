@@ -18,7 +18,7 @@ dependencies = [
     "python-json-logger>=2.0.7",
     "beautifulsoup4>=4.12.0",
     "lxml>=6.0.2",
-    "html2text>=2024.2.26",
+    "markdownify>=1.2.0",
     "agent-framework",
     "fastapi>=0.115.0",
     "slowapi>=0.1.9",
@@ -38,7 +38,7 @@ constraint-dependencies = [
     "python-dotenv>=1.0.0",
     "cryptography>=44.0.0",
     "beautifulsoup4>=4.12.0",
-    "html2text>=2024.2.26",
+    "markdownify>=1.2.0",
     "lxml>=6.0.2",
 ]
 
