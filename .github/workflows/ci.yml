@@ -53,6 +53,28 @@ jobs:
         working-directory: webui/frontend
         run: npx tsc --noEmit
 
+  pip-audit:
+    name: Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - run: uv sync
+
+      - name: Audit production dependencies
+        run: |
+          uv export --format requirements-txt --no-dev \
+            | grep -vE '^-e |agent-framework' > /tmp/reqs.txt
+          uv run --with 'pip-audit>=2.10,<3' pip-audit -r /tmp/reqs.txt
+
   unit-tests:
     name: Unit Tests (${{ matrix.python-version }})
     needs: lint
@@ -180,7 +202,7 @@ jobs:
 
   integration-tests:
     name: Integration Tests
-    needs: [unit-tests, database-tests, frontend-build]
+    needs: [pip-audit, unit-tests, database-tests, frontend-build]
     runs-on: ubuntu-latest
     services:
       postgres:
