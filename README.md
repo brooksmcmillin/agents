@@ -47,19 +47,19 @@ cp .env.example .env
 
 ```bash
 # Chatbot - General-purpose assistant with all tools
-uv run python -m agents.chatbot.main
+uv run bin/run-agent chatbot
 
 # PR Agent - Content strategy assistant
-uv run python -m agents.pr_agent.main
+uv run bin/run-agent pr
 
 # Security Researcher - AI security expert with RAG
-uv run python -m agents.security_researcher.main
+uv run bin/run-agent security
 
 # Business Advisor - Monetization and strategy expert
-uv run python -m agents.business_advisor.main
+uv run bin/run-agent business
 
 # Task Manager - Interactive task management
-uv run python -m agents.task_manager.main
+uv run bin/run-agent tasks
 
 # REST API Server - HTTP access to agents
 uv run python -m api
@@ -147,7 +147,7 @@ General-purpose AI assistant with access to all 50 MCP tools:
 - Slack notifications
 - Multi-domain task support
 
-**Run:** `uv run python -m agents.chatbot.main` | **[Documentation](agents/chatbot/README.md)**
+**Run:** `uv run bin/run-agent chatbot` | **[Documentation](agents/chatbot/README.md)**
 
 ### PR Agent
 Content strategy assistant that helps with:
@@ -156,7 +156,7 @@ Content strategy assistant that helps with:
 - SEO recommendations
 - Brand voice consistency
 
-**Run:** `uv run python -m agents.pr_agent.main`
+**Run:** `uv run bin/run-agent pr`
 
 ### Security Researcher
 AI/ML security expert with RAG-backed knowledge base:
@@ -166,7 +166,7 @@ AI/ML security expert with RAG-backed knowledge base:
 - Research paper search and synthesis
 - Requires PostgreSQL + OpenAI for RAG functionality
 
-**Run:** `uv run python -m agents.security_researcher.main` | **[Documentation](agents/security_researcher/README.md)**
+**Run:** `uv run bin/run-agent security` | **[Documentation](agents/security_researcher/README.md)**
 
 ### Business Advisor
 Business strategy and monetization advisor:
@@ -176,7 +176,7 @@ Business strategy and monetization advisor:
 - Market research and competitive analysis
 - Optional GitHub MCP integration
 
-**Run:** `uv run python -m agents.business_advisor.main` | **[Documentation](agents/business_advisor/README.md)**
+**Run:** `uv run bin/run-agent business` | **[Documentation](agents/business_advisor/README.md)**
 
 ### Task Manager
 Intelligent task management assistant:
@@ -185,7 +185,7 @@ Intelligent task management assistant:
 - Prioritize based on urgency and dependencies
 - Connect to remote task management server (requires remote MCP)
 
-**Run:** `uv run python -m agents.task_manager.main` | **[Documentation](agents/task_manager/README.md)**
+**Run:** `uv run bin/run-agent tasks` | **[Documentation](agents/task_manager/README.md)**
 
 ### REST API Server
 HTTP/REST interface for accessing agents via API:
@@ -328,7 +328,7 @@ scripts/             # Utility scripts
 
 ### Hot Reload - Edit Tools Without Restarting
 
-1. Start agent: `uv run python -m agents.pr_agent.main`
+1. Start agent: `uv run bin/run-agent pr`
 2. Edit tool code in `packages/agent-framework/agent_framework/tools/*.py`
 3. Save changes
 4. Next tool call automatically picks up changes
@@ -363,7 +363,7 @@ __all__ = [..., "your_tool"]
 2. Create `main.py` extending `Agent` class from `agent-framework`
 3. Create `prompts.py` with system prompt and greeting
 4. Create `__init__.py` with version info
-5. Run: `uv run python -m agents.your_agent.main`
+5. Register in `bin/run-agent` and run: `uv run bin/run-agent your-agent`
 
 All agents automatically have access to the shared MCP tools.
 
