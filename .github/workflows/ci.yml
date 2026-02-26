@@ -74,7 +74,7 @@ jobs:
         run: |
           uv export --format requirements-txt --no-dev \
             | grep -v '^-e \|agent-framework' > /tmp/reqs.txt
-          uv run pip-audit -r /tmp/reqs.txt
+          uv run --with pip-audit pip-audit -r /tmp/reqs.txt
 
   unit-tests:
     name: Unit Tests (${{ matrix.python-version }})
