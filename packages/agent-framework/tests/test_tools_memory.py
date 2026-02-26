@@ -1,7 +1,7 @@
 """Tests for the memory tools module."""
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -85,10 +85,13 @@ class TestSaveMemory:
         mock_memory.created_at.isoformat.return_value = "2024-01-01T00:00:00"
         mock_memory.updated_at.isoformat.return_value = "2024-01-01T00:00:00"
 
-        mock_store = MagicMock()
+        mock_store = AsyncMock()
         mock_store.save_memory.return_value = mock_memory
 
-        with patch("agent_framework.tools.memory.get_memory_store", return_value=mock_store):
+        with patch(
+            "agent_framework.tools.memory.get_active_memory_store",
+            return_value=mock_store,
+        ):
             result = await save_memory(
                 key="test_key",
                 value="test_value",
@@ -119,10 +122,13 @@ class TestSaveMemory:
         mock_memory.created_at = mock_time
         mock_memory.updated_at = mock_time  # Same object = equal
 
-        mock_store = MagicMock()
+        mock_store = AsyncMock()
         mock_store.save_memory.return_value = mock_memory
 
-        with patch("agent_framework.tools.memory.get_memory_store", return_value=mock_store):
+        with patch(
+            "agent_framework.tools.memory.get_active_memory_store",
+            return_value=mock_store,
+        ):
             result = await save_memory(key="new_key", value="value")
 
         assert result["action"] == "created"
@@ -130,10 +136,13 @@ class TestSaveMemory:
     @pytest.mark.asyncio
     async def test_save_memory_error_handling(self):
         """Test save_memory handles errors gracefully."""
-        mock_store = MagicMock()
+        mock_store = AsyncMock()
         mock_store.save_memory.side_effect = Exception("Storage error")
 
-        with patch("agent_framework.tools.memory.get_memory_store", return_value=mock_store):
+        with patch(
+            "agent_framework.tools.memory.get_active_memory_store",
+            return_value=mock_store,
+        ):
             result = await save_memory(key="test", value="value")
 
         assert result["status"] == "error"
@@ -155,10 +164,13 @@ class TestGetMemories:
         mock_memory.created_at.isoformat.return_value = "2024-01-01T00:00:00"
         mock_memory.updated_at.isoformat.return_value = "2024-01-01T00:00:00"
 
-        mock_store = MagicMock()
+        mock_store = AsyncMock()
         mock_store.get_all_memories.return_value = [mock_memory]
 
-        with patch("agent_framework.tools.memory.get_memory_store", return_value=mock_store):
+        with patch(
+            "agent_framework.tools.memory.get_active_memory_store",
+            return_value=mock_store,
+        ):
             result = await get_memories(category="cat1", min_importance=5)
 
         assert result["status"] == "success"
@@ -180,10 +192,13 @@ class TestGetMemories:
             m.created_at.isoformat.return_value = "2024-01-01T00:00:00"
             m.updated_at.isoformat.return_value = "2024-01-01T00:00:00"
 
-        mock_store = MagicMock()
+        mock_store = AsyncMock()
         mock_store.get_all_memories.return_value = mock_memories
 
-        with patch("agent_framework.tools.memory.get_memory_store", return_value=mock_store):
+        with patch(
+            "agent_framework.tools.memory.get_active_memory_store",
+            return_value=mock_store,
+        ):
             result = await get_memories(limit=5)
 
         assert result["count"] == 5
@@ -192,10 +207,13 @@ class TestGetMemories:
     @pytest.mark.asyncio
     async def test_get_memories_empty(self):
         """Test get_memories handles empty results."""
-        mock_store = MagicMock()
+        mock_store = AsyncMock()
         mock_store.get_all_memories.return_value = []
 
-        with patch("agent_framework.tools.memory.get_memory_store", return_value=mock_store):
+        with patch(
+            "agent_framework.tools.memory.get_active_memory_store",
+            return_value=mock_store,
+        ):
             result = await get_memories()
 
         assert result["status"] == "success"
@@ -205,10 +223,13 @@ class TestGetMemories:
     @pytest.mark.asyncio
     async def test_get_memories_error_handling(self):
         """Test get_memories handles errors gracefully."""
-        mock_store = MagicMock()
+        mock_store = AsyncMock()
         mock_store.get_all_memories.side_effect = Exception("Query error")
 
-        with patch("agent_framework.tools.memory.get_memory_store", return_value=mock_store):
+        with patch(
+            "agent_framework.tools.memory.get_active_memory_store",
+            return_value=mock_store,
+        ):
             result = await get_memories()
 
         assert result["status"] == "error"
@@ -231,10 +252,13 @@ class TestSearchMemories:
         mock_memory.created_at.isoformat.return_value = "2024-01-01T00:00:00"
         mock_memory.updated_at.isoformat.return_value = "2024-01-01T00:00:00"
 
-        mock_store = MagicMock()
+        mock_store = AsyncMock()
         mock_store.search_memories.return_value = [mock_memory]
 
-        with patch("agent_framework.tools.memory.get_memory_store", return_value=mock_store):
+        with patch(
+            "agent_framework.tools.memory.get_active_memory_store",
+            return_value=mock_store,
+        ):
             result = await search_memories(query="email")
 
         assert result["status"] == "success"
@@ -256,10 +280,13 @@ class TestSearchMemories:
             m.created_at.isoformat.return_value = "2024-01-01T00:00:00"
             m.updated_at.isoformat.return_value = "2024-01-01T00:00:00"
 
-        mock_store = MagicMock()
+        mock_store = AsyncMock()
         mock_store.search_memories.return_value = mock_memories
 
-        with patch("agent_framework.tools.memory.get_memory_store", return_value=mock_store):
+        with patch(
+            "agent_framework.tools.memory.get_active_memory_store",
+            return_value=mock_store,
+        ):
             result = await search_memories(query="key", limit=3)
 
         assert result["count"] == 3
@@ -267,10 +294,13 @@ class TestSearchMemories:
     @pytest.mark.asyncio
     async def test_search_memories_no_results(self):
         """Test search_memories handles no matches."""
-        mock_store = MagicMock()
+        mock_store = AsyncMock()
         mock_store.search_memories.return_value = []
 
-        with patch("agent_framework.tools.memory.get_memory_store", return_value=mock_store):
+        with patch(
+            "agent_framework.tools.memory.get_active_memory_store",
+            return_value=mock_store,
+        ):
             result = await search_memories(query="nonexistent")
 
         assert result["status"] == "success"
@@ -279,10 +309,13 @@ class TestSearchMemories:
     @pytest.mark.asyncio
     async def test_search_memories_error_handling(self):
         """Test search_memories handles errors gracefully."""
-        mock_store = MagicMock()
+        mock_store = AsyncMock()
         mock_store.search_memories.side_effect = Exception("Search error")
 
-        with patch("agent_framework.tools.memory.get_memory_store", return_value=mock_store):
+        with patch(
+            "agent_framework.tools.memory.get_active_memory_store",
+            return_value=mock_store,
+        ):
             result = await search_memories(query="test")
 
         assert result["status"] == "error"

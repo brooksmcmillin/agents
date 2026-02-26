@@ -48,8 +48,11 @@ from .markdown_files import (
 )
 from .memory import TOOL_SCHEMAS as _memory_schemas
 from .memory import (
+    AsyncFileMemoryAdapter,
+    MemoryStoreProtocol,
     configure_memory_store,
     delete_memory,
+    get_active_memory_store,
     get_memories,
     get_memory_stats,
     recall_memories,
@@ -101,10 +104,13 @@ ALL_TOOL_SCHEMAS: list[dict] = [
 
 __all__ = [
     "ALL_TOOL_SCHEMAS",
+    "AsyncFileMemoryAdapter",
+    "MemoryStoreProtocol",
     "analyze_website",
     "configure_memory_store",
     "delete_memory",
     "fetch_web_content",
+    "get_active_memory_store",
     "get_memories",
     "get_memory_stats",
     "get_social_media_stats",

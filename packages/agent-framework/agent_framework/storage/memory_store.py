@@ -74,13 +74,10 @@ class MemoryStore:
     Storage structure:
         {storage_path}/{agent_name}/memories.json
 
-    TODO: Consider unifying the interface with DatabaseMemoryStore.
-    Currently MemoryStore uses sync methods while DatabaseMemoryStore uses async.
-    Options:
-    1. Make both async (wrap sync operations in asyncio.to_thread)
-    2. Create a MemoryStoreProtocol for type checking
-    3. Add a sync wrapper for DatabaseMemoryStore
-    See code optimizer report for detailed recommendations.
+    Note: This class uses synchronous methods. The async
+    :class:`~agent_framework.tools.memory.AsyncFileMemoryAdapter`
+    wraps this class to satisfy the shared
+    :class:`~agent_framework.tools.memory.MemoryStoreProtocol`.
     """
 
     def __init__(
