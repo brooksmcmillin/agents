@@ -72,9 +72,12 @@ def info(msg: str) -> None:
     print(f"  {DIM}→{RESET} {msg}")
 
 
+_NO_PAUSE = "--no-pause" in sys.argv
+
+
 def pause(msg: str = "continue") -> None:
     """Wait for Enter key. Pass --no-pause to skip all pauses."""
-    if "--no-pause" in sys.argv:
+    if _NO_PAUSE:
         return
     try:
         input(f"\n  {DIM}[Enter to {msg}]{RESET}")
