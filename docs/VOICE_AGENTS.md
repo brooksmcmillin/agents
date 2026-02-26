@@ -212,4 +212,4 @@ grep -E "(ANTHROPIC|DEEPGRAM|CARTESIA)_API_KEY" .env
 
 - [CLAUDE.md](CLAUDE.md) - Main project documentation
 - [chasm/CLAUDE.md](../chasm/CLAUDE.md) - Chasm library documentation
-- [agent-framework](../agent-framework/) - Core agent framework
+- [agent-framework](../packages/agent-framework/) - Core agent framework

@@ -44,7 +44,7 @@ Access all 5 agents via REST API:
 
 ### Prerequisites
 
-1. **Python 3.11 or higher**
+1. **Python 3.12 or higher**
 
 2. **Anthropic API Key**:
    ```bash
@@ -98,15 +98,15 @@ LOG_LEVEL=INFO
 # Start the REST API server
 uv run python -m api
 
-# Server starts on http://localhost:8000
-# API docs available at http://localhost:8000/docs
+# Server starts on http://localhost:8080
+# API docs available at http://localhost:8080/docs
 ```
 
 ### Using uvicorn directly
 
 ```bash
 # For production with more control
-uv run uvicorn api.server:app --host 0.0.0.0 --port 8000
+uv run uvicorn api.server:app --host 0.0.0.0 --port 8080
 
 # With auto-reload for development
 uv run uvicorn api.server:app --reload
@@ -133,7 +133,7 @@ Health check endpoint.
 
 **Example**:
 ```bash
-curl http://localhost:8000/health
+curl http://localhost:8080/health
 ```
 
 ---
@@ -172,7 +172,7 @@ List all available agents.
 
 **Example**:
 ```bash
-curl http://localhost:8000/agents
+curl http://localhost:8080/agents
 ```
 
 ---
@@ -208,7 +208,7 @@ Send a single message to an agent with no conversation history.
 
 **Example**:
 ```bash
-curl -X POST http://localhost:8000/agents/chatbot/message \
+curl -X POST http://localhost:8080/agents/chatbot/message \
   -H "Content-Type: application/json" \
   -d '{"message": "What is prompt injection?"}'
 ```
@@ -257,7 +257,7 @@ Create a new session with a persistent agent instance.
 
 **Example**:
 ```bash
-curl -X POST http://localhost:8000/sessions \
+curl -X POST http://localhost:8080/sessions \
   -H "Content-Type: application/json" \
   -d '{"agent": "security"}'
 ```
@@ -294,17 +294,17 @@ Send a message within an existing session.
 **Example Multi-Turn Conversation**:
 ```bash
 # Create session
-SESSION_ID=$(curl -s -X POST http://localhost:8000/sessions \
+SESSION_ID=$(curl -s -X POST http://localhost:8080/sessions \
   -H "Content-Type: application/json" \
   -d '{"agent": "chatbot"}' | jq -r '.session_id')
 
 # First message
-curl -X POST "http://localhost:8000/sessions/$SESSION_ID/message" \
+curl -X POST "http://localhost:8080/sessions/$SESSION_ID/message" \
   -H "Content-Type: application/json" \
   -d '{"message": "What are RAG systems?"}'
 
 # Follow-up message (agent remembers previous context)
-curl -X POST "http://localhost:8000/sessions/$SESSION_ID/message" \
+curl -X POST "http://localhost:8080/sessions/$SESSION_ID/message" \
   -H "Content-Type: application/json" \
   -d '{"message": "What are the security risks?"}'
 
@@ -336,7 +336,7 @@ Get metadata about an active session.
 
 **Example**:
 ```bash
-curl http://localhost:8000/sessions/$SESSION_ID
+curl http://localhost:8080/sessions/$SESSION_ID
 ```
 
 ---
@@ -352,7 +352,7 @@ End a session and free its resources.
 
 **Example**:
 ```bash
-curl -X DELETE http://localhost:8000/sessions/$SESSION_ID
+curl -X DELETE http://localhost:8080/sessions/$SESSION_ID
 ```
 
 ---
@@ -372,7 +372,7 @@ General-purpose AI assistant with access to all 29 MCP tools.
 
 **Example**:
 ```bash
-curl -X POST http://localhost:8000/agents/chatbot/message \
+curl -X POST http://localhost:8080/agents/chatbot/message \
   -H "Content-Type: application/json" \
   -d '{"message": "Fetch and summarize https://example.com/blog-post"}'
 ```
@@ -391,7 +391,7 @@ PR and content strategy assistant.
 
 **Example**:
 ```bash
-curl -X POST http://localhost:8000/agents/pr/message \
+curl -X POST http://localhost:8080/agents/pr/message \
   -H "Content-Type: application/json" \
   -d '{"message": "Generate 5 tweet ideas about AI safety for security researchers"}'
 ```
@@ -412,7 +412,7 @@ Interactive task management agent (requires remote MCP server).
 **Example**:
 ```bash
 # Requires MCP_SERVER_URL configured
-curl -X POST http://localhost:8000/agents/tasks/message \
+curl -X POST http://localhost:8080/agents/tasks/message \
   -H "Content-Type: application/json" \
   -d '{"message": "What tasks do I have due this week?"}'
 ```
@@ -433,7 +433,7 @@ AI security research assistant with RAG knowledge base.
 
 **Example**:
 ```bash
-curl -X POST http://localhost:8000/agents/security/message \
+curl -X POST http://localhost:8080/agents/security/message \
   -H "Content-Type: application/json" \
   -d '{"message": "Explain adversarial attacks on LLMs and common defenses"}'
 ```
@@ -453,7 +453,7 @@ Business strategy and monetization advisor.
 
 **Example**:
 ```bash
-curl -X POST http://localhost:8000/agents/business/message \
+curl -X POST http://localhost:8080/agents/business/message \
   -H "Content-Type: application/json" \
   -d '{"message": "I have a popular open-source CLI tool. How can I monetize it?"}'
 ```
@@ -500,7 +500,7 @@ curl -X POST http://localhost:8000/agents/business/message \
 
 ```bash
 # Single question, no history needed
-curl -X POST http://localhost:8000/agents/chatbot/message \
+curl -X POST http://localhost:8080/agents/chatbot/message \
   -H "Content-Type: application/json" \
   -d '{"message": "What are the OWASP Top 10 for LLMs?"}'
 ```
@@ -513,7 +513,7 @@ curl -X POST http://localhost:8000/agents/chatbot/message \
 import requests
 import json
 
-BASE_URL = "http://localhost:8000"
+BASE_URL = "http://localhost:8080"
 
 # Create session
 session_response = requests.post(
@@ -552,17 +552,17 @@ requests.delete(f"{BASE_URL}/sessions/{session_id}")
 
 ```bash
 # Business advice
-curl -X POST http://localhost:8000/agents/business/message \
+curl -X POST http://localhost:8080/agents/business/message \
   -H "Content-Type: application/json" \
   -d '{"message": "Analyze github.com/user/popular-repo for monetization opportunities"}'
 
 # PR strategy
-curl -X POST http://localhost:8000/agents/pr/message \
+curl -X POST http://localhost:8080/agents/pr/message \
   -H "Content-Type: application/json" \
   -d '{"message": "Create a 2-week content calendar for launching a new AI security product"}'
 
 # Task management (requires remote MCP)
-curl -X POST http://localhost:8000/agents/tasks/message \
+curl -X POST http://localhost:8080/agents/tasks/message \
   -H "Content-Type: application/json" \
   -d '{"message": "Reschedule my overdue tasks evenly across next week"}'
 ```
@@ -572,7 +572,7 @@ curl -X POST http://localhost:8000/agents/tasks/message \
 ### Example 4: JavaScript/Node.js Client
 
 ```javascript
-const BASE_URL = 'http://localhost:8000';
+const BASE_URL = 'http://localhost:8080';
 
 async function chatWithAgent(agentName, messages) {
   // Create session
@@ -677,11 +677,11 @@ Agent automatically available at `/agents/youragent/message`.
 ### Server Won't Start
 
 ```bash
-# Check if port 8000 is in use
-lsof -i :8000
+# Check if port 8080 is in use
+lsof -i :8080
 
 # Use different port
-uv run uvicorn api.server:app --port 8080
+uv run uvicorn api.server:app --port 9000
 
 # Check environment variables
 env | grep -E '(ANTHROPIC|MCP|RAG)'
@@ -691,7 +691,7 @@ env | grep -E '(ANTHROPIC|MCP|RAG)'
 
 ```bash
 # List available agents
-curl http://localhost:8000/agents
+curl http://localhost:8080/agents
 
 # Check agent name spelling
 # Valid: chatbot, pr, tasks, security, business
@@ -790,13 +790,13 @@ while True:
 
 **Use multiple workers**:
 ```bash
-uv run uvicorn api.server:app --workers 4 --host 0.0.0.0 --port 8000
+uv run uvicorn api.server:app --workers 4 --host 0.0.0.0 --port 8080
 ```
 
 **Add reverse proxy** (nginx, caddy):
 ```nginx
 location /api/ {
-    proxy_pass http://localhost:8000/;
+    proxy_pass http://localhost:8080/;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
 }
@@ -845,9 +845,9 @@ Changes to code automatically reload server.
 ### API Documentation
 
 FastAPI auto-generates docs:
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
-- OpenAPI JSON: http://localhost:8000/openapi.json
+- Swagger UI: http://localhost:8080/docs
+- ReDoc: http://localhost:8080/redoc
+- OpenAPI JSON: http://localhost:8080/openapi.json
 
 ### Testing
 
@@ -856,10 +856,10 @@ FastAPI auto-generates docs:
 uv run pytest tests/test_api.py
 
 # Manual testing
-curl http://localhost:8000/health
+curl http://localhost:8080/health
 
 # Load testing
-ab -n 100 -c 10 http://localhost:8000/agents/chatbot/message
+ab -n 100 -c 10 http://localhost:8080/agents/chatbot/message
 ```
 
 ---

@@ -21,7 +21,7 @@ uv pip install -e .
 pip install -e .
 ```
 
-**Requirements:** Python 3.11 or higher
+**Requirements:** Python 3.12 or higher
 
 ## Quick Example
 
