@@ -483,17 +483,3 @@ await send_slack_message(
     message=f"Claude Code completed refactoring in {folder_name}:\n{result['final_response']}"
 )
 ```
-
-## Tool Count Update
-
-With the addition of Claude Code tools, the system now has **34 MCP tools** across 9 categories:
-
-1. Web Analysis (2 tools)
-2. Memory (6 tools)
-3. RAG Document Search (6 tools)
-4. FastMail Email (8 tools)
-5. Communication (1 tool)
-6. Social Media (1 tool)
-7. Content Suggestions (1 tool)
-8. **Claude Code Automation (5 tools)** ← NEW
-9. Time/System (4 tools via taskmanager MCP)

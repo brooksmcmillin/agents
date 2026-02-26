@@ -5,7 +5,7 @@ This directory contains all agent implementations. Each agent is a standalone ap
 ## Available Agents
 
 ### Chatbot (`chatbot/`)
-General-purpose AI assistant with access to all 29 MCP tools including web analysis, memory, RAG document search, email management, and communication.
+General-purpose AI assistant with access to all 53 MCP tools including web analysis, memory, RAG document search, email management, and communication.
 
 **Use for**: General assistance, multi-domain tasks, research, content analysis, email workflows
 

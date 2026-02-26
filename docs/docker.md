@@ -60,7 +60,7 @@ The Docker setup includes two services:
 - **Database:** Connects to remote PostgreSQL (configured via `DATABASE_URL`)
 - **Features:**
   - Persistent conversations backed by PostgreSQL
-  - All 34 MCP tools available
+  - All 53 MCP tools available
   - RESTful API for agents
   - Health checks
 
