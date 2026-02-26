@@ -611,7 +611,7 @@ async def fetch_web_content(
 **Implementation:**
 - Uses `httpx` for async HTTP
 - `BeautifulSoup4` for parsing
-- `html2text` for markdown conversion
+- `markdownify` for markdown conversion
 - Configurable selectors for cleanup
 
 #### `slack.py` - Slack Integration

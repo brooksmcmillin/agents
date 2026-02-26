@@ -7,9 +7,9 @@ Useful for reading articles, blog posts, documentation, and other web content.
 import logging
 from typing import Any
 
-import html2text
 import httpx
 from bs4 import BeautifulSoup
+from markdownify import markdownify as md
 
 from ..security import SSRFValidator
 
@@ -87,16 +87,8 @@ async def fetch_web_content(url: str, max_length: int = 50000) -> dict[str, Any]
         if not main_content:
             raise ValueError("Could not extract content from page")
 
-        # Convert to markdown using html2text
-        h = html2text.HTML2Text()
-        h.ignore_links = False
-        h.ignore_images = False
-        h.ignore_emphasis = False
-        h.body_width = 0  # Don't wrap lines
-        h.unicode_snob = True
-        h.skip_internal_links = True
-
-        markdown_content = h.handle(str(main_content))
+        # Convert to markdown using markdownify
+        markdown_content = md(str(main_content), heading_style="ATX", wrap=False)
 
         # Clean up excessive whitespace
         lines = markdown_content.split("\n")
