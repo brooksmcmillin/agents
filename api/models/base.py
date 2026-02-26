@@ -45,4 +45,3 @@ class HealthResponse(BaseModel):
     """Health check response."""
 
     status: str = "ok"
-    agents_available: int

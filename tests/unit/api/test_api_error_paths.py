@@ -219,10 +219,12 @@ class TestHealthEndpoint:
     """Test health check endpoint."""
 
     def test_health_returns_200(self, client: TestClient):
-        """Health endpoint should always return 200."""
+        """Health endpoint should always return 200 without leaking agent count."""
         response = client.get("/health")
         assert response.status_code == 200
-        assert "agents_available" in response.json()
+        data = response.json()
+        assert data["status"] == "ok"
+        assert "agents_available" not in data
 
     def test_list_agents(self, client: TestClient):
         """List agents endpoint should return available agents."""
