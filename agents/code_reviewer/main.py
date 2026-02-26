@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
 """Code review batch runner.
 
-Runs 5 specialized code review agents on a target directory using Claude Code,
-then emails the combined report to the admin.
+Runs 5 specialized code review agents on a target directory in parallel using
+independent Claude Code sessions, then optionally emails the combined report
+and creates GitHub issues for findings.
+
+Each agent gets its own 10-minute timeout. If one agent fails or times out,
+the others still produce results.
 
 Usage:
     uv run python -m agents.code_reviewer.main /path/to/review
     uv run python -m agents.code_reviewer.main /path/to/review --no-email
+    uv run python -m agents.code_reviewer.main /path/to/review --repo owner/name
+    uv run python -m agents.code_reviewer.main /path/to/review --no-issues
 
 Environment Variables:
     ADMIN_EMAIL_ADDRESS: Required for email delivery
@@ -19,6 +25,7 @@ import asyncio
 import logging
 import os
 import sys
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -34,36 +41,65 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Each agent gets its own Claude Code session with independent timeout
+REVIEW_AGENTS: list[dict[str, str]] = [
+    {
+        "name": "code-optimizer",
+        "description": "Analyze maintainability, duplication, and complexity",
+    },
+    {
+        "name": "security-code-reviewer",
+        "description": "Scan for vulnerabilities and security issues",
+    },
+    {
+        "name": "doc-auditor",
+        "description": "Check for stale/inconsistent documentation",
+    },
+    {
+        "name": "dependency-auditor",
+        "description": "Audit for CVEs and outdated packages",
+    },
+    {
+        "name": "test-coverage-checker",
+        "description": "Identify untested code paths",
+    },
+]
 
-async def run_review(folder_path: str, model: str = "opus") -> str | None:
-    """Run code review agents on the target directory.
+PER_AGENT_TIMEOUT = 600  # 10 minutes per agent
+PER_AGENT_MAX_TURNS = 30
 
-    Returns the review output, or None on failure.
-    """
+
+@dataclass
+class AgentResult:
+    """Result from a single review agent."""
+
+    name: str
+    success: bool
+    output: str
+    error: str | None = None
+
+
+async def _run_single_agent(
+    agent: dict[str, str],
+    folder_path: str,
+    model: str,
+    custom_env: dict[str, str],
+) -> AgentResult:
+    """Run a single review agent in its own Claude Code session."""
     from agent_framework.tools.claude_code import run_claude_code
 
+    name = agent["name"]
+    description = agent["description"]
     folder_name = Path(folder_path).name
     parent_path = str(Path(folder_path).parent)
 
-    # Command tells Claude Code to run all 5 review agents sequentially
-    command = """Run these 5 code review agents SEQUENTIALLY (do NOT run them in the background):
+    command = (
+        f"Run the {name} agent to {description}. "
+        f"Provide a thorough report of all findings with file paths, "
+        f"line numbers, severity levels, and recommendations."
+    )
 
-1. code-optimizer - Analyze maintainability, duplication, and complexity
-2. security-code-reviewer - Scan for vulnerabilities and security issues
-3. doc-auditor - Check for stale/inconsistent documentation
-4. dependency-auditor - Audit for CVEs and outdated packages
-5. test-coverage-checker - Identify untested code paths
-
-IMPORTANT: Run each agent one at a time, wait for it to complete, then run the next.
-Do NOT use run_in_background=true. Collect all results and provide a combined summary."""
-
-    # Create custom environment without the caller's ANTHROPIC_API_KEY
-    # so the spawned Claude Code uses its own key
-    custom_env = os.environ.copy()
-    if "ANTHROPIC_API_KEY" in custom_env:
-        del custom_env["ANTHROPIC_API_KEY"]
-
-    logger.info(f"Starting code review of {folder_path}...")
+    logger.info("Starting agent: %s", name)
 
     try:
         result = await run_claude_code(
@@ -71,23 +107,74 @@ Do NOT use run_in_background=true. Collect all results and provide a combined su
             command=command,
             model=model,
             working_dir_base=parent_path,
-            max_turns=100,
-            timeout=1800,  # 30 minutes for 5 sequential reviews
+            max_turns=PER_AGENT_MAX_TURNS,
+            timeout=PER_AGENT_TIMEOUT,
             env=custom_env,
         )
 
         if result.get("success"):
             output = result.get("output", "")
-            logger.info(f"Review completed ({len(output)} chars)")
-            return output
+            logger.info("Agent %s completed (%d chars)", name, len(output))
+            return AgentResult(name=name, success=True, output=output)
         else:
             error_msg = result.get("error_output") or result.get("output", "Unknown error")
-            logger.error(f"Review failed: {error_msg[:200]}")
-            return None
+            logger.error("Agent %s failed: %s", name, error_msg[:200])
+            return AgentResult(name=name, success=False, output="", error=error_msg[:500])
 
-    except Exception:
-        logger.exception("Review crashed")
+    except Exception as exc:
+        logger.exception("Agent %s crashed", name)
+        return AgentResult(name=name, success=False, output="", error=str(exc))
+
+
+async def run_review(folder_path: str, model: str = "opus") -> str | None:
+    """Run all review agents in parallel and combine results.
+
+    Each agent runs in its own Claude Code session with an independent
+    timeout. If some agents fail, the successful ones still contribute
+    to the report.
+
+    Returns the combined review output, or None if all agents failed.
+    """
+    custom_env = os.environ.copy()
+    custom_env.pop("ANTHROPIC_API_KEY", None)
+
+    logger.info(
+        "Starting code review of %s (%d agents in parallel)...", folder_path, len(REVIEW_AGENTS)
+    )
+
+    tasks = [_run_single_agent(agent, folder_path, model, custom_env) for agent in REVIEW_AGENTS]
+    results: list[AgentResult] = await asyncio.gather(*tasks)
+
+    # Build combined report from successful agents
+    sections: list[str] = []
+    succeeded = 0
+    failed = 0
+
+    for result in results:
+        if result.success and result.output.strip():
+            sections.append(f"## {result.name}\n\n{result.output.strip()}")
+            succeeded += 1
+        else:
+            error_detail = result.error or "No output produced"
+            sections.append(f"## {result.name}\n\n**Agent failed:** {error_detail[:300]}")
+            failed += 1
+
+    logger.info("Review complete: %d/%d agents succeeded", succeeded, len(REVIEW_AGENTS))
+
+    if succeeded == 0:
+        logger.error("All agents failed — no report generated")
         return None
+
+    header = (
+        f"# Code Review Report\n\n"
+        f"**Target:** `{folder_path}`\n"
+        f"**Date:** {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
+        f"**Agents:** {succeeded}/{len(REVIEW_AGENTS)} succeeded"
+        + (f" ({failed} failed)" if failed else "")
+        + "\n\n---\n"
+    )
+
+    return header + "\n\n---\n\n".join(sections)
 
 
 def markdown_to_html(md_content: str) -> str:
@@ -191,6 +278,19 @@ def parse_args() -> argparse.Namespace:
         help="Claude model to use (default: opus)",
     )
 
+    parser.add_argument(
+        "--repo",
+        type=str,
+        default=None,
+        help="GitHub repo (owner/name) for issue creation. Auto-detected if omitted.",
+    )
+
+    parser.add_argument(
+        "--no-issues",
+        action="store_true",
+        help="Skip creating GitHub issues from findings",
+    )
+
     return parser.parse_args()
 
 
@@ -216,7 +316,7 @@ async def main() -> int:
             logger.error("FASTMAIL_API_TOKEN required (or use --no-email)")
             return 1
 
-    # Run the review
+    # Run the review (5 agents in parallel)
     report = await run_review(str(target_path), model=args.model)
 
     if not report:
@@ -237,6 +337,35 @@ async def main() -> int:
         output_path = Path(args.output)
         output_path.write_text(report)
         logger.info(f"Report saved to: {output_path}")
+
+    # Create GitHub issues from findings
+    if not args.no_issues:
+        from agents.code_reviewer.github_issues import (
+            create_issues_from_review,
+            detect_repo,
+        )
+
+        repo = args.repo
+        if not repo:
+            logger.info("Auto-detecting GitHub repo...")
+            repo = await detect_repo(str(target_path))
+
+        if repo:
+            logger.info(f"Creating GitHub issues for {repo}...")
+            issue_result = await create_issues_from_review(
+                review_output=report,
+                target_path=str(target_path),
+                repo=repo,
+                model=args.model,
+            )
+            logger.info(
+                "Issues: %d created, %d skipped (duplicate), %d failed",
+                issue_result.get("created", 0),
+                issue_result.get("skipped", 0),
+                issue_result.get("failed", 0),
+            )
+        else:
+            logger.warning("Could not detect GitHub repo. Use --repo owner/name to create issues.")
 
     logger.info("Done")
     return 0
