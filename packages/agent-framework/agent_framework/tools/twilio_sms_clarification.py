@@ -234,9 +234,10 @@ async def send_sms_clarification(
     # Update phone entry with message SID
     await phone_pool.update_message_sid(phone_entry.phone_number, message_sid)
 
+    masked_from = mask_phone_number(from_normalized)
     logger.info(
         "SMS clarification sent from %s for conversation %s (agent: %s)",
-        mask_phone_number(from_normalized),
+        masked_from,
         conversation_id,
         agent_name or "unknown",
     )
