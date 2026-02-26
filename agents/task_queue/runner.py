@@ -222,7 +222,11 @@ class TaskQueueRunner(BatchAgent):
                 branch_name=branch_name,
             )
         )
-        # Keep context lists in sync
+        # Keep context lists in sync.
+        # "researched" and "needs_human" are intentionally omitted: researched tasks
+        # accumulate context via self.context.research_notes (keyed by task_id), and
+        # needs_human tasks are awaiting human action — neither affects downstream
+        # task routing or get_related_context() cross-task matching.
         if outcome == "completed":
             self.context.completed_ids.append(task_id)
         elif outcome == "partial":
@@ -232,7 +236,7 @@ class TaskQueueRunner(BatchAgent):
         elif outcome == "skipped":
             self.context.skipped_ids.append(task_id)
 
-    async def _set_task_blocked(
+    async def _update_task_status(
         self,
         task_id: str,
         blocking_reason: str | None = None,
@@ -241,7 +245,7 @@ class TaskQueueRunner(BatchAgent):
         comment: str | None = None,
         status: str = "blocked",
     ) -> None:
-        """Set a task's agent status to blocked (or another terminal status) and add context.
+        """Update a task's agent status and optionally add a note and comment.
 
         Calls set_agent_status, optionally add_agent_note, and optionally _add_comment.
         All MCP calls are best-effort — failures are logged but not re-raised.
@@ -250,9 +254,11 @@ class TaskQueueRunner(BatchAgent):
             task_id: The task's external ID.
             blocking_reason: Short reason passed to the blocking_reason API field
                 (truncated to _BLOCKING_REASON chars). Omitted from the API call if None.
-            agent_note: If provided, content for an add_agent_note MCP call.
+            agent_note: If provided, content for an add_agent_note MCP call
+                (truncated to _AGENT_NOTE chars).
             comment: If provided, content for a task comment via _add_comment.
-            status: Agent status to set (default "blocked").
+            status: Agent status to set (default "blocked"). May be any valid agent
+                status: "blocked", "needs_human", "in_progress", "pending_review", etc.
         """
         try:
             status_args: dict = {"task_id": task_id, "status": status}
@@ -418,7 +424,7 @@ class TaskQueueRunner(BatchAgent):
                 transient = _is_transient_error(e)
                 reset_status = "pending_review" if transient else "blocked"
                 reason_prefix = "Transient error, will retry" if transient else "Routing error"
-                await self._set_task_blocked(
+                await self._update_task_status(
                     task_id,
                     f"{reason_prefix}: {str(e)}",
                     comment=f"Processing failed: {str(e)[:_ERROR_PREVIEW]}",
@@ -835,7 +841,7 @@ class TaskQueueRunner(BatchAgent):
                     f"{f' on branch {root_result.branch_name}' if root_result.branch_name else ''}"
                     f"{' (no code changes produced)' if not has_changes else ''}"
                 )
-                await self._set_task_blocked(
+                await self._update_task_status(
                     task_id,
                     agent_note=note,
                     comment=f"Needs human review: {note}",
@@ -864,7 +870,7 @@ class TaskQueueRunner(BatchAgent):
                     f"({status_counts}). "
                     f"Subtasks written to TaskManager."
                 )
-                await self._set_task_blocked(
+                await self._update_task_status(
                     task_id,
                     agent_note=note,
                     comment=f"Partially complete: {note}",
@@ -883,7 +889,7 @@ class TaskQueueRunner(BatchAgent):
             else:
                 # Actually failed
                 error_msg = root_result.error or f"Orchestrator status: {root_result.status.value}"
-                await self._set_task_blocked(
+                await self._update_task_status(
                     task_id,
                     error_msg,
                     agent_note=f"Execution failed: {error_msg}",
@@ -901,7 +907,7 @@ class TaskQueueRunner(BatchAgent):
 
         except Exception as e:
             logger.error(f"Execution failed for {task_id}: {e}")
-            await self._set_task_blocked(
+            await self._update_task_status(
                 task_id,
                 str(e),
                 comment=f"Execution failed with exception: {str(e)[:_ERROR_PREVIEW]}",
@@ -1000,7 +1006,7 @@ class TaskQueueRunner(BatchAgent):
                     )
                 if result.output:
                     fail_comment += f"\n\nPartial output:\n{result.output[:_OUTPUT_PREVIEW]}"
-                await self._set_task_blocked(
+                await self._update_task_status(
                     task_id,
                     error_msg,
                     agent_note=partial_note,
@@ -1018,7 +1024,7 @@ class TaskQueueRunner(BatchAgent):
 
         except Exception as e:
             logger.error(f"Lightweight execution failed for {task_id}: {e}")
-            await self._set_task_blocked(
+            await self._update_task_status(
                 task_id,
                 str(e),
                 comment=f"Lightweight execution failed with exception: {str(e)[:_ERROR_PREVIEW]}",
@@ -1048,7 +1054,7 @@ class TaskQueueRunner(BatchAgent):
             # Store research notes via MCP
             await self.call_tool(
                 "add_agent_note",
-                {"task_id": task_id, "note": f"Pre-research findings:\n{summary}"},
+                {"task_id": task_id, "note": f"Pre-research findings:\n{summary[:_AGENT_NOTE]}"},
             )
 
             # Set status to pending_review
@@ -1077,7 +1083,7 @@ class TaskQueueRunner(BatchAgent):
 
         except Exception as e:
             logger.error(f"Pre-research failed for {task_id}: {e}")
-            await self._set_task_blocked(
+            await self._update_task_status(
                 task_id,
                 f"Pre-research failed: {str(e)}",
                 agent_note=f"Pre-research failed: {e}",
@@ -1099,7 +1105,7 @@ class TaskQueueRunner(BatchAgent):
 
         blocking_reason = triage.blocking_reason or triage.reasoning or "Not actionable by agent"
 
-        await self._set_task_blocked(
+        await self._update_task_status(
             task_id,
             blocking_reason,
             agent_note=f"Not actionable: {blocking_reason}",
