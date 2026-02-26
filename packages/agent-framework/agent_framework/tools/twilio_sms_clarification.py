@@ -21,13 +21,13 @@ Requires:
 import logging
 import os
 from typing import Any
-from urllib.parse import quote
-
-import httpx
 
 from ..core.config import settings
-from ..security import mask_phone_number
 from ..storage.sms_phone_pool import SMSPhonePoolManager
+from .twilio_utils import (
+    post_twilio_message,
+    validate_twilio_credentials,
+)
 from .twilio_utils import (
     sanitize_error_message as _sanitize_error_message,
 )
@@ -144,14 +144,12 @@ async def send_sms_clarification(
         )
 
     # Validate Twilio credentials
-    account_sid = settings.twilio_account_sid
-    auth_token = settings.twilio_auth_token
-
-    if not account_sid or not auth_token:
+    creds = validate_twilio_credentials()
+    if isinstance(creds, str):
         return await _fallback_to_email(
             question=question,
             agent_name=agent_name,
-            fallback_reason="Twilio credentials not configured",
+            fallback_reason=creds,
         )
 
     if not settings.admin_phone_number:
@@ -213,92 +211,48 @@ async def send_sms_clarification(
     else:
         message_body = f"{question}\n\n(Reply to this message to respond)"
 
-    # Send SMS via Twilio
-    payload = {
-        "To": to_normalized,
-        "From": from_normalized,
-        "Body": message_body,
+    # Send SMS via shared helper
+    post_result = await post_twilio_message(
+        credentials=creds,
+        to=to_normalized,
+        from_number=from_normalized,
+        body=message_body,
+    )
+
+    if not post_result["success"]:
+        await phone_pool.release(phone_entry.phone_number)
+        return await _fallback_to_email(
+            question=question,
+            agent_name=agent_name,
+            fallback_reason=post_result["error"],
+        )
+
+    result = post_result["result"]
+    message_sid = result.get("sid")
+
+    # Update phone entry with message SID
+    await phone_pool.update_message_sid(phone_entry.phone_number, message_sid)
+
+    logger.info(
+        "SMS clarification sent for conversation %s (agent: %s)",
+        conversation_id,
+        agent_name or "unknown",
+    )
+
+    return {
+        "success": True,
+        "method": "sms",
+        "phone_number": from_normalized,
+        "message_sid": message_sid,
+        "to": to_normalized,
+        "status": result.get("status"),
+        "expires_at": phone_entry.lock_expires_at.isoformat()
+        if phone_entry.lock_expires_at
+        else None,
+        "conversation_id": conversation_id,
+        "message": "Clarification request sent. The conversation will resume when "
+        "the admin replies via SMS.",
     }
-
-    url = f"https://api.twilio.com/2010-04-01/Accounts/{quote(account_sid, safe='')}/Messages.json"
-
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                url,
-                data=payload,
-                auth=(account_sid, auth_token),
-            )
-
-            try:
-                result = response.json()
-            except ValueError:
-                await phone_pool.release(phone_entry.phone_number)
-                logger.error("Invalid JSON response from Twilio API")
-                return await _fallback_to_email(
-                    question=question,
-                    agent_name=agent_name,
-                    fallback_reason=f"Invalid Twilio response (status {response.status_code})",
-                )
-
-            if response.status_code == 201:
-                message_sid = result.get("sid")
-
-                # Update phone entry with message SID
-                await phone_pool.update_message_sid(phone_entry.phone_number, message_sid)
-
-                logger.info(
-                    "SMS clarification sent from %s for conversation %s (agent: %s)",
-                    mask_phone_number(from_normalized),
-                    conversation_id,
-                    agent_name or "unknown",
-                )
-
-                return {
-                    "success": True,
-                    "method": "sms",
-                    "phone_number": from_normalized,
-                    "message_sid": message_sid,
-                    "to": to_normalized,
-                    "status": result.get("status"),
-                    "expires_at": phone_entry.lock_expires_at.isoformat()
-                    if phone_entry.lock_expires_at
-                    else None,
-                    "conversation_id": conversation_id,
-                    "message": "Clarification request sent. The conversation will resume when "
-                    "the admin replies via SMS.",
-                }
-            else:
-                await phone_pool.release(phone_entry.phone_number)
-                error_code = result.get("code")
-                error_message = result.get("message", "Unknown error")
-                logger.error(f"Twilio API error: {error_code} - {error_message}")
-
-                return await _fallback_to_email(
-                    question=question,
-                    agent_name=agent_name,
-                    fallback_reason=f"Twilio error {error_code}: {error_message}",
-                )
-
-    except httpx.HTTPError as e:
-        await phone_pool.release(phone_entry.phone_number)
-        sanitized_error = _sanitize_error_message(e)
-        logger.error(f"HTTP error sending SMS: {sanitized_error}")
-        return await _fallback_to_email(
-            question=question,
-            agent_name=agent_name,
-            fallback_reason=f"Network error: {sanitized_error}",
-        )
-
-    except Exception as e:
-        await phone_pool.release(phone_entry.phone_number)
-        sanitized_error = _sanitize_error_message(e)
-        logger.error(f"Error sending SMS clarification: {sanitized_error}")
-        return await _fallback_to_email(
-            question=question,
-            agent_name=agent_name,
-            fallback_reason=f"Unexpected error: {sanitized_error}",
-        )
 
 
 async def _fallback_to_email(
@@ -337,7 +291,7 @@ Please reply to this email or contact the system directly."""
         )
 
         if result.get("status") == "success":
-            logger.info(f"Clarification sent via email fallback: {fallback_reason}")
+            logger.info("Clarification sent via email fallback")
             return {
                 "success": True,
                 "method": "email",
@@ -346,7 +300,7 @@ Please reply to this email or contact the system directly."""
                 "message": "SMS unavailable, clarification request sent via email instead.",
             }
         else:
-            logger.error(f"Email fallback also failed: {result.get('error')}")
+            logger.error("Email fallback also failed: %s", result.get("error"))
             return {
                 "success": False,
                 "method": "email",
