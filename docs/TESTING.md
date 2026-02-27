@@ -407,7 +407,7 @@ SELECT key, value, category, importance FROM memories ORDER BY updated_at DESC L
 
 ## Related Documentation
 
-- [VOICE_AGENTS.md](VOICE_AGENTS.md) - Voice-enabled agent testing
+- [GUIDES.md](GUIDES.md) - Feature guides (includes voice interface)
 - [CLAUDE.md](CLAUDE.md) - Main project documentation
 - [agent-framework](../packages/agent-framework/) - Core framework testing
 - [HOT_RELOAD.md](HOT_RELOAD.md) - Development workflow with hot reload

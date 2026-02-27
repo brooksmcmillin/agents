@@ -792,6 +792,34 @@ AUDIO_INPUT_DEVICE_INDEX=0   # Your microphone
 AUDIO_OUTPUT_DEVICE_INDEX=1  # Your speakers
 ```
 
+### Architecture
+
+The voice integration uses the `chasm` library's `VoiceAdapter`:
+
+```
+User Voice → PyAudio → Deepgram (STT) → Agent (Claude + MCP Tools) → Cartesia (TTS) → PyAudio → Speaker
+                                              ↓
+                                         MCP Server
+                                         (All Tools)
+```
+
+**How voice wrapping works:**
+1. `bin/run-voice-agent` looks up the agent class in the shared registry
+2. Instantiates the agent and dynamically adds voice-optimized prompt guidance
+3. Passes the agent to chasm's `VoiceAdapter` and GUI
+4. User interactions flow: Audio → STT → Agent → TTS → Audio
+
+The voice wrapper preserves all agent functionality: MCP tool access, conversation history, memory persistence, and token tracking.
+
+### Adding Agents to Voice Mode
+
+Any agent registered in `shared/registry.py` is automatically available for voice mode:
+
+```bash
+uv run python bin/run-voice-agent --list
+uv run python bin/run-voice-agent your-agent
+```
+
 ### Voice Settings
 
 ```python
@@ -810,8 +838,8 @@ voice = VoiceInterface(
 
 ## Additional Resources
 
-- [Testing Guide](docs/TESTING.md) - Comprehensive testing strategies
+- [Testing Guide](TESTING.md) - Comprehensive testing strategies
 - [REMOTE_MCP.md](REMOTE_MCP.md) - Remote MCP server setup
 - [HOT_RELOAD.md](HOT_RELOAD.md) - Development workflow
-- [CLAUDE.md](CLAUDE.md) - Project overview
-- [agent-framework](packages/agent-framework/) - Framework documentation
+- [CLAUDE.md](../CLAUDE.md) - Project overview
+- [agent-framework](../packages/agent-framework/) - Framework documentation

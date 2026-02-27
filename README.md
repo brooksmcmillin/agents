@@ -10,7 +10,7 @@ A multi-agent system built with Claude (Anthropic SDK) and Model Context Protoco
 
 This project demonstrates production-ready patterns for building LLM-powered agents with external tool integrations. It includes:
 
-- **Multiple Agents** - 12 specialized agents including chatbot, PR assistant, security researcher, business advisor, task manager, code reviewer, email intake, notifier, orchestrator, red team, events, and code analysis
+- **Multiple Agents** - 8 interactive CLI agents (chatbot, PR, security, business, tasks, code analysis, events, red team) and 6 standalone services (code reviewer, email intake, notifier, orchestrator, PR shepherd, task queue)
 - **Web UI** - Modern React interface for chatting with agents via persistent conversations
 - **Shared MCP Tools** - 53 tools including web analysis, memory, RAG document search, email management, HTTP client, filesystem, Claude Code, and communication
 - **Hot Reload** - Edit tools without restarting agents
@@ -138,82 +138,49 @@ while not done:
 
 ## Available Agents
 
-### Chatbot
-General-purpose AI assistant with access to all 53 MCP tools:
-- Web content analysis and research
-- Persistent memory across conversations
-- RAG document search (requires PostgreSQL + OpenAI)
-- Email management via FastMail
-- Slack notifications
-- Multi-domain task support
+### Interactive CLI Agents
 
-**Run:** `uv run bin/run-agent chatbot` | **[Documentation](agents/chatbot/README.md)**
+Run via `uv run bin/run-agent <name>`. These are registered in `shared/registry.py` and accessible through the REST API and Web UI.
 
-### PR Agent
-Content strategy assistant that helps with:
-- Blog post analysis and optimization
-- Social media strategy and engagement
-- SEO recommendations
-- Brand voice consistency
+| Agent | Run As | Description | Docs |
+|-------|--------|-------------|------|
+| **Chatbot** | `chatbot` | General-purpose assistant with all 53 MCP tools | [docs](agents/chatbot/README.md) |
+| **PR Agent** | `pr` | Content strategy, SEO, social media, Claude Code editing | [docs](agents/pr_agent/README.md) |
+| **Security Researcher** | `security` | AI/ML security research with RAG knowledge base | [docs](agents/security_researcher/README.md) |
+| **Business Advisor** | `business` | Monetization strategy, market analysis, GitHub analysis | [docs](agents/business_advisor/README.md) |
+| **Task Manager** | `tasks` | Task management via remote MCP server | [docs](agents/task_manager/README.md) |
+| **Code Analysis** | `code-analysis` | Repository review for security, logic, performance | [docs](agents/code_analysis/README.md) |
+| **Events** | `events` | Local events discovery with preference learning | [docs](agents/events/README.md) |
+| **Red Team** | `red-team` | Authorized penetration testing via HTTP tools | [docs](agents/red_team/README.md) |
 
-**Run:** `uv run bin/run-agent pr`
+### Standalone Services
 
-### Security Researcher
-AI/ML security expert with RAG-backed knowledge base:
-- Security research questions and vulnerability analysis
-- Blog post fact-checking for technical accuracy
-- Threat modeling and security reviews
-- Research paper search and synthesis
-- Requires PostgreSQL + OpenAI for RAG functionality
+Run directly — these are not in the agent registry and don't use `bin/run-agent`.
 
-**Run:** `uv run bin/run-agent security` | **[Documentation](agents/security_researcher/README.md)**
-
-### Business Advisor
-Business strategy and monetization advisor:
-- Analyze GitHub repos and websites for opportunities
-- Generate business ideas with honest risk assessments
-- Develop comprehensive business plans
-- Market research and competitive analysis
-- Optional GitHub MCP integration
-
-**Run:** `uv run bin/run-agent business` | **[Documentation](agents/business_advisor/README.md)**
-
-### Task Manager
-Intelligent task management assistant:
-- Reschedule overdue tasks evenly across calendar
-- Pre-research upcoming tasks with context
-- Prioritize based on urgency and dependencies
-- Connect to remote task management server (requires remote MCP)
-
-**Run:** `uv run bin/run-agent tasks` | **[Documentation](agents/task_manager/README.md)**
+| Service | Invocation | Description | Docs |
+|---------|-----------|-------------|------|
+| **Code Reviewer** | `uv run python -m agents.code_reviewer.main <path>` | Batch review with 5 parallel agents, email reports | [docs](agents/code_reviewer/README.md) |
+| **Email Intake** | `uv run python -m agents.email_intake.main` | Monitors inbox, routes tasks to agents | [docs](agents/email_intake/README.md) |
+| **Notifier** | `uv run python -m agents.notifier.main` | Slack notifications about open tasks | [docs](agents/notifier/README.md) |
+| **Orchestrator** | `uv run python -m agents.orchestrator.main "task"` | Task decomposition and Claude Code workers | [docs](agents/orchestrator/README.md) |
+| **PR Shepherd** | `PRShepherd(config).run()` | Polls PRs, fixes CI, auto-merges | [docs](agents/pr_shepherd/README.md) |
+| **Task Queue** | `TaskQueueRunner(config).run()` | Batch task triage and orchestrator dispatch | [docs](agents/task_queue/README.md) |
 
 ### REST API Server
-HTTP/REST interface for accessing agents via API:
-- Stateless single-shot requests
-- Stateful multi-turn sessions with conversation history
-- Access to all 5 interactive agents (chatbot, pr, security, business, tasks)
+
+HTTP/REST interface for accessing all 8 interactive agents:
+- Stateless single-shot requests and stateful multi-turn sessions
 - Automatic session management with TTL
 - Token usage tracking per request
 
 **Run:** `uv run python -m api` | **[Documentation](api/README.md)**
-
-### Task Notifier
-Lightweight notification script (not a full interactive agent):
-- Sends Slack updates about open tasks
-- Categorizes overdue, due today, and upcoming
-- Can be run via cron for automated notifications
-- Requires remote MCP for task data
-
-**Run:** `uv run python -m agents.notifier.main` | **[Documentation](agents/notifier/README.md)**
-
-See individual agent directories for detailed documentation and usage examples.
 
 ## Web UI
 
 A modern React web interface for interacting with agents via persistent conversations.
 
 **Features:**
-- Choose from 5 specialized agents (chatbot, PR, tasks, security, business)
+- Choose from 8 interactive agents (chatbot, PR, tasks, security, business, code analysis, events, red team)
 - Database-backed conversations that survive server restarts
 - Create, rename, delete, and switch between conversations
 - Real-time chat with token usage tracking
@@ -301,27 +268,33 @@ Memory persists across conversations (default: `memories/memories.json`, optiona
 ## Project Structure
 
 ```
-agents/              # Agent implementations ONLY
-├── chatbot/         # General-purpose assistant with all tools
-├── pr_agent/        # PR and content strategy assistant
-├── security_researcher/  # AI security research expert
-├── business_advisor/     # Business strategy and monetization
-├── task_manager/    # Interactive task management
-├── code_reviewer/   # Batch code review runner
-├── email_intake/    # Email inbox monitor
-└── notifier/        # Slack notification script
-api/                 # REST API server (FastAPI)
-webui/               # React frontend
-mcp_server/          # Shared MCP server and tools
-infra/               # Infrastructure configs (Grafana, Loki, Promtail)
-docs/                # Documentation
-packages/            # Internal libraries (monorepo)
-├── agent-framework/ # Base agent classes, MCP client, and tools
-└── chasm/           # Voice interface library
-shared/              # Common utilities
-bin/                 # Executable scripts
-tests/               # Test suite
-scripts/             # Utility scripts
+agents/                    # Agent implementations
+├── chatbot/               # General-purpose assistant (interactive)
+├── pr_agent/              # Content strategy assistant (interactive)
+├── security_researcher/   # AI security research (interactive)
+├── business_advisor/      # Business strategy (interactive)
+├── task_manager/          # Task management (interactive)
+├── code_analysis/         # Repository analysis (interactive)
+├── events/                # Local events discovery (interactive)
+├── red_team/              # Penetration testing (interactive)
+├── code_reviewer/         # Batch code review (standalone)
+├── email_intake/          # Email inbox monitor (standalone)
+├── notifier/              # Slack notifications (standalone)
+├── orchestrator/          # Task decomposition + workers (standalone)
+├── pr_shepherd/           # CI fix + auto-merge daemon (standalone)
+└── task_queue/            # Batch task triage pipeline (standalone)
+api/                       # REST API server (FastAPI)
+webui/                     # React frontend
+mcp_server/                # Shared MCP server and tools
+infra/                     # Infrastructure configs (Grafana, Loki, Promtail)
+docs/                      # Documentation
+packages/                  # Internal libraries (monorepo)
+├── agent-framework/       # Base agent classes, MCP client, and tools
+└── chasm/                 # Voice interface library
+shared/                    # Common utilities
+bin/                       # Executable scripts
+tests/                     # Test suite
+scripts/                   # Utility scripts
 ```
 
 ## Development Workflow
@@ -338,24 +311,7 @@ The agent reconnects to MCP server for each tool call instead of maintaining a p
 
 ### Adding a New Tool
 
-1. Create implementation in `packages/agent-framework/agent_framework/tools/your_tool.py`:
-```python
-async def your_tool(param: str) -> dict[str, Any]:
-    # Implementation
-    return {"result": "data"}
-```
-
-2. Export from `packages/agent-framework/agent_framework/tools/__init__.py`:
-```python
-from .your_tool import your_tool
-
-__all__ = [..., "your_tool"]
-```
-
-3. Register in `mcp_server/server.py`:
-   - Import the tool from `agent_framework.tools`
-   - Register with `server.register_tool()` in `setup_custom_tools()`
-   - Tool automatically available to all agents that use this MCP server
+See [docs/tools.md](docs/tools.md#adding-a-new-tool) for the complete guide on creating and registering MCP tools.
 
 ### Adding a New Agent
 
@@ -401,7 +357,7 @@ See [CLAUDE.md](CLAUDE.md#adding-new-agents) for detailed instructions.
 
 **Working Now:**
 - Full agentic loop with Claude Sonnet 4.5
-- 12 agents with specialized capabilities
+- 8 interactive agents + 6 standalone services
 - 53 MCP tools (web, memory, RAG, email, HTTP client, filesystem, Claude Code, communication)
 - Real web scraping and content analysis
 - RAG document search with semantic similarity
@@ -448,7 +404,6 @@ LINKEDIN_CLIENT_SECRET=...
 
 - **[CLAUDE.md](CLAUDE.md)** - Comprehensive project documentation for Claude Code
 - **[docs/TESTING.md](docs/TESTING.md)** - Testing and debugging guide (memory tools, logs, common issues)
-- **[docs/VOICE_AGENTS.md](docs/VOICE_AGENTS.md)** - Voice-enabled agents with chasm audio pipeline
 - **[GUIDES.md](docs/GUIDES.md)** - Feature guides (memory system, OAuth, deployment, voice interface)
 - **[REMOTE_MCP.md](docs/REMOTE_MCP.md)** - Remote MCP server setup and configuration
 - **[HOT_RELOAD.md](docs/HOT_RELOAD.md)** - Hot reload development workflow

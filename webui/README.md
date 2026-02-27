@@ -4,7 +4,7 @@ Modern React web interface for the multi-agent system with persistent conversati
 
 ## Features
 
-- **Multiple Agents** - Choose from 5 specialized agents (chatbot, PR, tasks, security, business)
+- **Multiple Agents** - Choose from 8 interactive agents (chatbot, PR, tasks, security, business, code analysis, events, red team)
 - **Persistent Conversations** - Database-backed conversations that survive server restarts
 - **Conversation Management** - Create, rename, delete, and switch between conversations
 - **Real-time Chat** - Send messages and view responses with role-based message bubbles
