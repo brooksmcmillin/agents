@@ -493,18 +493,22 @@ class TestWebSocketAuth:
             assert exc_info.value.code == 4001
 
     def test_ws_accepts_valid_auth_message(self, client):
-        """WebSocket passes API key check then closes with 4004 for unknown session."""
+        """WebSocket passes API key check then closes with 4003 for unknown/unowned session.
+
+        Session not found and wrong session_token both return 4003 to prevent
+        session enumeration via differential close codes.
+        """
         with patch("api.server._api_key", "secret-key"):
             from starlette.websockets import WebSocketDisconnect
 
-            # Correct API key but session doesn't exist → 4004 after API-key check.
+            # Correct API key but session doesn't exist → 4003 (unified code).
             with pytest.raises(WebSocketDisconnect) as exc_info:
                 with client.websocket_connect("/ws/claude-code/fake-session") as ws:
                     ws.send_json(
                         {"type": "auth", "api_key": "secret-key", "session_token": "any-token"}
                     )
                     ws.receive_json()
-            assert exc_info.value.code == 4004
+            assert exc_info.value.code == 4003
 
     def test_ws_rejects_wrong_session_token(self, client):
         """WebSocket should reject a connection with an incorrect session token."""

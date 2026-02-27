@@ -267,7 +267,8 @@ class TestWebSocketAuth:
     def test_websocket_no_auth_required_session_not_found(self):
         """With auth disabled, WebSocket still needs auth message (for session_token).
 
-        When the session doesn't exist, 4004 is returned after auth message is processed.
+        When the session doesn't exist, 4003 is returned (unified code prevents
+        session enumeration via differential close codes).
         """
         env = {"API_KEY": "", "DISABLE_AUTH": "true", "DATABASE_URL": ""}
         with patch.dict(os.environ, env, clear=False):
@@ -278,8 +279,8 @@ class TestWebSocketAuth:
                         # Must still send auth message (with session_token) even when API_KEY is unset
                         ws.send_json({"type": "auth", "session_token": "any-token"})
                         ws.receive_json()
-                # Should close with 4004 (session not found) since auth message was valid
-                assert exc_info.value.code == 4004
+                # 4003 (unified "session not found or invalid token")
+                assert exc_info.value.code == 4003
 
     def test_websocket_bad_auth_closes_4001(self):
         """With API_KEY set, sending wrong key should close with 4001."""
@@ -309,7 +310,11 @@ class TestWebSocketAuth:
                 assert exc_info.value.code == 4001
 
     def test_websocket_correct_auth_proceeds_to_session_check(self):
-        """With correct auth + session_token, should proceed to session lookup (4004 for missing)."""
+        """With correct auth + any session_token, nonexistent session closes with 4003.
+
+        4003 is returned for both "session not found" and "wrong token" to prevent
+        enumeration of session IDs.
+        """
         env = {"API_KEY": "correct-key", "DATABASE_URL": ""}
         with patch.dict(os.environ, env, clear=False):
             server_module = _reload_server()
@@ -319,7 +324,6 @@ class TestWebSocketAuth:
                         ws.send_json(
                             {"type": "auth", "api_key": "correct-key", "session_token": "tok"}
                         )
-                        # After auth succeeds, server checks session => 4004
                         ws.receive_json()
-                # Should get 4004 (session not found), NOT 4001 (auth failed)
-                assert exc_info.value.code == 4004
+                # 4003: unified "session not found or invalid token", NOT 4001 (auth failed)
+                assert exc_info.value.code == 4003

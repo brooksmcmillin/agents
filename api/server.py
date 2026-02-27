@@ -48,6 +48,7 @@ from anthropic.types import TextBlock
 from fastapi import (
     Depends,
     FastAPI,
+    Header,
     HTTPException,
     Query,
     Request,
@@ -60,7 +61,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 
-from .claude_code_sessions import ClaudeCodeSessionManager
+from .claude_code_sessions import ClaudeCodeSession, ClaudeCodeSessionManager
 from .models import (
     AgentInfo,
     AgentListResponse,
@@ -383,15 +384,51 @@ async def _authenticate_websocket(websocket: WebSocket) -> dict | None:
     """
     try:
         data = await asyncio.wait_for(websocket.receive_json(), timeout=10.0)
-    except (TimeoutError, Exception):
+    except Exception:  # TimeoutError, WebSocketDisconnect, JSONDecodeError, etc.
         return None
     if not isinstance(data, dict) or data.get("type") != "auth":
         return None
     if _api_key:
-        ws_key = data.get("api_key", "")
-        if not secrets.compare_digest(str(ws_key).encode("utf-8"), _api_key.encode("utf-8")):
+        ws_key = data.get("api_key")
+        if not isinstance(ws_key, str):
+            return None
+        if not secrets.compare_digest(ws_key.encode("utf-8"), _api_key.encode("utf-8")):
             return None
     return data
+
+
+def _check_session_token(
+    session_id: str,
+    x_session_token: str | None,
+) -> ClaudeCodeSession:
+    """Verify session ownership and return the session object.
+
+    Called by REST endpoints that mutate session state (input, permission,
+    resize, delete).  Raises HTTP 403 on mismatch to avoid leaking whether
+    the session exists via a differential response.
+
+    Args:
+        session_id: The session ID from the URL path.
+        x_session_token: Value of the ``X-Session-Token`` request header.
+
+    Returns:
+        The verified session object.
+
+    Raises:
+        HTTPException: 403 if the session is not found or the token is wrong.
+    """
+    session = claude_code_mgr.get_session(session_id)
+    token_ok = (
+        isinstance(x_session_token, str)
+        and session is not None
+        and secrets.compare_digest(
+            x_session_token.encode("utf-8"),
+            session.session_token.encode("utf-8"),
+        )
+    )
+    if not token_ok or session is None:
+        raise HTTPException(status_code=403, detail="Session not found or invalid token")
+    return session
 
 
 # ---------------------------------------------------------------------------
@@ -1060,10 +1097,19 @@ async def get_claude_code_session(
 
 
 @app.delete("/claude-code/sessions/{session_id}", status_code=204)
-async def delete_claude_code_session(session_id: str, _: None = Depends(verify_api_key)) -> None:
-    """Terminate a Claude Code session."""
-    if not await claude_code_mgr.terminate_session(session_id):
-        raise HTTPException(status_code=404, detail="Session not found")
+async def delete_claude_code_session(
+    session_id: str,
+    _: None = Depends(verify_api_key),
+    x_session_token: str | None = Header(default=None),
+) -> None:
+    """Terminate a Claude Code session.
+
+    Requires the ``X-Session-Token`` header matching the token returned when
+    the session was created.
+    """
+    _check_session_token(session_id, x_session_token)
+    # Session existence already verified by _check_session_token
+    await claude_code_mgr.terminate_session(session_id)
 
 
 @app.post("/claude-code/sessions/{session_id}/input", status_code=204)
@@ -1071,11 +1117,14 @@ async def send_claude_code_input(
     session_id: str,
     body: ClaudeCodeInputRequest,
     _: None = Depends(verify_api_key),
+    x_session_token: str | None = Header(default=None),
 ) -> None:
-    """Send input to a Claude Code session (alternative to WebSocket)."""
-    session = claude_code_mgr.get_session(session_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+    """Send input to a Claude Code session (alternative to WebSocket).
+
+    Requires the ``X-Session-Token`` header matching the token returned when
+    the session was created.
+    """
+    session = _check_session_token(session_id, x_session_token)
 
     try:
         await session.send_input(body.text)
@@ -1088,11 +1137,14 @@ async def respond_claude_code_permission(
     session_id: str,
     body: ClaudeCodePermissionResponse,
     _: None = Depends(verify_api_key),
+    x_session_token: str | None = Header(default=None),
 ) -> None:
-    """Respond to a permission request in a Claude Code session."""
-    session = claude_code_mgr.get_session(session_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+    """Respond to a permission request in a Claude Code session.
+
+    Requires the ``X-Session-Token`` header matching the token returned when
+    the session was created.
+    """
+    session = _check_session_token(session_id, x_session_token)
 
     try:
         await session.respond_permission(body.approved)
@@ -1105,11 +1157,14 @@ async def resize_claude_code_terminal(
     session_id: str,
     body: ClaudeCodeResizeRequest,
     _: None = Depends(verify_api_key),
+    x_session_token: str | None = Header(default=None),
 ) -> None:
-    """Resize the terminal for a Claude Code session."""
-    session = claude_code_mgr.get_session(session_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+    """Resize the terminal for a Claude Code session.
+
+    Requires the ``X-Session-Token`` header matching the token returned when
+    the session was created.
+    """
+    session = _check_session_token(session_id, x_session_token)
 
     await session.resize_terminal(body.rows, body.cols)
 
@@ -1148,20 +1203,25 @@ async def claude_code_websocket(websocket: WebSocket, session_id: str) -> None:
         return
 
     session = claude_code_mgr.get_session(session_id)
-    if session is None:
-        await websocket.close(code=4004, reason="Session not found")
+
+    # Verify session ownership via per-session token before revealing whether
+    # the session exists.  Returning the same close code for "session not found"
+    # and "wrong token" prevents authenticated callers from enumerating valid
+    # session IDs by observing differential responses.
+    provided_token = auth_data.get("session_token")
+    token_ok = (
+        isinstance(provided_token, str)
+        and session is not None
+        and secrets.compare_digest(
+            provided_token.encode("utf-8"),
+            session.session_token.encode("utf-8"),
+        )
+    )
+    if not token_ok:
+        await websocket.close(code=4003, reason="Session not found or invalid token")
         return
 
-    # Verify session ownership via per-session token.
-    # When auth is disabled (no API_KEY), auth_data is an empty dict, so we
-    # still require the session_token to enforce ownership.
-    provided_token = str(auth_data.get("session_token", ""))
-    if not secrets.compare_digest(
-        provided_token.encode("utf-8"),
-        session.session_token.encode("utf-8"),
-    ):
-        await websocket.close(code=4003, reason="Invalid session token")
-        return
+    assert session is not None  # guaranteed by token_ok being True
 
     async def send_events() -> None:
         """Send session events to WebSocket client."""
