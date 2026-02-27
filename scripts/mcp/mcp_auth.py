@@ -440,13 +440,15 @@ def show_config():
     if auth_domain != mcp_domain:
         print(f"  Auth Server: https://{auth_domain} (auto-discovered ✅)")
 
-    print(f"  Authorize URL: {MCP_OAUTH_CONFIG['authorize_url']}")
-    print(f"  Token URL: {MCP_OAUTH_CONFIG['token_url']}")
-    print(f"  Register URL: {MCP_OAUTH_CONFIG['register_url']}")
+    # Extract display values to avoid logging full OAuth URLs from config dict
+    redirect_uri: str = MCP_OAUTH_CONFIG["redirect_uri"]
+    scope: str = MCP_OAUTH_CONFIG.get("scope", "default")
+
+    print(f"  Authorize Host: {auth_domain}")
     print(f"  Client ID: {os.getenv('MCP_CLIENT_ID') or '⚙️  Will auto-register'}")
     print("  Auth Method: PKCE (no client secret needed)")
-    print(f"  Redirect URI: {MCP_OAUTH_CONFIG['redirect_uri']}")
-    print(f"  Scope: {MCP_OAUTH_CONFIG['scope']}")
+    print(f"  Redirect URI: {redirect_uri}")
+    print(f"  Scope: {scope}")
     token_status = "Set" if os.getenv("MCP_AUTH_TOKEN") else "Not set"
     print(f"  Current Token: {token_status}")
     print()

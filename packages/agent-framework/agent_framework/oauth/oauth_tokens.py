@@ -126,8 +126,7 @@ class TokenStorage:
             except Exception as e:
                 if require_encryption:
                     raise RuntimeError(f"Encryption required but failed to initialize: {e}") from e
-                # nosem: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
-                logger.warning("Failed to initialize token encryption: %s", e)
+                logger.warning("Failed to initialize token encryption: %s", type(e).__name__)
 
         if require_encryption and self.cipher is None:
             raise RuntimeError("Encryption required but no key could be generated or loaded.")
@@ -153,7 +152,7 @@ class TokenStorage:
                 raise
             with f:
                 f.write(key)
-            logger.info("Auto-generated OAuth token encryption key (stored at %s)", key_file)
+            logger.info("Auto-generated OAuth token encryption key")
             return key
         except Exception as e:
             logger.warning("Failed to auto-generate encryption key: %s", e)

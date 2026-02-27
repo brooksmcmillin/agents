@@ -123,8 +123,7 @@ class TokenStore:
                 raise
             with f:
                 f.write(key)
-            # nosem: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
-            logger.info("Auto-generated token encryption key (stored at %s)", key_file)
+            logger.info("Auto-generated token encryption key")
             return key
         except Exception as e:
             logger.warning("Failed to auto-generate encryption key: %s", e)
