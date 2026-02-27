@@ -25,7 +25,7 @@ import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 load_dotenv()
 
@@ -74,10 +74,12 @@ class TaskFileEntry(BaseModel):
     @field_validator("tags")
     @classmethod
     def tags_must_have_valid_items(cls, v: list[str] | None) -> list[str] | None:
-        """Ensure each tag is a non-empty string within the max length."""
+        """Ensure each tag is a non-empty, non-blank string within the max length."""
         if v is None:
             return v
         for i, tag in enumerate(v):
+            if not tag.strip():
+                raise ValueError(f"tag #{i} must be a non-empty string")
             if len(tag) > 50:
                 raise ValueError(f"tag #{i} exceeds 50 characters")
         return v
@@ -211,12 +213,17 @@ def load_tasks_from_file(file_path: str) -> list[TaskFileEntry]:
     Raises:
         TaskFileValidationError: If the file contains invalid data.
     """
-    from pydantic import ValidationError
+    _MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
     path = Path(file_path)
     if not path.exists():
         logger.error(f"Task file not found: {file_path}")
         sys.exit(1)
+
+    if path.stat().st_size > _MAX_FILE_SIZE:
+        raise TaskFileValidationError(
+            f"Task file exceeds maximum allowed size of {_MAX_FILE_SIZE // (1024 * 1024)} MB"
+        )
 
     try:
         with open(path) as f:
@@ -286,12 +293,12 @@ async def run_orchestrator(args: argparse.Namespace) -> int:
 
     if args.file:
         try:
-            task_dicts = load_tasks_from_file(args.file)
+            task_entries = load_tasks_from_file(args.file)
         except TaskFileValidationError as e:
             logger.error(f"Task file validation failed: {e}")
             return 1
 
-        for entry in task_dicts:
+        for entry in task_entries:
             tier_value = entry.autonomy_tier if entry.autonomy_tier is not None else args.tier
             tasks.append(
                 Task(
