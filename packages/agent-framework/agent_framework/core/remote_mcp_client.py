@@ -306,15 +306,16 @@ class RemoteMCPClient:
             else:
                 # Browser flow - print to stdout so user sees it
                 logger.info("🔐 No valid token found, starting OAuth authentication...")
-                print("\n" + "=" * 60)
-                print("🔐 AUTHENTICATION REQUIRED")
-                print("=" * 60)
-                print(f"Server: {self.base_url}")
-                print()
-                print("Your browser will open for authentication.")
-                print("Please complete the login process in your browser.")
-                print("=" * 60)
-                print()
+                # flush=True ensures output is visible in piped/subprocess contexts
+                print("\n" + "=" * 60, flush=True)
+                print("🔐 AUTHENTICATION REQUIRED", flush=True)
+                print("=" * 60, flush=True)
+                print(f"Server: {self.base_url}", flush=True)
+                print(flush=True)
+                print("Your browser will open for authentication.", flush=True)
+                print("Please complete the login process in your browser.", flush=True)
+                print("=" * 60, flush=True)
+                print(flush=True)
 
             self.current_token = await flow_handler.authorize()
             self.token_storage.save_token(self.base_url, self.current_token)

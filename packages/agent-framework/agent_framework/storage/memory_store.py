@@ -229,9 +229,28 @@ class MemoryStore:
 
         return results
 
+    @staticmethod
+    def _words_match(query_words: list[str], key: str, value: str) -> bool:
+        """Check if any query word overlaps with any word in key/value.
+
+        Checks both directions (query word in memory word, memory word in
+        query word) to handle plural/singular without a stemmer.
+        """
+        text = f"{key} {value}"
+        mem_words = [w for w in text.split() if len(w) >= 3]
+        for qw in query_words:
+            for mw in mem_words:
+                if qw in mw or mw in qw:
+                    return True
+        return False
+
     def search_memories(self, query: str) -> list[Memory]:
         """
         Search memories by text in key or value.
+
+        Matches the full query first, then falls back to per-word matching
+        so that plurals and partial terms still find results (e.g. "rockets"
+        matches a memory containing "rocket").
 
         Args:
             query: Search query (case-insensitive)
@@ -240,11 +259,26 @@ class MemoryStore:
             List of matching Memory objects
         """
         query_lower = query.lower()
+
+        # Full-phrase match
         results = [
             m
             for m in self.memories.values()
             if query_lower in m.key.lower() or query_lower in m.value.lower()
         ]
+
+        # Per-word fallback: match if any query word (3+ chars) shares a
+        # common stem with any word in the key or value.  We check both
+        # directions (query word in memory word, memory word in query word)
+        # to handle plural/singular differences without a stemmer.
+        if not results:
+            words = [w for w in query_lower.split() if len(w) >= 3]
+            if words:
+                results = [
+                    m
+                    for m in self.memories.values()
+                    if self._words_match(words, m.key.lower(), m.value.lower())
+                ]
 
         # Sort by importance
         results.sort(key=lambda m: (-m.importance, -m.updated_at.timestamp()))
