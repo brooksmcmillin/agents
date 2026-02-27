@@ -431,14 +431,6 @@ def show_config():
     print("\n📋 Current MCP OAuth Configuration:\n")
     print(f"  MCP Server: {MCP_SERVER_BASE}")
 
-    # Show if endpoints were discovered
-    from urllib.parse import urlparse
-
-    auth_domain = urlparse(MCP_OAUTH_CONFIG["authorize_url"]).netloc
-    mcp_domain = urlparse(MCP_SERVER_BASE).netloc
-    if auth_domain != mcp_domain:
-        print(f"  Auth Server: https://{auth_domain} (auto-discovered ✅)")
-
     print(f"  Client ID: {os.getenv('MCP_CLIENT_ID') or '⚙️  Will auto-register'}")
     print("  Auth Method: PKCE (no client secret needed)")
     print("  Redirect URI: http://localhost:8889/callback")
