@@ -74,6 +74,7 @@ def build_agent_registry() -> dict[str, AgentEntry]:
     from agents.pr_agent.main import PRAgent
     from agents.red_team.main import RedTeamAgent
     from agents.security_researcher.main import SecurityResearcherAgent
+    from agents.system_admin.main import SystemAdminAgent
     from agents.task_manager.main import TaskManagerAgent
 
     mcp_task_config: dict[str, Any] = {
@@ -126,5 +127,10 @@ def build_agent_registry() -> dict[str, AgentEntry]:
             BusinessAdvisorAgent,
             None,  # kwargs built lazily via github_mcp_config()
             "Business strategy and monetization advisor",
+        ),
+        "sysadmin": (
+            SystemAdminAgent,
+            None,
+            "Network and system security assessment agent",
         ),
     }

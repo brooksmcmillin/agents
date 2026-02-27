@@ -103,3 +103,17 @@ WEB_RESEARCH_TOOLS = [
     "fetch_web_content",
     "analyze_website",
 ]
+
+NETWORK_ADMIN_TOOLS = [
+    "network_discover_hosts",
+    "network_scan_ports",
+    "network_check_tls",
+    "network_grab_banners",
+    "network_check_dns",
+    "system_get_info",
+    "system_check_ssh_config",
+    "system_check_file_permissions",
+    "system_check_firewall",
+    "network_check_default_credentials",
+    "network_generate_report",
+]
