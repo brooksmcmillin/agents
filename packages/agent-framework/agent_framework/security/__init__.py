@@ -21,7 +21,7 @@ from .llm_output_sanitizer import (
     sanitize_llm_to_llm_output,
 )
 from .pii import mask_phone_in_text, mask_phone_number
-from .ssrf import SSRFValidator
+from .ssrf import SSRFTransport, SSRFValidator
 
 __all__ = [
     "SECURITY_EVENT_KEY",
@@ -38,6 +38,7 @@ __all__ = [
     "SecurityClassification",
     "classify_message",
     "sanitize_llm_to_llm_output",
+    "SSRFTransport",
     "SSRFValidator",
     "trim_with_security_awareness",
 ]

@@ -7,8 +7,10 @@ requests to internal/private networks, localhost, and cloud metadata endpoints.
 import socket
 from unittest.mock import MagicMock, patch
 
+import httpcore
+import httpx
 import pytest
-from agent_framework.security import SSRFValidator
+from agent_framework.security import SSRFTransport, SSRFValidator
 
 
 class TestSSRFValidator:
@@ -530,8 +532,10 @@ class TestSSRFDocumentation:
             "Block IPv6 private ranges": True,
             "Validate redirect targets": True,
             "Limit maximum redirects": True,
-            "DNS rebinding protection": False,  # Not implemented yet
-            "Time-of-check-time-of-use protection": False,  # Not implemented yet
+            # SSRFTransport closes the TOCTOU gap by re-validating the resolved
+            # IP at TCP connect time, preventing DNS rebinding attacks.
+            "DNS rebinding protection via SSRFTransport": True,
+            "Time-of-check-time-of-use protection via SSRFTransport": True,
         }
 
         # This test always passes but documents the checklist
@@ -551,26 +555,138 @@ class TestSSRFDocumentation:
     def test_ssrf_protection_example_usage(self):
         """Document example usage of SSRF protection."""
         example_code = """
-        from agent_framework.security import SSRFValidator
+        from agent_framework.security import SSRFValidator, SSRFTransport
 
         async def safe_fetch(url: str):
-            # Validate URL before fetching
+            # Fast first-pass: reject obviously bad URLs before opening a socket.
             is_safe, reason = SSRFValidator.is_safe_url(url)
             if not is_safe:
                 raise ValueError(f"Unsafe URL: {reason}")
 
-            # Validate with redirect protection
-            is_safe, final_url = await SSRFValidator.validate_request_with_redirects(url)
-            if not is_safe:
-                raise ValueError(f"Unsafe redirect: {final_url}")
-
-            # Safe to fetch
-            async with httpx.AsyncClient() as client:
-                response = await client.get(url)
+            # SSRFTransport closes the TOCTOU gap by re-validating the resolved
+            # IP at TCP connect time, preventing DNS rebinding attacks.
+            async with httpx.AsyncClient(transport=SSRFTransport()) as client:
+                response = await client.get(url, follow_redirects=False)
                 return response
         """
 
         # This test documents the example
         assert "SSRFValidator" in example_code
         assert "is_safe_url" in example_code
-        assert "validate_request_with_redirects" in example_code
+        assert "SSRFTransport" in example_code
+
+
+class TestSSRFTransport:
+    """Tests for SSRFTransport DNS rebinding protection.
+
+    SSRFTransport closes the TOCTOU gap by validating resolved IPs at TCP
+    connect time, not just at URL-check time.
+    """
+
+    @pytest.mark.asyncio
+    @patch("socket.getaddrinfo")
+    async def test_blocks_private_ip_at_connect_time(self, mock_getaddrinfo: MagicMock) -> None:
+        """Transport raises ConnectError when hostname resolves to private IP at connect time."""
+        mock_getaddrinfo.return_value = [(2, 1, 6, "", ("192.168.1.1", 80))]
+
+        transport = SSRFTransport()
+        async with transport:
+            with pytest.raises(httpx.ConnectError, match="DNS rebinding detected"):
+                async with httpx.AsyncClient(transport=transport, follow_redirects=False) as client:
+                    await client.get("http://evil.example.com/")
+
+    @pytest.mark.asyncio
+    @patch("socket.getaddrinfo")
+    async def test_blocks_localhost_at_connect_time(self, mock_getaddrinfo: MagicMock) -> None:
+        """Transport raises ConnectError when hostname resolves to loopback at connect time."""
+        mock_getaddrinfo.return_value = [(2, 1, 6, "", ("127.0.0.1", 80))]
+
+        transport = SSRFTransport()
+        async with transport:
+            with pytest.raises(httpx.ConnectError, match="DNS rebinding detected"):
+                async with httpx.AsyncClient(transport=transport, follow_redirects=False) as client:
+                    await client.get("http://rebind.attacker.com/")
+
+    @pytest.mark.asyncio
+    @patch("socket.getaddrinfo")
+    async def test_blocks_metadata_endpoint_at_connect_time(
+        self, mock_getaddrinfo: MagicMock
+    ) -> None:
+        """Transport raises ConnectError when hostname resolves to cloud metadata at connect time."""
+        mock_getaddrinfo.return_value = [(2, 1, 6, "", ("169.254.169.254", 80))]
+
+        transport = SSRFTransport()
+        async with transport:
+            with pytest.raises(httpx.ConnectError, match="DNS rebinding detected"):
+                async with httpx.AsyncClient(transport=transport, follow_redirects=False) as client:
+                    await client.get("http://sneaky.attacker.com/")
+
+    @pytest.mark.asyncio
+    @patch("socket.getaddrinfo")
+    async def test_blocks_ipv6_private_at_connect_time(self, mock_getaddrinfo: MagicMock) -> None:
+        """Transport raises ConnectError when hostname resolves to IPv6 private at connect time."""
+        mock_getaddrinfo.return_value = [(10, 1, 6, "", ("::1", 80, 0, 0))]
+
+        transport = SSRFTransport()
+        async with transport:
+            with pytest.raises(httpx.ConnectError, match="DNS rebinding detected"):
+                async with httpx.AsyncClient(transport=transport, follow_redirects=False) as client:
+                    await client.get("http://ipv6-rebind.attacker.com/")
+
+    @pytest.mark.asyncio
+    @patch("socket.getaddrinfo")
+    async def test_blocks_dns_resolution_failure(self, mock_getaddrinfo: MagicMock) -> None:
+        """Transport raises ConnectError when DNS resolution fails at connect time."""
+        mock_getaddrinfo.side_effect = socket.gaierror("Name or service not known")
+
+        transport = SSRFTransport()
+        async with transport:
+            with pytest.raises(httpx.ConnectError, match="DNS resolution failed"):
+                async with httpx.AsyncClient(transport=transport, follow_redirects=False) as client:
+                    await client.get("http://nonexistent.invalid/")
+
+    @pytest.mark.asyncio
+    @patch("socket.getaddrinfo")
+    async def test_blocks_invalid_ip_in_dns_response(self, mock_getaddrinfo: MagicMock) -> None:
+        """Transport raises ConnectError when DNS response contains an invalid IP."""
+        mock_getaddrinfo.return_value = [(2, 1, 6, "", ("not-an-ip", 80))]
+
+        transport = SSRFTransport()
+        async with transport:
+            with pytest.raises(httpx.ConnectError, match="invalid IP in DNS response"):
+                async with httpx.AsyncClient(transport=transport, follow_redirects=False) as client:
+                    await client.get("http://weird.example.com/")
+
+    @pytest.mark.asyncio
+    @patch("socket.getaddrinfo")
+    async def test_blocks_mixed_ips_one_private(self, mock_getaddrinfo: MagicMock) -> None:
+        """Transport rejects a hostname that resolves to both public and private IPs."""
+        mock_getaddrinfo.return_value = [
+            (2, 1, 6, "", ("8.8.8.8", 80)),  # public
+            (2, 1, 6, "", ("10.0.0.1", 80)),  # private — must block
+        ]
+
+        transport = SSRFTransport()
+        async with transport:
+            with pytest.raises(httpx.ConnectError, match="DNS rebinding detected"):
+                async with httpx.AsyncClient(transport=transport, follow_redirects=False) as client:
+                    await client.get("http://mixed.example.com/")
+
+    @pytest.mark.asyncio
+    async def test_blocks_unix_socket_connections(self) -> None:
+        """Transport blocks Unix domain socket connections unconditionally."""
+        from agent_framework.security.ssrf import _SSRFValidatingBackend
+
+        backend = _SSRFValidatingBackend()
+        with pytest.raises(httpcore.ConnectError, match="Unix domain socket"):
+            await backend.connect_unix_socket("/var/run/docker.sock")
+
+    def test_ssrf_transport_is_importable_from_security(self) -> None:
+        """SSRFTransport is exported from the top-level security package."""
+        from agent_framework.security import SSRFTransport as T
+
+        assert T is SSRFTransport
+
+    def test_ssrf_transport_is_async_http_transport_subclass(self) -> None:
+        """SSRFTransport is a proper httpx.AsyncHTTPTransport subclass."""
+        assert issubclass(SSRFTransport, httpx.AsyncHTTPTransport)
