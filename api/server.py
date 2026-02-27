@@ -35,6 +35,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from types import TracebackType
 from typing import TYPE_CHECKING, Any, TypeVar
 
 if TYPE_CHECKING:
@@ -453,7 +454,12 @@ class _TokenSnapshot:
         self._output_before = self._agent.total_output_tokens
         return self
 
-    async def __aexit__(self, *_: object) -> None:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         self.usage = TokenUsage(
             input_tokens=self._agent.total_input_tokens - self._input_before,
             output_tokens=self._agent.total_output_tokens - self._output_before,
