@@ -13,6 +13,7 @@ ENV_ANTHROPIC_API_KEY = "ANTHROPIC_API_KEY"  # pragma: allowlist secret
 
 # Default URLs
 DEFAULT_MCP_SERVER_URL = "https://mcp.brooksmcmillin.com/mcp"
+DEFAULT_MCP_RELAY_URL = "https://mcp-relay.brooksmcmillin.com/mcp"
 
 # Service identifiers
 SERVICE_NAME_SLACK_ADAPTER = "slack-adapter"
