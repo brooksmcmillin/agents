@@ -49,11 +49,15 @@ async def main():
     get_parser.add_argument("--category", help="Filter by category")
     get_parser.add_argument("--min-importance", type=int, help="Min importance level")
     get_parser.add_argument("--limit", type=int, default=20, help="Max results")
+    get_parser.add_argument("--agent", default="shared", help="Agent namespace (default: shared)")
 
     # Search memories
     search_parser = subparsers.add_parser("search", help="Search memories")
     search_parser.add_argument("query", help="Search query")
     search_parser.add_argument("--limit", type=int, default=10, help="Max results")
+    search_parser.add_argument(
+        "--agent", default="shared", help="Agent namespace (default: shared)"
+    )
 
     # Save memory
     save_parser = subparsers.add_parser("save", help="Save a memory")
@@ -62,13 +66,18 @@ async def main():
     save_parser.add_argument("--category", help="Category")
     save_parser.add_argument("--tags", nargs="+", help="Tags")
     save_parser.add_argument("--importance", type=int, default=5, help="Importance (1-10)")
+    save_parser.add_argument("--agent", default="shared", help="Agent namespace (default: shared)")
 
     # Delete memory
     delete_parser = subparsers.add_parser("delete", help="Delete a memory")
     delete_parser.add_argument("key", help="Memory key to delete")
+    delete_parser.add_argument(
+        "--agent", default="shared", help="Agent namespace (default: shared)"
+    )
 
     # Stats
-    subparsers.add_parser("stats", help="Get memory statistics")
+    stats_parser = subparsers.add_parser("stats", help="Get memory statistics")
+    stats_parser.add_argument("--agent", default="shared", help="Agent namespace (default: shared)")
 
     args = parser.parse_args()
 
@@ -82,9 +91,12 @@ async def main():
                 category=args.category,
                 min_importance=args.min_importance,
                 limit=args.limit,
+                agent_name=args.agent,
             )
         elif args.command == "search":
-            result = await search_memories(query=args.query, limit=args.limit)
+            result = await search_memories(
+                query=args.query, limit=args.limit, agent_name=args.agent
+            )
         elif args.command == "save":
             result = await save_memory(
                 key=args.key,
@@ -92,11 +104,12 @@ async def main():
                 category=args.category,
                 tags=args.tags,
                 importance=args.importance,
+                agent_name=args.agent,
             )
         elif args.command == "delete":
-            result = await delete_memory(key=args.key)
+            result = await delete_memory(key=args.key, agent_name=args.agent)
         elif args.command == "stats":
-            result = await get_memory_stats()
+            result = await get_memory_stats(agent_name=args.agent)
         else:
             parser.print_help()
             return
