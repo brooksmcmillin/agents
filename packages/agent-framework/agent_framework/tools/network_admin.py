@@ -19,7 +19,7 @@ import platform
 import socket
 import ssl
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -39,22 +39,46 @@ _MAX_HOSTS = 512
 
 # Common service ports for quick scans
 _COMMON_PORTS = [
-    21, 22, 23, 25, 53, 80, 110, 111, 135, 139, 143, 443, 445, 993, 995,
-    1433, 1521, 3306, 3389, 5432, 5900, 6379, 8080, 8443, 9200, 27017,
+    21,
+    22,
+    23,
+    25,
+    53,
+    80,
+    110,
+    111,
+    135,
+    139,
+    143,
+    443,
+    445,
+    993,
+    995,
+    1433,
+    1521,
+    3306,
+    3389,
+    5432,
+    5900,
+    6379,
+    8080,
+    8443,
+    9200,
+    27017,
 ]
 
 # Well-known default credentials to check (service -> list of user/pass combos)
 # Only included for defensive auditing purposes
 _DEFAULT_CREDENTIALS: dict[str, list[dict[str, str]]] = {
     "ssh": [
-        {"username": "root", "password": "root"},
-        {"username": "admin", "password": "admin"},
-        {"username": "pi", "password": "raspberry"},
+        {"username": "root", "password": "root"},  # pragma: allowlist secret
+        {"username": "admin", "password": "admin"},  # pragma: allowlist secret
+        {"username": "pi", "password": "raspberry"},  # pragma: allowlist secret
     ],
     "http": [
-        {"username": "admin", "password": "admin"},
-        {"username": "admin", "password": "password"},
-        {"username": "admin", "password": "1234"},
+        {"username": "admin", "password": "admin"},  # pragma: allowlist secret
+        {"username": "admin", "password": "password"},  # pragma: allowlist secret
+        {"username": "admin", "password": "1234"},  # pragma: allowlist secret
     ],
     "snmp": [
         {"community": "public"},
@@ -103,10 +127,10 @@ def _check_subnet_allowed(target: str) -> None:
             for prefix in prefixes:
                 allowed_net = ipaddress.ip_network(prefix, strict=False)
                 # Target subnet must fit entirely within an allowed subnet
-                if (
-                    target_net.network_address >= allowed_net.network_address
-                    and target_net.broadcast_address <= allowed_net.broadcast_address
-                ):
+                # Skip mismatched address families (IPv4 vs IPv6)
+                if target_net.version != allowed_net.version:
+                    continue
+                if target_net.subnet_of(allowed_net):  # type: ignore[arg-type]
                     return
         else:
             target_addr = ipaddress.ip_address(target)
@@ -118,21 +142,26 @@ def _check_subnet_allowed(target: str) -> None:
         raise ValueError(f"Invalid target or subnet: {e}")
 
     raise ValueError(
-        f"Target {target!r} not in SYSADMIN_ALLOWED_SUBNETS. "
-        f"Allowed subnets: {prefixes}"
+        f"Target {target!r} not in SYSADMIN_ALLOWED_SUBNETS. Allowed subnets: {prefixes}"
     )
 
 
-def _check_host_allowed(host: str) -> None:
+async def _check_host_allowed(host: str) -> str:
     """Validate a hostname or IP is within allowed subnets.
 
     Resolves hostnames to IPs first, then checks against the allowlist.
+    Returns the resolved IP so callers can reuse it (prevents DNS rebinding).
     """
+    loop = asyncio.get_running_loop()
     try:
-        ip = socket.gethostbyname(host)
+        infos = await loop.getaddrinfo(host, None, family=socket.AF_INET)
+        if not infos:
+            raise ValueError(f"Cannot resolve hostname: {host!r}")
+        ip = infos[0][4][0]
     except socket.gaierror:
         raise ValueError(f"Cannot resolve hostname: {host!r}")
     _check_subnet_allowed(ip)
+    return ip
 
 
 # ---------------------------------------------------------------------------
@@ -152,7 +181,7 @@ async def _tcp_connect(host: str, port: int, timeout: float) -> dict[str, Any]:
         writer.close()
         await writer.wait_closed()
         return {"port": port, "state": "open", "elapsed_seconds": elapsed}
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return {"port": port, "state": "filtered", "elapsed_seconds": timeout}
     except (ConnectionRefusedError, OSError):
         elapsed = round(time.monotonic() - start, 3)
@@ -169,13 +198,13 @@ async def _grab_banner(host: str, port: int, timeout: float = 3.0) -> str | None
         # Some services send a banner immediately; others need a nudge
         try:
             data = await asyncio.wait_for(reader.read(1024), timeout=2.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             # Try sending a basic probe
             writer.write(b"\r\n")
             await writer.drain()
             try:
                 data = await asyncio.wait_for(reader.read(1024), timeout=2.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 data = b""
         writer.close()
         await writer.wait_closed()
@@ -186,19 +215,10 @@ async def _grab_banner(host: str, port: int, timeout: float = 3.0) -> str | None
         return None
 
 
-def _check_ip_alive(ip: str, timeout: float = 1.0) -> bool:
-    """Check if a host responds to a TCP SYN on common ports (no raw sockets needed)."""
-    for port in [80, 443, 22, 445]:
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(timeout)
-            result = sock.connect_ex((ip, port))
-            sock.close()
-            if result == 0:
-                return True
-        except OSError:
-            continue
-    return False
+def _read_text_file(path: str) -> str:
+    """Read a text file (for use with asyncio.to_thread)."""
+    with open(path) as f:
+        return f.read()
 
 
 # ---------------------------------------------------------------------------
@@ -302,7 +322,7 @@ async def network_scan_ports(
     Returns:
         Dict with open/closed/filtered port counts and per-port details.
     """
-    _check_host_allowed(host)
+    resolved_ip = await _check_host_allowed(host)
 
     # Parse port specification
     port_list: list[int] = []
@@ -313,7 +333,16 @@ async def network_scan_ports(
         try:
             start_port = int(parts[0])
             end_port = int(parts[1])
-            port_list = list(range(start_port, min(end_port + 1, start_port + _MAX_PORTS)))
+            requested = end_port - start_port + 1
+            if requested > _MAX_PORTS:
+                return {
+                    "status": "error",
+                    "message": (
+                        f"Port range too large: {requested} ports requested "
+                        f"(max {_MAX_PORTS}). Use a smaller range."
+                    ),
+                }
+            port_list = list(range(start_port, end_port + 1))
         except (ValueError, IndexError):
             return {"status": "error", "message": f"Invalid port range: {ports!r}"}
     else:
@@ -328,7 +357,6 @@ async def network_scan_ports(
             "message": f"Too many ports: {len(port_list)} (max {_MAX_PORTS})",
         }
 
-    resolved_ip = socket.gethostbyname(host)
     start = time.monotonic()
 
     # Scan ports concurrently in batches
@@ -387,7 +415,7 @@ async def network_check_tls(
     Returns:
         Dict with certificate details, protocol info, and security findings.
     """
-    _check_host_allowed(host)
+    resolved_ip = await _check_host_allowed(host)
 
     findings: list[dict[str, str]] = []
 
@@ -398,7 +426,7 @@ async def network_check_tls(
         context.verify_mode = ssl.CERT_NONE
 
         conn = await asyncio.wait_for(
-            asyncio.open_connection(host, port, ssl=context),
+            asyncio.open_connection(resolved_ip, port, ssl=context),
             timeout=timeout,
         )
         reader, writer = conn
@@ -419,27 +447,27 @@ async def network_check_tls(
             # Check for weak protocols
             version = ssl_object.version() or ""
             if "TLSv1.0" in version or "SSLv" in version:
-                findings.append({
-                    "severity": "critical",
-                    "finding": f"Weak protocol: {version}",
-                    "recommendation": "Upgrade to TLS 1.2 or TLS 1.3",
-                })
+                findings.append(
+                    {
+                        "severity": "critical",
+                        "finding": f"Weak protocol: {version}",
+                        "recommendation": "Upgrade to TLS 1.2 or TLS 1.3",
+                    }
+                )
             elif "TLSv1.1" in version:
-                findings.append({
-                    "severity": "high",
-                    "finding": f"Deprecated protocol: {version}",
-                    "recommendation": "Upgrade to TLS 1.2 or TLS 1.3",
-                })
+                findings.append(
+                    {
+                        "severity": "high",
+                        "finding": f"Deprecated protocol: {version}",
+                        "recommendation": "Upgrade to TLS 1.2 or TLS 1.3",
+                    }
+                )
 
             # Get peer certificate
             peer_cert = ssl_object.getpeercert()
             if peer_cert:
-                cert_info["subject"] = dict(
-                    x[0] for x in peer_cert.get("subject", ()) if x
-                )
-                cert_info["issuer"] = dict(
-                    x[0] for x in peer_cert.get("issuer", ()) if x
-                )
+                cert_info["subject"] = dict(x[0] for x in peer_cert.get("subject", ()) if x)
+                cert_info["issuer"] = dict(x[0] for x in peer_cert.get("issuer", ()) if x)
                 cert_info["serial_number"] = peer_cert.get("serialNumber")
                 cert_info["not_before"] = peer_cert.get("notBefore")
                 cert_info["not_after"] = peer_cert.get("notAfter")
@@ -452,23 +480,27 @@ async def network_check_tls(
                 not_after_str = peer_cert.get("notAfter", "")
                 if not_after_str:
                     try:
-                        expiry = datetime.strptime(
-                            not_after_str, "%b %d %H:%M:%S %Y %Z"
-                        ).replace(tzinfo=timezone.utc)
-                        days_remaining = (expiry - datetime.now(timezone.utc)).days
+                        expiry = datetime.strptime(not_after_str, "%b %d %H:%M:%S %Y %Z").replace(
+                            tzinfo=UTC
+                        )
+                        days_remaining = (expiry - datetime.now(UTC)).days
                         cert_info["days_until_expiry"] = days_remaining
                         if days_remaining < 0:
-                            findings.append({
-                                "severity": "critical",
-                                "finding": f"Certificate expired {abs(days_remaining)} days ago",
-                                "recommendation": "Renew the certificate immediately",
-                            })
+                            findings.append(
+                                {
+                                    "severity": "critical",
+                                    "finding": f"Certificate expired {abs(days_remaining)} days ago",
+                                    "recommendation": "Renew the certificate immediately",
+                                }
+                            )
                         elif days_remaining < 30:
-                            findings.append({
-                                "severity": "high",
-                                "finding": f"Certificate expires in {days_remaining} days",
-                                "recommendation": "Renew the certificate soon",
-                            })
+                            findings.append(
+                                {
+                                    "severity": "high",
+                                    "finding": f"Certificate expires in {days_remaining} days",
+                                    "recommendation": "Renew the certificate soon",
+                                }
+                            )
                     except ValueError:
                         pass  # Unable to parse date
 
@@ -485,11 +517,13 @@ async def network_check_tls(
                 await verify_writer.wait_closed()
             except ssl.SSLCertVerificationError as e:
                 cert_info["trusted"] = False
-                findings.append({
-                    "severity": "high",
-                    "finding": f"Certificate verification failed: {e}",
-                    "recommendation": "Use a certificate from a trusted CA",
-                })
+                findings.append(
+                    {
+                        "severity": "high",
+                        "finding": f"Certificate verification failed: {e}",
+                        "recommendation": "Use a certificate from a trusted CA",
+                    }
+                )
             except Exception:
                 cert_info["trusted"] = "unknown"
 
@@ -506,7 +540,7 @@ async def network_check_tls(
             "findings_count": len(findings),
         }
 
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return {
             "status": "error",
             "host": host,
@@ -549,7 +583,7 @@ async def network_grab_banners(
     Returns:
         Dict with per-port banner data and version info detected.
     """
-    _check_host_allowed(host)
+    resolved_ip = await _check_host_allowed(host)
 
     # First do a quick port scan to find open ports
     scan_result = await network_scan_ports(agent_name, host, ports, timeout=timeout)
@@ -564,8 +598,6 @@ async def network_grab_banners(
             "message": "No open ports found to grab banners from",
             "banners": [],
         }
-
-    resolved_ip = socket.gethostbyname(host)
     banners = []
     for port in open_ports:
         banner = await _grab_banner(resolved_ip, port, timeout)
@@ -616,24 +648,32 @@ async def network_check_dns(
     Returns:
         Dict with DNS records, reverse lookup results, and findings.
     """
+    await _check_host_allowed(target)
+
+    _VALID_RECORD_TYPES = {"A", "AAAA", "MX", "NS", "TXT", "SOA", "CNAME", "PTR", "SRV", "CAA"}
     if record_types is None:
         record_types = ["A", "AAAA", "MX", "NS", "TXT", "SOA"]
+    else:
+        record_types = [rt for rt in record_types if rt in _VALID_RECORD_TYPES]
 
     findings: list[dict[str, str]] = []
     records: dict[str, list[str]] = {}
 
     # Forward lookup
+    loop = asyncio.get_running_loop()
     try:
-        addrs = socket.getaddrinfo(target, None)
+        addrs = await loop.getaddrinfo(target, None)
         ips = list({addr[4][0] for addr in addrs})
         records["resolved_ips"] = ips
     except socket.gaierror as e:
         records["resolved_ips"] = []
-        findings.append({
-            "severity": "info",
-            "finding": f"DNS resolution failed: {e}",
-            "recommendation": "Verify the hostname is correct",
-        })
+        findings.append(
+            {
+                "severity": "info",
+                "finding": f"DNS resolution failed: {e}",
+                "recommendation": "Verify the hostname is correct",
+            }
+        )
 
     # Reverse lookup for IPs
     reverse_results = []
@@ -643,18 +683,23 @@ async def network_check_dns(
             reverse_results.append({"ip": ip, "hostname": hostname[0]})
         except socket.herror:
             reverse_results.append({"ip": ip, "hostname": None})
-            findings.append({
-                "severity": "low",
-                "finding": f"No reverse DNS (PTR) record for {ip}",
-                "recommendation": "Configure reverse DNS for better email deliverability and auditing",
-            })
+            findings.append(
+                {
+                    "severity": "low",
+                    "finding": f"No reverse DNS (PTR) record for {ip}",
+                    "recommendation": "Configure reverse DNS for better email deliverability and auditing",
+                }
+            )
     records["reverse_dns"] = reverse_results
 
     # Use dig/nslookup via subprocess for detailed record types
     for rtype in record_types:
         try:
             proc = await asyncio.create_subprocess_exec(
-                "dig", "+short", target, rtype,
+                "dig",
+                "+short",
+                target,
+                rtype,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -662,7 +707,7 @@ async def network_check_dns(
             results = [line.strip() for line in stdout.decode().strip().split("\n") if line.strip()]
             if results:
                 records[rtype] = results
-        except (FileNotFoundError, asyncio.TimeoutError):
+        except (TimeoutError, FileNotFoundError):
             # dig not available, skip detailed lookups
             break
 
@@ -672,17 +717,21 @@ async def network_check_dns(
     has_dmarc = any("v=DMARC1" in r for r in txt_records)
 
     if not has_spf and txt_records:
-        findings.append({
-            "severity": "medium",
-            "finding": "No SPF record found",
-            "recommendation": "Add an SPF TXT record to prevent email spoofing",
-        })
+        findings.append(
+            {
+                "severity": "medium",
+                "finding": "No SPF record found",
+                "recommendation": "Add an SPF TXT record to prevent email spoofing",
+            }
+        )
     if not has_dmarc and txt_records:
-        findings.append({
-            "severity": "medium",
-            "finding": "No DMARC record found",
-            "recommendation": "Add a DMARC TXT record for email authentication policy",
-        })
+        findings.append(
+            {
+                "severity": "medium",
+                "finding": "No DMARC record found",
+                "recommendation": "Add a DMARC TXT record for email authentication policy",
+            }
+        )
 
     return {
         "status": "success",
@@ -720,7 +769,9 @@ async def system_get_info(
     # Network interfaces
     try:
         proc = await asyncio.create_subprocess_exec(
-            "ip", "-j", "addr",
+            "ip",
+            "-j",
+            "addr",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -730,7 +781,7 @@ async def system_get_info(
                 info["interfaces"] = json.loads(stdout.decode())
             except json.JSONDecodeError:
                 info["interfaces"] = stdout.decode().strip()
-    except (FileNotFoundError, asyncio.TimeoutError):
+    except (TimeoutError, FileNotFoundError):
         # Fallback: try ifconfig
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -740,29 +791,31 @@ async def system_get_info(
             )
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5.0)
             info["interfaces_raw"] = stdout.decode().strip()[:3000]
-        except (FileNotFoundError, asyncio.TimeoutError):
+        except (TimeoutError, FileNotFoundError):
             info["interfaces"] = "unable to enumerate"
 
     # Listening services
     try:
         proc = await asyncio.create_subprocess_exec(
-            "ss", "-tlnp",
+            "ss",
+            "-tlnp",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5.0)
         if proc.returncode == 0:
             info["listening_services"] = stdout.decode().strip()[:5000]
-    except (FileNotFoundError, asyncio.TimeoutError):
+    except (TimeoutError, FileNotFoundError):
         try:
             proc = await asyncio.create_subprocess_exec(
-                "netstat", "-tlnp",
+                "netstat",
+                "-tlnp",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5.0)
             info["listening_services"] = stdout.decode().strip()[:5000]
-        except (FileNotFoundError, asyncio.TimeoutError):
+        except (TimeoutError, FileNotFoundError):
             info["listening_services"] = "unable to enumerate"
 
     # Uptime
@@ -774,7 +827,7 @@ async def system_get_info(
         )
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5.0)
         info["uptime"] = stdout.decode().strip()
-    except (FileNotFoundError, asyncio.TimeoutError):
+    except (TimeoutError, FileNotFoundError):
         pass
 
     return {"status": "success", **info}
@@ -796,24 +849,20 @@ async def system_check_ssh_config(
     Returns:
         Dict with parsed config values and security findings.
     """
+    # Validate config_path to prevent arbitrary file read
+    _ALLOWED_SSH_CONFIG_DIR = "/etc/ssh/"
+    resolved = os.path.realpath(config_path)
+    if not resolved.startswith(_ALLOWED_SSH_CONFIG_DIR):
+        return {
+            "status": "error",
+            "message": f"config_path must be under {_ALLOWED_SSH_CONFIG_DIR}, got {config_path!r}",
+        }
+
     findings: list[dict[str, str]] = []
     config: dict[str, str] = {}
 
     try:
-        proc = await asyncio.create_subprocess_exec(
-            "cat", config_path,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=5.0)
-
-        if proc.returncode != 0:
-            return {
-                "status": "error",
-                "message": f"Cannot read {config_path}: {stderr.decode().strip()}",
-            }
-
-        content = stdout.decode()
+        content = await asyncio.to_thread(_read_text_file, resolved)
         for line in content.split("\n"):
             line = line.strip()
             if not line or line.startswith("#"):
@@ -821,63 +870,83 @@ async def system_check_ssh_config(
             parts = line.split(None, 1)
             if len(parts) == 2:
                 config[parts[0]] = parts[1]
-
     except FileNotFoundError:
-        return {"status": "error", "message": "cat command not found"}
-    except asyncio.TimeoutError:
-        return {"status": "error", "message": "Timed out reading config"}
+        return {"status": "error", "message": f"Config file not found: {resolved}"}
+    except PermissionError:
+        return {"status": "error", "message": f"Permission denied reading {resolved}"}
 
     # Security checks
-    permit_root = config.get("PermitRootLogin", "prohibit-password").lower()
-    if permit_root in ("yes", "without-password", "prohibit-password"):
-        severity = "critical" if permit_root == "yes" else "medium"
-        findings.append({
-            "severity": severity,
-            "finding": f"PermitRootLogin is {permit_root!r}",
-            "recommendation": "Set PermitRootLogin to 'no' and use sudo instead",
-        })
+    permit_root_raw = config.get("PermitRootLogin")
+    if permit_root_raw is not None:
+        permit_root = permit_root_raw.lower()
+        if permit_root == "yes":
+            findings.append(
+                {
+                    "severity": "critical",
+                    "finding": f"PermitRootLogin is {permit_root!r}",
+                    "recommendation": "Set PermitRootLogin to 'no' and use sudo instead",
+                }
+            )
+        elif permit_root in ("without-password", "prohibit-password"):
+            findings.append(
+                {
+                    "severity": "low",
+                    "finding": f"PermitRootLogin is {permit_root!r} (key-based root login allowed)",
+                    "recommendation": "Consider setting PermitRootLogin to 'no' and use sudo instead",
+                }
+            )
 
     password_auth = config.get("PasswordAuthentication", "yes").lower()
-    if password_auth == "yes":
-        findings.append({
-            "severity": "high",
-            "finding": "Password authentication is enabled",
-            "recommendation": "Disable PasswordAuthentication and use SSH keys",
-        })
+    if password_auth == "yes":  # nosec B105  # pragma: allowlist secret
+        findings.append(
+            {
+                "severity": "high",
+                "finding": "Password authentication is enabled",
+                "recommendation": "Disable PasswordAuthentication and use SSH keys",
+            }
+        )
 
     x11_forwarding = config.get("X11Forwarding", "no").lower()
     if x11_forwarding == "yes":
-        findings.append({
-            "severity": "low",
-            "finding": "X11 forwarding is enabled",
-            "recommendation": "Disable X11Forwarding unless needed",
-        })
+        findings.append(
+            {
+                "severity": "low",
+                "finding": "X11 forwarding is enabled",
+                "recommendation": "Disable X11Forwarding unless needed",
+            }
+        )
 
     max_auth_tries = config.get("MaxAuthTries", "6")
     try:
         if int(max_auth_tries) > 3:
-            findings.append({
-                "severity": "medium",
-                "finding": f"MaxAuthTries is {max_auth_tries} (default 6)",
-                "recommendation": "Set MaxAuthTries to 3 to limit brute-force attempts",
-            })
+            findings.append(
+                {
+                    "severity": "medium",
+                    "finding": f"MaxAuthTries is {max_auth_tries} (default 6)",
+                    "recommendation": "Set MaxAuthTries to 3 to limit brute-force attempts",
+                }
+            )
     except ValueError:
         pass
 
     permit_empty = config.get("PermitEmptyPasswords", "no").lower()
     if permit_empty == "yes":
-        findings.append({
-            "severity": "critical",
-            "finding": "Empty passwords are permitted",
-            "recommendation": "Set PermitEmptyPasswords to 'no'",
-        })
+        findings.append(
+            {
+                "severity": "critical",
+                "finding": "Empty passwords are permitted",
+                "recommendation": "Set PermitEmptyPasswords to 'no'",
+            }
+        )
 
     if "Protocol" in config and config["Protocol"] != "2":
-        findings.append({
-            "severity": "critical",
-            "finding": f"SSH protocol version {config['Protocol']} is enabled",
-            "recommendation": "Use Protocol 2 only",
-        })
+        findings.append(
+            {
+                "severity": "critical",
+                "finding": f"SSH protocol version {config['Protocol']} is enabled",
+                "recommendation": "Use Protocol 2 only",
+            }
+        )
 
     return {
         "status": "success",
@@ -906,6 +975,18 @@ async def system_check_file_permissions(
     """
     if paths is None:
         paths = list(_SENSITIVE_PATHS)
+    else:
+        # Validate caller-supplied paths against the sensitive paths allowlist
+        allowed_prefixes = ("/etc/", "~/.ssh/", "~/.env")
+        validated = []
+        for p in paths:
+            resolved = os.path.realpath(os.path.expanduser(p))
+            expanded_prefixes = [
+                os.path.realpath(os.path.expanduser(pfx)) for pfx in allowed_prefixes
+            ]
+            if any(resolved.startswith(ep) for ep in expanded_prefixes):
+                validated.append(p)
+        paths = validated
 
     findings: list[dict[str, str]] = []
     results: list[dict[str, Any]] = []
@@ -926,29 +1007,38 @@ async def system_check_file_permissions(
 
             # Check for world-readable
             if mode & 0o004:
-                severity = "critical" if "shadow" in path or "private" in path or "id_" in path else "medium"
-                findings.append({
-                    "severity": severity,
-                    "finding": f"{expanded} is world-readable (mode {mode_str})",
-                    "recommendation": f"chmod o-r {expanded}",
-                })
+                severity = (
+                    "critical"
+                    if "shadow" in path or "private" in path or "id_" in path
+                    else "medium"
+                )
+                findings.append(
+                    {
+                        "severity": severity,
+                        "finding": f"{expanded} is world-readable (mode {mode_str})",
+                        "recommendation": f"chmod o-r {expanded}",
+                    }
+                )
 
             # Check for world-writable
             if mode & 0o002:
-                findings.append({
-                    "severity": "critical",
-                    "finding": f"{expanded} is world-writable (mode {mode_str})",
-                    "recommendation": f"chmod o-w {expanded}",
-                })
+                findings.append(
+                    {
+                        "severity": "critical",
+                        "finding": f"{expanded} is world-writable (mode {mode_str})",
+                        "recommendation": f"chmod o-w {expanded}",
+                    }
+                )
 
             # SSH keys should be 600
-            if "id_rsa" in path or "id_ed25519" in path:
-                if mode_str != "600":
-                    findings.append({
+            if ("id_rsa" in path or "id_ed25519" in path) and mode_str != "600":
+                findings.append(
+                    {
                         "severity": "high",
                         "finding": f"SSH private key {expanded} has loose permissions (mode {mode_str})",
                         "recommendation": f"chmod 600 {expanded}",
-                    })
+                    }
+                )
 
             results.append(entry)
 
@@ -985,7 +1075,9 @@ async def system_check_firewall(
     # Try ufw first
     try:
         proc = await asyncio.create_subprocess_exec(
-            "ufw", "status", "verbose",
+            "ufw",
+            "status",
+            "verbose",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -994,18 +1086,23 @@ async def system_check_firewall(
         if output:
             rules["ufw"] = output[:5000]
             if "inactive" in output.lower():
-                findings.append({
-                    "severity": "high",
-                    "finding": "UFW firewall is inactive",
-                    "recommendation": "Enable the firewall: sudo ufw enable",
-                })
-    except (FileNotFoundError, asyncio.TimeoutError):
+                findings.append(
+                    {
+                        "severity": "high",
+                        "finding": "UFW firewall is inactive",
+                        "recommendation": "Enable the firewall: sudo ufw enable",
+                    }
+                )
+    except (TimeoutError, FileNotFoundError):
         pass
 
     # Try iptables
     try:
         proc = await asyncio.create_subprocess_exec(
-            "iptables", "-L", "-n", "--line-numbers",
+            "iptables",
+            "-L",
+            "-n",
+            "--line-numbers",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -1015,18 +1112,22 @@ async def system_check_firewall(
             rules["iptables"] = output[:5000]
             # Check for overly permissive rules
             if "ACCEPT     all" in output and "0.0.0.0/0" in output:
-                findings.append({
-                    "severity": "medium",
-                    "finding": "iptables has ACCEPT ALL rule for 0.0.0.0/0",
-                    "recommendation": "Review and restrict firewall rules to specific ports/sources",
-                })
-    except (FileNotFoundError, asyncio.TimeoutError):
+                findings.append(
+                    {
+                        "severity": "medium",
+                        "finding": "iptables has ACCEPT ALL rule for 0.0.0.0/0",
+                        "recommendation": "Review and restrict firewall rules to specific ports/sources",
+                    }
+                )
+    except (TimeoutError, FileNotFoundError):
         pass
 
     # Try nftables
     try:
         proc = await asyncio.create_subprocess_exec(
-            "nft", "list", "ruleset",
+            "nft",
+            "list",
+            "ruleset",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -1034,15 +1135,17 @@ async def system_check_firewall(
         output = stdout.decode().strip()
         if output:
             rules["nftables"] = output[:5000]
-    except (FileNotFoundError, asyncio.TimeoutError):
+    except (TimeoutError, FileNotFoundError):
         pass
 
     if not rules:
-        findings.append({
-            "severity": "high",
-            "finding": "No firewall tool found (ufw, iptables, nftables)",
-            "recommendation": "Install and configure a firewall",
-        })
+        findings.append(
+            {
+                "severity": "high",
+                "finding": "No firewall tool found (ufw, iptables, nftables)",
+                "recommendation": "Install and configure a firewall",
+            }
+        )
 
     return {
         "status": "success",
@@ -1072,7 +1175,7 @@ async def network_check_default_credentials(
     Returns:
         Dict with per-service results (credentials are redacted in output).
     """
-    _check_host_allowed(host)
+    await _check_host_allowed(host)
 
     results: list[dict[str, Any]] = []
 
@@ -1102,60 +1205,83 @@ async def network_check_default_credentials(
                 # Test SSH connection using asyncio subprocess
                 try:
                     proc = await asyncio.create_subprocess_exec(
-                        "sshpass", "-p", cred["password"],
-                        "ssh", "-o", "StrictHostKeyChecking=no",
-                        "-o", "ConnectTimeout=5",
-                        "-o", "BatchMode=no",
+                        "sshpass",
+                        "-p",
+                        cred["password"],
+                        "ssh",
+                        "-o",
+                        "StrictHostKeyChecking=no",
+                        "-o",
+                        "ConnectTimeout=5",
+                        "-o",
+                        "BatchMode=no",
                         f"{cred['username']}@{host}",
-                        "echo", "auth_success",
+                        "echo",
+                        "auth_success",
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,
                     )
                     stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10.0)
                     if "auth_success" in stdout.decode():
                         service_result["vulnerable"] = True
-                        service_result["details"].append({
-                            "username": cred["username"],
-                            "password": "[REDACTED - default credential]",
-                            "result": "LOGIN SUCCESSFUL - VULNERABLE",
-                        })
+                        service_result["details"].append(
+                            {
+                                "username": cred["username"],
+                                "password": "[REDACTED - default credential]",
+                                "result": "LOGIN SUCCESSFUL - VULNERABLE",
+                            }
+                        )
                     else:
-                        service_result["details"].append({
-                            "username": cred["username"],
-                            "password": "[REDACTED]",
-                            "result": "login failed (good)",
-                        })
-                except (FileNotFoundError, asyncio.TimeoutError):
-                    service_result["details"].append({
-                        "note": "sshpass not installed - cannot test SSH credentials",
-                    })
+                        service_result["details"].append(
+                            {
+                                "username": cred["username"],
+                                "password": "[REDACTED]",
+                                "result": "login failed (good)",
+                            }
+                        )
+                except (TimeoutError, FileNotFoundError):
+                    service_result["details"].append(
+                        {
+                            "note": "sshpass not installed - cannot test SSH credentials",
+                        }
+                    )
                     break
 
         elif service == "snmp":
             for cred in creds:
                 try:
                     proc = await asyncio.create_subprocess_exec(
-                        "snmpwalk", "-v2c", "-c", cred["community"],
-                        host, "system",
+                        "snmpwalk",
+                        "-v2c",
+                        "-c",
+                        cred["community"],
+                        host,
+                        "system",
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,
                     )
                     stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10.0)
-                    if stdout.decode().strip():
+                    if proc.returncode == 0 and stdout.decode().strip():
                         service_result["vulnerable"] = True
-                        service_result["details"].append({
-                            "community_string": "[REDACTED - default community]",
-                            "result": "ACCESSIBLE - VULNERABLE",
-                        })
+                        service_result["details"].append(
+                            {
+                                "community_string": "[REDACTED - default community]",
+                                "result": "ACCESSIBLE - VULNERABLE",
+                            }
+                        )
                     else:
-                        service_result["details"].append({
-                            "community_string": "[REDACTED]",
-                            "result": "not accessible (good)",
-                        })
-                except (FileNotFoundError, asyncio.TimeoutError):
-                    service_result["details"].append({
-                        "note": "snmpwalk not installed - cannot test SNMP community strings",
-                    })
+                        service_result["details"].append(
+                            {
+                                "community_string": "[REDACTED]",
+                                "result": "not accessible (good)",
+                            }
+                        )
+                except (TimeoutError, FileNotFoundError):
+                    service_result["details"].append(
+                        {
+                            "note": "snmpwalk not installed - cannot test SNMP community strings",
+                        }
+                    )
                     break
 
         elif service == "http":
@@ -1166,9 +1292,7 @@ async def network_check_default_credentials(
             for path in admin_paths:
                 for cred in creds:
                     try:
-                        async with httpx.AsyncClient(
-                            timeout=5.0, verify=False, follow_redirects=True
-                        ) as client:
+                        async with httpx.AsyncClient(timeout=5.0, follow_redirects=True) as client:
                             url = f"http://{host}{path}"
                             resp = await client.post(
                                 url,
@@ -1176,15 +1300,22 @@ async def network_check_default_credentials(
                             )
                             # Heuristic: if we get 200 and no "invalid" in response, might be vulnerable
                             body = resp.text.lower()
-                            if resp.status_code == 200 and "invalid" not in body and "error" not in body and "failed" not in body:
-                                service_result["details"].append({
-                                    "path": path,
-                                    "username": cred["username"],
-                                    "password": "[REDACTED - default credential]",
-                                    "result": "POSSIBLE LOGIN - NEEDS MANUAL VERIFICATION",
-                                    "status_code": resp.status_code,
-                                })
-                    except Exception:
+                            if (
+                                resp.status_code == 200
+                                and "invalid" not in body
+                                and "error" not in body
+                                and "failed" not in body
+                            ):
+                                service_result["details"].append(
+                                    {
+                                        "path": path,
+                                        "username": cred["username"],
+                                        "password": "[REDACTED - default credential]",
+                                        "result": "POSSIBLE LOGIN - NEEDS MANUAL VERIFICATION",
+                                        "status_code": resp.status_code,
+                                    }
+                                )
+                    except Exception:  # nosec B110 - intentionally ignoring HTTP probe errors
                         pass
 
         results.append(service_result)
@@ -1228,7 +1359,15 @@ async def network_generate_report(
     scan_results: dict[str, Any] = {}
 
     if include_scans is None:
-        include_scans = ["ports", "tls", "banners", "dns", "ssh_config", "file_permissions", "firewall"]
+        include_scans = [
+            "ports",
+            "tls",
+            "banners",
+            "dns",
+            "ssh_config",
+            "file_permissions",
+            "firewall",
+        ]
         if host:
             include_scans.append("default_creds")
 
@@ -1238,9 +1377,7 @@ async def network_generate_report(
         # Discover hosts first
         discovery = await network_discover_hosts(agent_name, subnet)
         scan_results["discovery"] = discovery
-        all_findings.extend(
-            {"source": "discovery", **f} for f in discovery.get("findings", [])
-        )
+        all_findings.extend({"source": "discovery", **f} for f in discovery.get("findings", []))
         # Use first discovered host for detailed scans (user should run per-host)
         hosts = discovery.get("hosts", [])
         if hosts:
@@ -1254,50 +1391,42 @@ async def network_generate_report(
         if "tls" in include_scans:
             result = await network_check_tls(agent_name, target_host)
             scan_results["tls"] = result
-            all_findings.extend(
-                {"source": "tls", **f} for f in result.get("findings", [])
-            )
+            all_findings.extend({"source": "tls", **f} for f in result.get("findings", []))
 
         if "dns" in include_scans:
             result = await network_check_dns(agent_name, target_host)
             scan_results["dns"] = result
-            all_findings.extend(
-                {"source": "dns", **f} for f in result.get("findings", [])
-            )
+            all_findings.extend({"source": "dns", **f} for f in result.get("findings", []))
 
         if "default_creds" in include_scans:
             result = await network_check_default_credentials(agent_name, target_host)
             scan_results["default_credentials"] = result
             for svc in result.get("results", []):
                 if svc.get("vulnerable"):
-                    all_findings.append({
-                        "source": "default_credentials",
-                        "severity": "critical",
-                        "finding": f"Default credentials found on {svc['service']}",
-                        "recommendation": f"Change default credentials for {svc['service']} immediately",
-                    })
+                    all_findings.append(
+                        {
+                            "source": "default_credentials",
+                            "severity": "critical",
+                            "finding": f"Default credentials found on {svc['service']}",
+                            "recommendation": f"Change default credentials for {svc['service']} immediately",
+                        }
+                    )
 
     # Local system scans (always applicable)
     if "ssh_config" in include_scans:
         result = await system_check_ssh_config(agent_name)
         scan_results["ssh_config"] = result
-        all_findings.extend(
-            {"source": "ssh_config", **f} for f in result.get("findings", [])
-        )
+        all_findings.extend({"source": "ssh_config", **f} for f in result.get("findings", []))
 
     if "file_permissions" in include_scans:
         result = await system_check_file_permissions(agent_name)
         scan_results["file_permissions"] = result
-        all_findings.extend(
-            {"source": "file_permissions", **f} for f in result.get("findings", [])
-        )
+        all_findings.extend({"source": "file_permissions", **f} for f in result.get("findings", []))
 
     if "firewall" in include_scans:
         result = await system_check_firewall(agent_name)
         scan_results["firewall"] = result
-        all_findings.extend(
-            {"source": "firewall", **f} for f in result.get("findings", [])
-        )
+        all_findings.extend({"source": "firewall", **f} for f in result.get("findings", []))
 
     # Sort findings by severity
     severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
