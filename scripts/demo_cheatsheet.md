@@ -21,19 +21,24 @@ uv run python scripts/demo_live.py --no-pause     # Unattended (CI, recording)
 **Point:** Each agent has its own memory namespace. Agent A can't read Agent B's memories.
 
 ### What it does
-1. Saves a memory under `DemoAgent-Alpha` ("launching rocket to Mars")
-2. Saves a memory with the *same key* under `DemoAgent-Beta` ("building underwater data center")
-3. Searches from each namespace — each agent only sees its own memory
-4. Searches Alpha's namespace for Beta's content — returns nothing
+1. Seeds a memory (`demo-status`) into the `ChatbotAgent` namespace via `test_memory.py`
+2. Chatbot agent searches for "rocket" — finds it in its own namespace
+3. Security agent searches for "rocket" — finds nothing (different namespace)
 
-### Key code
-```python
-from agent_framework.tools.memory import save_memory, search_memories
+### Manual commands
+```bash
+# Seed a memory into ChatbotAgent's namespace
+uv run python scripts/testing/test_memory.py save demo-status \
+  "launching rocket to Mars next quarter" --agent ChatbotAgent
 
-# agent_name acts as the namespace key
-await save_memory(key="status", value="secret", agent_name="AgentA")
-result = await search_memories(query="secret", agent_name="AgentB")
-# result["memories"] == []  (isolated)
+# Chatbot sees it
+uv run python bin/run-agent chatbot -q "Search your memories for 'rocket'"
+
+# Security agent does not
+uv run python bin/run-agent security -q "Search your memories for 'rocket'"
+
+# Cleanup
+uv run python scripts/testing/test_memory.py delete demo-status --agent ChatbotAgent
 ```
 
 ### Why it matters
@@ -43,71 +48,69 @@ result = await search_memories(query="secret", agent_name="AgentB")
 
 ---
 
-## Step 2: SSRF + Permission Denial
+## Step 2: SSRF Protection
 
-**Point:** Defense in depth — multiple independent layers block unauthorized actions.
+**Point:** The SSRF validator blocks requests to private/internal IPs, even when hidden behind DNS.
 
-### Layer 1: SSRF URL validation
-Validates URLs before any HTTP request is made.
+### What it does
+1. Asks the chatbot to fetch `http://app.127.0.0.1.sslip.io:8080/api/config` — the URL
+   looks like a normal domain, but `sslip.io` resolves it to `127.0.0.1`. The SSRF
+   validator performs DNS resolution and blocks the request.
+2. Asks the chatbot to fetch `https://brooksmcmillin.com` — legitimate URL, succeeds.
 
-```python
-from agent_framework.security.ssrf import SSRFValidator
+### Manual commands
+```bash
+# Blocked: sslip.io resolves to 127.0.0.1
+uv run python bin/run-agent chatbot -q \
+  "Use fetch_web_content to get http://app.127.0.0.1.sslip.io:8080/api/config"
 
-SSRFValidator.is_safe_url("https://example.com")           # (True, None)
-SSRFValidator.is_safe_url("http://169.254.169.254/meta")    # (False, "Cloud metadata...")
-SSRFValidator.is_safe_url("http://192.168.1.1/admin")       # (False, "Private network...")
-SSRFValidator.is_safe_url("file:///etc/passwd")             # (False, "Disallowed scheme...")
+# Allowed: legitimate public URL
+uv run python bin/run-agent chatbot -q \
+  "Fetch https://brooksmcmillin.com and tell me the page title."
 ```
 
-Blocked categories: private IPs, link-local/metadata, localhost, non-HTTP schemes.
-
-### Layer 2: Tool permission enforcement
-Each tool declares required permissions. Agents are granted a permission set at creation.
-
-```python
-from agent_framework.permissions.tool_permissions import get_required_permissions, check_tool_permission
-from agent_framework.permissions.permissions import Permission
-
-get_required_permissions("send_email")    # {Permission.SEND}
-get_required_permissions("save_memory")   # {Permission.WRITE}
-get_required_permissions("run_claude_code")  # {Permission.EXECUTE}
-
-# Email agent only has READ + SEND
-email_perms = {Permission.READ, Permission.SEND}
-check_tool_permission("fetch_web_content", email_perms)  # (True, set())
-check_tool_permission("save_memory", email_perms)        # (False, {WRITE})
-check_tool_permission("run_claude_code", email_perms)    # (False, {EXECUTE})
-```
-
-### Layer 3: Permission intersection on delegation
-When Agent A delegates to Agent B, B gets the *intersection* of both permission sets.
-A low-privilege caller can never escalate by delegating to a high-privilege agent.
-
-```python
-from agent_framework.permissions.context import ExecutionContext
-from agent_framework.permissions.identity import AgentIdentity
-from agent_framework.permissions.permissions import PermissionSet, Permission
-
-# Email intake (READ + SEND) delegates to code reviewer (full access)
-ctx = ExecutionContext(
-    caller=AgentIdentity(name="EmailIntake", source="email"),
-    permissions=PermissionSet([Permission.READ, Permission.SEND]),
-)
-delegated = ctx.delegate_to("CodeReviewer", agent_permissions=PermissionSet.full_access())
-# delegated.permissions == {READ, SEND}  (not full access!)
-delegated.can(Permission.EXECUTE)  # False
-```
+### Why it matters
+- Blocks SSRF attacks that hide private IPs behind DNS (DNS rebinding)
+- Validates at the tool layer — the LLM doesn't need to understand the risk
+- Covers private IPs, link-local/metadata, localhost, and non-HTTP schemes
 
 ---
 
-## Step 3: Security Events Survive Context Trimming
+## Step 3: Permission Denial
+
+**Point:** Agents can be given restricted permission sets that limit which tools they can use.
+
+### What it does
+1. Runs chatbot with `--permissions READ,SEND` and asks it to save a memory —
+   `save_memory` requires `WRITE`, so the tool call is denied
+2. Runs chatbot with default (full) permissions — same request succeeds
+
+### Manual commands
+```bash
+# Denied: READ+SEND doesn't include WRITE
+uv run python bin/run-agent chatbot -q --permissions READ,SEND \
+  "Remember this: test-key is 'test-value'."
+
+# Allowed: default permissions include WRITE
+uv run python bin/run-agent chatbot -q \
+  "Remember this: demo-perm-test is 'permission test passed'."
+```
+
+### Why it matters
+- Enforces least-privilege per agent (email agents can't write, etc.)
+- Permission intersection on delegation prevents privilege escalation
+- Blocked tool calls are tagged as security events for context trimming
+
+---
+
+## Step 4: Security Events Survive Context Trimming
 
 **Point:** When conversation history is trimmed to fit context windows, security-relevant
 messages (SSRF blocks, permission denials) are pinned and never dropped.
 
 ### What it does
 1. Builds a synthetic 44-message conversation
-2. Injects 2 security events (SSRF block at msg ~22, permission denial at msg ~32)
+2. Injects 2 security events (SSRF block at msg ~22, permission denial at msg ~34)
 3. Classifies each message as NORMAL or CRITICAL
 4. Trims to 20 messages — security events are pinned
 5. Verifies both security events survived

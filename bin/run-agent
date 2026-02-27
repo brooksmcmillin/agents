@@ -212,7 +212,12 @@ One-off mode:
             execution_context=execution_context,
         )
     else:
-        # Interactive mode
+        # Interactive mode (--permissions only applies to one-off mode)
+        if execution_context:
+            print(
+                "Warning: --permissions is only supported in one-off mode (with a message).",
+                file=sys.stderr,
+            )
         print(f"Starting {args.agent} agent...")
         await run_agent(agent_class, agent_kwargs)
 

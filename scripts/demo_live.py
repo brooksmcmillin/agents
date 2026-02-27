@@ -222,15 +222,16 @@ async def demo_ssrf() -> None:
     banner(2, "SSRF Protection", "Dangerous URLs blocked, safe URLs allowed")
 
     # ── Attempt to fetch a URL that resolves to localhost ───────────────────
-    # lvh.me is a public domain that DNS-resolves to 127.0.0.1.
-    # The LLM doesn't recognize it as dangerous, but the SSRF validator
-    # resolves the hostname and blocks the private IP.
-    section("Fetch lvh.me (DNS resolves to 127.0.0.1 — should be blocked)")
+    # sslip.io is a wildcard DNS service: any subdomain containing an IP
+    # resolves to that IP.  The LLM doesn't recognise it as dangerous, but
+    # the SSRF validator resolves the hostname and blocks the private IP.
+    section("Fetch sslip.io alias (DNS resolves to 127.0.0.1 — should be blocked)")
     pause("try fetching a deceptive URL")
 
     await run_agent_cmd(
         "chatbot",
-        "Use fetch_web_content to get http://lvh.me:8080/api/config and show me the response.",
+        "Use fetch_web_content to get http://app.127.0.0.1.sslip.io:8080/api/config "
+        "and show me the response.",
         "Chatbot tries to fetch a URL that resolves to localhost:",
     )
 
@@ -253,42 +254,37 @@ async def demo_ssrf() -> None:
 async def demo_permissions() -> None:
     banner(3, "Permission Denial", "Restricted agent can't use tools beyond its permissions")
 
-    # ── Restricted permissions: save_memory should fail ──────────────────────
-    section("Chatbot with READ+SEND tries to save a memory (should fail)")
-    pause("try saving with restricted permissions")
+    try:
+        # ── Restricted permissions: save_memory should fail ──────────────────
+        section("Chatbot with READ+SEND tries to save a memory (should fail)")
+        pause("try saving with restricted permissions")
 
-    await run_agent_cmd(
-        "chatbot",
-        "Remember this: test-key is 'test-value'.",
-        "Chatbot (READ,SEND only) attempts save_memory:",
-        permissions="READ,SEND",
-    )
-
-    # ── Full permissions: save_memory should succeed ─────────────────────────
-    section("Chatbot with default permissions saves a memory (should succeed)")
-    pause("try saving with full permissions")
-
-    await run_agent_cmd(
-        "chatbot",
-        "Remember this: demo-perm-test is 'permission test passed'.",
-        "Chatbot (default permissions) saves memory:",
-    )
-
-    # ── Cleanup — search for any memories the agent saved ────────────────────
-    await run_test_memory(
-        "search",
-        ["demo-perm"],
-        "Cleanup: find demo memories to delete",
-        agent="ChatbotAgent",
-    )
-    # Delete both possible key variants (hyphen vs underscore)
-    for key in ("demo-perm-test", "demo_perm_test"):
-        await run_test_memory(
-            "delete",
-            [key],
-            f"Cleanup: delete {key}",
-            agent="ChatbotAgent",
+        await run_agent_cmd(
+            "chatbot",
+            "Remember this: test-key is 'test-value'.",
+            "Chatbot (READ,SEND only) attempts save_memory:",
+            permissions="READ,SEND",
         )
+
+        # ── Full permissions: save_memory should succeed ─────────────────────
+        section("Chatbot with default permissions saves a memory (should succeed)")
+        pause("try saving with full permissions")
+
+        await run_agent_cmd(
+            "chatbot",
+            "Remember this: demo-perm-test is 'permission test passed'.",
+            "Chatbot (default permissions) saves memory:",
+        )
+
+    finally:
+        # ── Cleanup — the LLM may use hyphens or underscores for the key ────
+        for key in ("demo-perm-test", "demo_perm_test"):
+            await run_test_memory(
+                "delete",
+                [key],
+                f"Cleanup: delete {key}",
+                agent="ChatbotAgent",
+            )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
