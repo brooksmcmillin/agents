@@ -356,7 +356,7 @@ See [CLAUDE.md](CLAUDE.md#adding-new-agents) for detailed instructions.
 ## Current Status vs Production
 
 **Working Now:**
-- Full agentic loop with Claude Sonnet 4.5
+- Full agentic loop with Claude Sonnet 4.6
 - 8 interactive agents + 6 standalone services
 - 53 MCP tools (web, memory, RAG, email, HTTP client, filesystem, Claude Code, communication)
 - Real web scraping and content analysis
@@ -526,4 +526,4 @@ This is a demonstration project for educational purposes.
 
 ---
 
-**Built with Claude Sonnet 4.5 and Model Context Protocol**
+**Built with Claude Sonnet 4.6 and Model Context Protocol**
