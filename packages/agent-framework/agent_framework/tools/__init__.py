@@ -46,6 +46,20 @@ from .markdown_files import (
     read_markdown_file,
     write_markdown_file,
 )
+from .network_admin import TOOL_SCHEMAS as _network_admin_schemas
+from .network_admin import (
+    network_check_default_credentials,
+    network_check_dns,
+    network_check_tls,
+    network_discover_hosts,
+    network_generate_report,
+    network_grab_banners,
+    network_scan_ports,
+    system_check_file_permissions,
+    system_check_firewall,
+    system_check_ssh_config,
+    system_get_info,
+)
 from .memory import TOOL_SCHEMAS as _memory_schemas
 from .memory import (
     AsyncFileMemoryAdapter,
@@ -100,6 +114,7 @@ ALL_TOOL_SCHEMAS: list[dict] = [
     *_markdown_files_schemas,
     *_http_client_schemas,
     *_filesystem_schemas,
+    *_network_admin_schemas,
 ]
 
 __all__ = [
@@ -168,4 +183,16 @@ __all__ = [
     "list_directory",
     "glob_files",
     "grep_files",
+    # Network admin tools
+    "network_discover_hosts",
+    "network_scan_ports",
+    "network_check_tls",
+    "network_grab_banners",
+    "network_check_dns",
+    "system_get_info",
+    "system_check_ssh_config",
+    "system_check_file_permissions",
+    "system_check_firewall",
+    "network_check_default_credentials",
+    "network_generate_report",
 ]
