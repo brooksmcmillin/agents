@@ -64,11 +64,38 @@ voice = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-addopts = "--import-mode=importlib --cov-branch"
+addopts = "--import-mode=importlib --cov --cov-report=term-missing"
 testpaths = [
     "tests",
     "packages/agent-framework/tests",
     "api"
+]
+
+[tool.coverage.run]
+branch = true
+source = [
+    "agents",
+    "api",
+    "mcp_server",
+    "shared",
+    "packages/agent-framework/agent_framework",
+]
+omit = [
+    "*/tests/*",
+    "*/__pycache__/*",
+    "*/conftest.py",
+    "bin/*",
+    "scripts/*",
+]
+
+[tool.coverage.report]
+precision = 2
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
 ]
 
 # Pyright configuration moved to pyrightconfig.json
