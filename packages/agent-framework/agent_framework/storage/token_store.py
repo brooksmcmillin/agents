@@ -126,7 +126,7 @@ class TokenStore:
             logger.info("Auto-generated token encryption key")
             return key
         except Exception as e:
-            logger.warning("Failed to auto-generate encryption key: %s", e)
+            logger.warning("Failed to auto-generate encryption key: %s", type(e).__name__)
             return None
 
     _SAFE_STORE_KEY_RE = re.compile(r"^[a-zA-Z0-9_\-]{1,100}$")

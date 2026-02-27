@@ -215,7 +215,6 @@ class MCPAuth:
                         return None
                 else:
                     print(f"❌ Client registration failed: {response.status_code}")
-                    print(f"   Response: {response.text}")
                     return None
 
         except Exception as e:
@@ -440,15 +439,9 @@ def show_config():
     if auth_domain != mcp_domain:
         print(f"  Auth Server: https://{auth_domain} (auto-discovered ✅)")
 
-    # Extract display values to avoid logging full OAuth URLs from config dict
-    redirect_uri: str = MCP_OAUTH_CONFIG["redirect_uri"]
-    scope: str = MCP_OAUTH_CONFIG.get("scope", "default")
-
-    print(f"  Authorize Host: {auth_domain}")
     print(f"  Client ID: {os.getenv('MCP_CLIENT_ID') or '⚙️  Will auto-register'}")
     print("  Auth Method: PKCE (no client secret needed)")
-    print(f"  Redirect URI: {redirect_uri}")
-    print(f"  Scope: {scope}")
+    print("  Redirect URI: http://localhost:8889/callback")
     token_status = "Set" if os.getenv("MCP_AUTH_TOKEN") else "Not set"
     print(f"  Current Token: {token_status}")
     print()
