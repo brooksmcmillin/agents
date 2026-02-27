@@ -142,8 +142,8 @@ while not done:
 
 Run via `uv run bin/run-agent <name>`. These are registered in `shared/registry.py` and accessible through the REST API and Web UI.
 
-| Agent | Run As | Description |
-|-------|--------|-------------|
+| Agent | Run As | Description | Docs |
+|-------|--------|-------------|------|
 | **Chatbot** | `chatbot` | General-purpose assistant with all 53 MCP tools | [docs](agents/chatbot/README.md) |
 | **PR Agent** | `pr` | Content strategy, SEO, social media, Claude Code editing | [docs](agents/pr_agent/README.md) |
 | **Security Researcher** | `security` | AI/ML security research with RAG knowledge base | [docs](agents/security_researcher/README.md) |
@@ -157,8 +157,8 @@ Run via `uv run bin/run-agent <name>`. These are registered in `shared/registry.
 
 Run directly — these are not in the agent registry and don't use `bin/run-agent`.
 
-| Service | Invocation | Description |
-|---------|-----------|-------------|
+| Service | Invocation | Description | Docs |
+|---------|-----------|-------------|------|
 | **Code Reviewer** | `uv run python -m agents.code_reviewer.main <path>` | Batch review with 5 parallel agents, email reports | [docs](agents/code_reviewer/README.md) |
 | **Email Intake** | `uv run python -m agents.email_intake.main` | Monitors inbox, routes tasks to agents | [docs](agents/email_intake/README.md) |
 | **Notifier** | `uv run python -m agents.notifier.main` | Slack notifications about open tasks | [docs](agents/notifier/README.md) |

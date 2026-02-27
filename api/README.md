@@ -174,7 +174,7 @@ curl -H "Authorization: Bearer $API_KEY" http://localhost:8080/agents
 Send a single message to an agent with no conversation history.
 
 **Path Parameters**:
-- `agent_name`: Agent to use (`chatbot`, `pr`, `tasks`, `security`, `business`)
+- `agent_name`: Agent to use (any agent from `GET /agents`, e.g. `chatbot`, `pr`, `tasks`, `security`, `business`, `code-analysis`, `events`, `red-team`)
 
 **Request Body**:
 ```json
@@ -684,7 +684,7 @@ env | grep -E '(ANTHROPIC|MCP|RAG)'
 curl http://localhost:8080/agents
 
 # Check agent name spelling
-# Valid: chatbot, pr, tasks, security, business
+# Valid: chatbot, pr, tasks, security, business, code-analysis, events, red-team
 ```
 
 ### Session Not Found

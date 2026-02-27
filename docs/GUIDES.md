@@ -838,8 +838,8 @@ voice = VoiceInterface(
 
 ## Additional Resources
 
-- [Testing Guide](docs/TESTING.md) - Comprehensive testing strategies
+- [Testing Guide](TESTING.md) - Comprehensive testing strategies
 - [REMOTE_MCP.md](REMOTE_MCP.md) - Remote MCP server setup
 - [HOT_RELOAD.md](HOT_RELOAD.md) - Development workflow
-- [CLAUDE.md](CLAUDE.md) - Project overview
-- [agent-framework](packages/agent-framework/) - Framework documentation
+- [CLAUDE.md](../CLAUDE.md) - Project overview
+- [agent-framework](../packages/agent-framework/) - Framework documentation
