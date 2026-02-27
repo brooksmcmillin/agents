@@ -447,17 +447,27 @@ class TestRateLimitKey:
 class TestWebSocketAuth:
     """Tests for WebSocket message-based authentication.
 
-    When API_KEY is configured, clients must send {"type": "auth", "api_key": "..."}
-    as their first message after connecting. Credentials never appear in the URL,
-    avoiding leakage via server logs, browser history, or proxy logs.
+    Clients must always send an auth message as their first message after
+    connecting.  When API_KEY is configured the message must include the key;
+    the session_token is always required to prove session ownership.
+
+        {"type": "auth", "api_key": "...", "session_token": "<per-session token>"}
+
+    Credentials never appear in the URL, avoiding leakage via server logs,
+    browser history, or proxy logs.
     """
 
     def test_ws_accepts_when_no_api_key_configured(self, client):
-        """WebSocket should work without auth message when no API_KEY is set."""
+        """Auth message is still required when no API_KEY is set (for session_token)."""
         with patch("api.server._api_key", None):
-            # No auth message needed; connection proceeds to session lookup (4004)
-            with client.websocket_connect("/ws/claude-code/fake-session"):
-                pass  # pragma: no cover - closes with 4004 (no session)
+            from starlette.websockets import WebSocketDisconnect
+
+            # A non-auth message should still be rejected with 4001
+            with pytest.raises(WebSocketDisconnect) as exc_info:
+                with client.websocket_connect("/ws/claude-code/fake-session") as ws:
+                    ws.send_json({"type": "input", "text": "hello"})
+                    ws.receive_json()
+            assert exc_info.value.code == 4001
 
     def test_ws_rejects_missing_auth_message(self, client):
         """WebSocket should reject when API_KEY is set but no auth message sent."""
@@ -478,17 +488,185 @@ class TestWebSocketAuth:
 
             with pytest.raises(WebSocketDisconnect) as exc_info:
                 with client.websocket_connect("/ws/claude-code/fake-session") as ws:
-                    ws.send_json({"type": "auth", "api_key": "wrong-key"})
+                    ws.send_json({"type": "auth", "api_key": "wrong-key", "session_token": "tok"})
                     ws.receive_json()
             assert exc_info.value.code == 4001
 
     def test_ws_accepts_valid_auth_message(self, client):
-        """WebSocket should accept when correct API key sent in auth message."""
+        """WebSocket passes API key check then closes with 4003 for unknown/unowned session.
+
+        Session not found and wrong session_token both return 4003 to prevent
+        session enumeration via differential close codes.
+        """
         with patch("api.server._api_key", "secret-key"):
-            # Should pass auth, then close with 4004 (session not found)
-            with client.websocket_connect("/ws/claude-code/fake-session") as ws:
-                ws.send_json({"type": "auth", "api_key": "secret-key"})
-                # Connection proceeds past auth; server will close with 4004
+            from starlette.websockets import WebSocketDisconnect
+
+            # Correct API key but session doesn't exist → 4003 (unified code).
+            with pytest.raises(WebSocketDisconnect) as exc_info:
+                with client.websocket_connect("/ws/claude-code/fake-session") as ws:
+                    ws.send_json(
+                        {"type": "auth", "api_key": "secret-key", "session_token": "any-token"}
+                    )
+                    ws.receive_json()
+            assert exc_info.value.code == 4003
+
+    def test_ws_rejects_wrong_session_token(self, client):
+        """WebSocket should reject a connection with an incorrect session token."""
+        from unittest.mock import MagicMock
+
+        from api.claude_code_sessions import ClaudeCodeSession
+
+        fake_session = MagicMock(spec=ClaudeCodeSession)
+        fake_session.session_token = "correct-token"  # nosec B105
+
+        with patch("api.server._api_key", "secret-key"):
+            with patch("api.server.claude_code_mgr") as mock_mgr:
+                mock_mgr.get_session.return_value = fake_session
+                from starlette.websockets import WebSocketDisconnect
+
+                with pytest.raises(WebSocketDisconnect) as exc_info:
+                    with client.websocket_connect("/ws/claude-code/some-session") as ws:
+                        ws.send_json(
+                            {
+                                "type": "auth",
+                                "api_key": "secret-key",
+                                "session_token": "wrong-token",
+                            }
+                        )
+                        ws.receive_json()
+                assert exc_info.value.code == 4003
+
+    def test_ws_accepts_correct_session_token(self, client):
+        """WebSocket should proceed when both API key and session token are correct."""
+        from unittest.mock import MagicMock
+
+        from api.claude_code_sessions import ClaudeCodeSession
+
+        fake_session = MagicMock(spec=ClaudeCodeSession)
+        fake_session.session_token = "correct-token"  # nosec B105
+
+        async def _fake_events():
+            # Yield nothing — immediately return so the handler exits cleanly
+            return
+            yield  # pragma: no cover — makes it an async generator
+
+        fake_session.events = _fake_events
+
+        with patch("api.server._api_key", "secret-key"):
+            with patch("api.server.claude_code_mgr") as mock_mgr:
+                mock_mgr.get_session.return_value = fake_session
+                # Connection should pass auth + token check and enter the event loop
+                with client.websocket_connect("/ws/claude-code/some-session") as ws:
+                    ws.send_json(
+                        {
+                            "type": "auth",
+                            "api_key": "secret-key",
+                            "session_token": "correct-token",
+                        }
+                    )
+
+
+class TestClaudeCodeRestSessionToken:
+    """Tests for X-Session-Token enforcement on REST mutation endpoints.
+
+    POST /claude-code/sessions/{id}/input
+    POST /claude-code/sessions/{id}/permission
+    POST /claude-code/sessions/{id}/resize
+    DELETE /claude-code/sessions/{id}
+
+    All require a valid X-Session-Token header that matches the session's
+    stored token, regardless of whether global API-key auth is enabled.
+    """
+
+    def _make_session(self, token: str = "real-token"):  # nosec B107
+        """Create a fake ClaudeCodeSession with a known session_token."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from api.claude_code_sessions import ClaudeCodeSession
+
+        session = MagicMock(spec=ClaudeCodeSession)
+        session.session_token = token  # nosec B105
+        session.session_id = "test-session-id"
+        session.send_input = AsyncMock()
+        session.respond_permission = AsyncMock()
+        session.resize_terminal = AsyncMock()
+        session.terminate = AsyncMock()
+        return session
+
+    def test_input_missing_token_returns_403(self, client):
+        """POST /input without X-Session-Token returns 403."""
+        with patch("api.server.claude_code_mgr") as mock_mgr:
+            mock_mgr.get_session.return_value = self._make_session()
+            response = client.post(
+                "/claude-code/sessions/test-session-id/input",
+                json={"text": "hello"},
+            )
+        assert response.status_code == 403
+
+    def test_input_wrong_token_returns_403(self, client):
+        """POST /input with wrong X-Session-Token returns 403."""
+        with patch("api.server.claude_code_mgr") as mock_mgr:
+            mock_mgr.get_session.return_value = self._make_session("real-token")  # nosec B106
+            response = client.post(
+                "/claude-code/sessions/test-session-id/input",
+                json={"text": "hello"},
+                headers={"X-Session-Token": "wrong-token"},
+            )
+        assert response.status_code == 403
+
+    def test_input_correct_token_succeeds(self, client):
+        """POST /input with correct X-Session-Token returns 204."""
+        session = self._make_session("correct-token")  # nosec B106
+        with patch("api.server.claude_code_mgr") as mock_mgr:
+            mock_mgr.get_session.return_value = session
+            response = client.post(
+                "/claude-code/sessions/test-session-id/input",
+                json={"text": "hello"},
+                headers={"X-Session-Token": "correct-token"},  # nosec B106
+            )
+        assert response.status_code == 204
+        session.send_input.assert_called_once_with("hello")
+
+    def test_permission_missing_token_returns_403(self, client):
+        """POST /permission without X-Session-Token returns 403."""
+        with patch("api.server.claude_code_mgr") as mock_mgr:
+            mock_mgr.get_session.return_value = self._make_session()
+            response = client.post(
+                "/claude-code/sessions/test-session-id/permission",
+                json={"approved": True},
+            )
+        assert response.status_code == 403
+
+    def test_resize_missing_token_returns_403(self, client):
+        """POST /resize without X-Session-Token returns 403."""
+        with patch("api.server.claude_code_mgr") as mock_mgr:
+            mock_mgr.get_session.return_value = self._make_session()
+            response = client.post(
+                "/claude-code/sessions/test-session-id/resize",
+                json={"rows": 40, "cols": 120},
+            )
+        assert response.status_code == 403
+
+    def test_delete_missing_token_returns_403(self, client):
+        """DELETE /sessions/{id} without X-Session-Token returns 403."""
+        with patch("api.server.claude_code_mgr") as mock_mgr:
+            mock_mgr.get_session.return_value = self._make_session()
+            response = client.delete("/claude-code/sessions/test-session-id")
+        assert response.status_code == 403
+
+    def test_session_not_found_returns_403(self, client):
+        """Endpoints return 403 (not 404) when session doesn't exist.
+
+        The unified error prevents callers from enumerating session IDs.
+        """
+        with patch("api.server.claude_code_mgr") as mock_mgr:
+            mock_mgr.get_session.return_value = None
+            response = client.post(
+                "/claude-code/sessions/nonexistent-session/input",
+                json={"text": "hello"},
+                headers={"X-Session-Token": "any-token"},
+            )
+        assert response.status_code == 403
 
 
 @pytest.mark.asyncio

@@ -33,6 +33,14 @@ class ClaudeCodeSessionInfo(BaseModel):
     state: str
     created_at: datetime
     last_activity: datetime
+    session_token: str | None = Field(
+        default=None,
+        description=(
+            "Per-session secret token required to open a WebSocket connection. "
+            "Only present in the response to POST /claude-code/sessions (session creation). "
+            "Store it securely; it is never returned again."
+        ),
+    )
 
 
 class ClaudeCodeCreateWorkspaceRequest(BaseModel):
