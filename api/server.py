@@ -363,27 +363,35 @@ async def verify_api_key(
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
-async def _authenticate_websocket(websocket: WebSocket) -> bool:
+async def _authenticate_websocket(websocket: WebSocket) -> dict | None:
     """Authenticate a WebSocket connection via initial message exchange.
 
-    If API_KEY is not configured, returns True immediately (auth disabled).
-    Otherwise, waits for an auth message: {"type": "auth", "api_key": "..."}.
-    The client must send this as its first message after connecting.
+    Always waits for an auth message from the client::
+
+        {"type": "auth", "api_key": "...", "session_token": "..."}
+
+    When API_KEY is not configured the ``api_key`` field is not checked, but the
+    message must still be sent so that the ``session_token`` (required for
+    session-ownership verification) can be read.
+
+    Returns:
+        The parsed auth payload dict on success, or ``None`` on failure.
 
     Uses constant-time comparison to prevent timing attacks.
     Credentials never appear in query strings, avoiding leakage via
     server logs, browser history, referrer headers, or proxy logs.
     """
-    if not _api_key:
-        return True
     try:
         data = await asyncio.wait_for(websocket.receive_json(), timeout=10.0)
     except (TimeoutError, Exception):
-        return False
+        return None
     if not isinstance(data, dict) or data.get("type") != "auth":
-        return False
-    ws_key = data.get("api_key", "")
-    return secrets.compare_digest(str(ws_key).encode("utf-8"), _api_key.encode("utf-8"))
+        return None
+    if _api_key:
+        ws_key = data.get("api_key", "")
+        if not secrets.compare_digest(str(ws_key).encode("utf-8"), _api_key.encode("utf-8")):
+            return None
+    return data
 
 
 # ---------------------------------------------------------------------------
@@ -1013,12 +1021,16 @@ async def create_claude_code_session(
             workspace_name=body.workspace,
             initial_prompt=body.initial_prompt,
         )
+        # session_token is only included in the creation response so the caller
+        # can prove ownership when opening the WebSocket.  Subsequent GET calls
+        # omit it to avoid exposing the secret unnecessarily.
         return ClaudeCodeSessionInfo(
             session_id=session.session_id,
             workspace=session.workspace_path.name,
             state=session.state.value,
             created_at=session.created_at,
             last_activity=session.last_activity,
+            session_token=session.session_token,
         )
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
@@ -1120,19 +1132,35 @@ async def claude_code_websocket(websocket: WebSocket, session_id: str) -> None:
     - {"type": "abort"}
 
     Authentication (when API_KEY is configured):
-    The first message after connecting MUST be: {"type": "auth", "api_key": "..."}
+    The first message after connecting MUST be:
+        {"type": "auth", "api_key": "...", "session_token": "<token from POST /claude-code/sessions>"}
     If auth fails or times out (10s), the connection is closed with code 4001.
-    When API_KEY is not configured, no auth message is required.
+    When API_KEY is not configured, only the session_token is required:
+        {"type": "auth", "session_token": "<token>"}
+    The session_token proves ownership of the specific session and prevents any
+    other authenticated caller from connecting to sessions they did not create.
     """
     await websocket.accept()
 
-    if not await _authenticate_websocket(websocket):
+    auth_data = await _authenticate_websocket(websocket)
+    if auth_data is None:
         await websocket.close(code=4001, reason="Invalid or missing API key")
         return
 
     session = claude_code_mgr.get_session(session_id)
     if session is None:
         await websocket.close(code=4004, reason="Session not found")
+        return
+
+    # Verify session ownership via per-session token.
+    # When auth is disabled (no API_KEY), auth_data is an empty dict, so we
+    # still require the session_token to enforce ownership.
+    provided_token = str(auth_data.get("session_token", ""))
+    if not secrets.compare_digest(
+        provided_token.encode("utf-8"),
+        session.session_token.encode("utf-8"),
+    ):
+        await websocket.close(code=4003, reason="Invalid session token")
         return
 
     async def send_events() -> None:

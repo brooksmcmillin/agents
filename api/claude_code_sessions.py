@@ -15,6 +15,7 @@ import logging
 import os
 import pty
 import re
+import secrets
 import shutil
 import signal
 import struct
@@ -160,6 +161,11 @@ class ClaudeCodeSession:
         self.state = SessionState.STARTING
         self.created_at = datetime.now(UTC)
         self.last_activity = self.created_at
+        # Per-session secret token for WebSocket authentication.
+        # Only the client that created the session receives this token,
+        # so it proves session ownership and prevents other authenticated
+        # callers from hijacking arbitrary sessions.
+        self.session_token: str = secrets.token_urlsafe(32)
 
         # PTY and process management
         self.master_fd: int | None = None

@@ -142,57 +142,63 @@ class TestLifespanStartup:
 
 
 class TestAuthenticateWebsocketDirect:
-    """Test _authenticate_websocket function directly with mock WebSocket objects."""
+    """Test _authenticate_websocket function directly with mock WebSocket objects.
+
+    _authenticate_websocket now always reads a message from the WebSocket so that
+    the session_token (for session-ownership verification) can be extracted even
+    when global API-key auth is disabled.  It returns the parsed auth dict on
+    success, or None on failure.
+    """
 
     @pytest.fixture(autouse=True)
     def _restore_server(self):
         yield
         _reload_server()
 
-    async def test_auth_disabled_returns_true(self):
-        """When _api_key is None/empty, should return True without reading."""
+    async def test_auth_disabled_reads_message_and_returns_dict(self):
+        """When _api_key is None/empty, should still read the auth message and return it."""
         env = {"API_KEY": ""}
         with patch.dict(os.environ, env, clear=False):
             server_module = _reload_server()
             mock_ws = MagicMock()
-            mock_ws.receive_json = AsyncMock()
+            mock_ws.receive_json = AsyncMock(return_value={"type": "auth", "session_token": "tok"})
             result = await server_module._authenticate_websocket(mock_ws)
-            assert result is True
-            # Should not have tried to read from WebSocket
-            mock_ws.receive_json.assert_not_called()
+            # Returns the auth payload dict (truthy) when auth is disabled and message is valid
+            assert result == {"type": "auth", "session_token": "tok"}
+            mock_ws.receive_json.assert_called_once()
 
-    async def test_timeout_returns_false(self):
-        """When client doesn't send auth within timeout, should return False."""
+    async def test_timeout_returns_none(self):
+        """When client doesn't send auth within timeout, should return None."""
         env = {"API_KEY": "secret123"}
         with patch.dict(os.environ, env, clear=False):
             server_module = _reload_server()
             mock_ws = MagicMock()
             mock_ws.receive_json = AsyncMock(side_effect=TimeoutError)
             result = await server_module._authenticate_websocket(mock_ws)
-            assert result is False
+            assert result is None
 
-    async def test_exception_during_receive_returns_false(self):
-        """Any exception during receive should return False."""
+    async def test_exception_during_receive_returns_none(self):
+        """Any exception during receive should return None."""
         env = {"API_KEY": "secret123"}
         with patch.dict(os.environ, env, clear=False):
             server_module = _reload_server()
             mock_ws = MagicMock()
             mock_ws.receive_json = AsyncMock(side_effect=WebSocketDisconnect)
             result = await server_module._authenticate_websocket(mock_ws)
-            assert result is False
+            assert result is None
 
-    async def test_non_dict_message_returns_false(self):
-        """If client sends a non-dict message, should return False."""
+    async def test_non_dict_message_returns_none(self):
+        """If client sends a non-dict message, should return None."""
         env = {"API_KEY": "secret123"}
         with patch.dict(os.environ, env, clear=False):
             server_module = _reload_server()
             mock_ws = MagicMock()
             mock_ws.receive_json = AsyncMock(return_value="not a dict")
             result = await server_module._authenticate_websocket(mock_ws)
-            assert result is False
+            assert result is None
 
-    async def test_wrong_type_field_returns_false(self):
-        """If message type is not 'auth', should return False."""
+    async def test_wrong_type_field_returns_none(self):
+        """If message type is not 'auth', should return None."""
         env = {"API_KEY": "secret123"}
         with patch.dict(os.environ, env, clear=False):
             server_module = _reload_server()
@@ -201,47 +207,48 @@ class TestAuthenticateWebsocketDirect:
                 return_value={"type": "message", "api_key": "secret123"}
             )
             result = await server_module._authenticate_websocket(mock_ws)
-            assert result is False
+            assert result is None
 
-    async def test_missing_type_field_returns_false(self):
-        """If message has no 'type' field, should return False."""
+    async def test_missing_type_field_returns_none(self):
+        """If message has no 'type' field, should return None."""
         env = {"API_KEY": "secret123"}
         with patch.dict(os.environ, env, clear=False):
             server_module = _reload_server()
             mock_ws = MagicMock()
             mock_ws.receive_json = AsyncMock(return_value={"api_key": "secret123"})
             result = await server_module._authenticate_websocket(mock_ws)
-            assert result is False
+            assert result is None
 
-    async def test_wrong_api_key_returns_false(self):
-        """If api_key doesn't match, should return False."""
+    async def test_wrong_api_key_returns_none(self):
+        """If api_key doesn't match, should return None."""
         env = {"API_KEY": "secret123"}
         with patch.dict(os.environ, env, clear=False):
             server_module = _reload_server()
             mock_ws = MagicMock()
             mock_ws.receive_json = AsyncMock(return_value={"type": "auth", "api_key": "wrongkey"})
             result = await server_module._authenticate_websocket(mock_ws)
-            assert result is False
+            assert result is None
 
-    async def test_missing_api_key_field_returns_false(self):
-        """If auth message has no api_key field, should return False."""
+    async def test_missing_api_key_field_returns_none(self):
+        """If auth message has no api_key field when API_KEY is set, should return None."""
         env = {"API_KEY": "secret123"}
         with patch.dict(os.environ, env, clear=False):
             server_module = _reload_server()
             mock_ws = MagicMock()
             mock_ws.receive_json = AsyncMock(return_value={"type": "auth"})
             result = await server_module._authenticate_websocket(mock_ws)
-            assert result is False
+            assert result is None
 
-    async def test_correct_api_key_returns_true(self):
-        """If api_key matches, should return True."""
+    async def test_correct_api_key_returns_dict(self):
+        """If api_key matches, should return the auth payload dict."""
         env = {"API_KEY": "secret123"}
         with patch.dict(os.environ, env, clear=False):
             server_module = _reload_server()
             mock_ws = MagicMock()
-            mock_ws.receive_json = AsyncMock(return_value={"type": "auth", "api_key": "secret123"})
+            payload = {"type": "auth", "api_key": "secret123", "session_token": "tok"}
+            mock_ws.receive_json = AsyncMock(return_value=payload)
             result = await server_module._authenticate_websocket(mock_ws)
-            assert result is True
+            assert result == payload
 
 
 # ---------------------------------------------------------------------------
@@ -258,16 +265,20 @@ class TestWebSocketAuth:
         _reload_server()
 
     def test_websocket_no_auth_required_session_not_found(self):
-        """With auth disabled, WebSocket should accept but close with 4004 for unknown session."""
+        """With auth disabled, WebSocket still needs auth message (for session_token).
+
+        When the session doesn't exist, 4004 is returned after auth message is processed.
+        """
         env = {"API_KEY": "", "DISABLE_AUTH": "true", "DATABASE_URL": ""}
         with patch.dict(os.environ, env, clear=False):
             server_module = _reload_server()
             with TestClient(server_module.app) as client:
                 with pytest.raises(WebSocketDisconnect) as exc_info:
                     with client.websocket_connect("/ws/claude-code/nonexistent-session") as ws:
-                        # Try to receive; server should have closed with 4004
+                        # Must still send auth message (with session_token) even when API_KEY is unset
+                        ws.send_json({"type": "auth", "session_token": "any-token"})
                         ws.receive_json()
-                # Should close with 4004 (session not found) since auth passed
+                # Should close with 4004 (session not found) since auth message was valid
                 assert exc_info.value.code == 4004
 
     def test_websocket_bad_auth_closes_4001(self):
@@ -278,7 +289,9 @@ class TestWebSocketAuth:
             with TestClient(server_module.app) as client:
                 with pytest.raises(WebSocketDisconnect) as exc_info:
                     with client.websocket_connect("/ws/claude-code/some-session") as ws:
-                        ws.send_json({"type": "auth", "api_key": "wrong-key"})
+                        ws.send_json(
+                            {"type": "auth", "api_key": "wrong-key", "session_token": "tok"}
+                        )
                         # Server should close the connection; try to receive to trigger it
                         ws.receive_json()
                 assert exc_info.value.code == 4001
@@ -296,14 +309,16 @@ class TestWebSocketAuth:
                 assert exc_info.value.code == 4001
 
     def test_websocket_correct_auth_proceeds_to_session_check(self):
-        """With correct auth, should proceed past auth to session lookup (4004 for missing session)."""
+        """With correct auth + session_token, should proceed to session lookup (4004 for missing)."""
         env = {"API_KEY": "correct-key", "DATABASE_URL": ""}
         with patch.dict(os.environ, env, clear=False):
             server_module = _reload_server()
             with TestClient(server_module.app) as client:
                 with pytest.raises(WebSocketDisconnect) as exc_info:
                     with client.websocket_connect("/ws/claude-code/nonexistent-session") as ws:
-                        ws.send_json({"type": "auth", "api_key": "correct-key"})
+                        ws.send_json(
+                            {"type": "auth", "api_key": "correct-key", "session_token": "tok"}
+                        )
                         # After auth succeeds, server checks session => 4004
                         ws.receive_json()
                 # Should get 4004 (session not found), NOT 4001 (auth failed)

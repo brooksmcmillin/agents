@@ -447,17 +447,27 @@ class TestRateLimitKey:
 class TestWebSocketAuth:
     """Tests for WebSocket message-based authentication.
 
-    When API_KEY is configured, clients must send {"type": "auth", "api_key": "..."}
-    as their first message after connecting. Credentials never appear in the URL,
-    avoiding leakage via server logs, browser history, or proxy logs.
+    Clients must always send an auth message as their first message after
+    connecting.  When API_KEY is configured the message must include the key;
+    the session_token is always required to prove session ownership.
+
+        {"type": "auth", "api_key": "...", "session_token": "<per-session token>"}
+
+    Credentials never appear in the URL, avoiding leakage via server logs,
+    browser history, or proxy logs.
     """
 
     def test_ws_accepts_when_no_api_key_configured(self, client):
-        """WebSocket should work without auth message when no API_KEY is set."""
+        """Auth message is still required when no API_KEY is set (for session_token)."""
         with patch("api.server._api_key", None):
-            # No auth message needed; connection proceeds to session lookup (4004)
-            with client.websocket_connect("/ws/claude-code/fake-session"):
-                pass  # pragma: no cover - closes with 4004 (no session)
+            from starlette.websockets import WebSocketDisconnect
+
+            # A non-auth message should still be rejected with 4001
+            with pytest.raises(WebSocketDisconnect) as exc_info:
+                with client.websocket_connect("/ws/claude-code/fake-session") as ws:
+                    ws.send_json({"type": "input", "text": "hello"})
+                    ws.receive_json()
+            assert exc_info.value.code == 4001
 
     def test_ws_rejects_missing_auth_message(self, client):
         """WebSocket should reject when API_KEY is set but no auth message sent."""
@@ -478,17 +488,78 @@ class TestWebSocketAuth:
 
             with pytest.raises(WebSocketDisconnect) as exc_info:
                 with client.websocket_connect("/ws/claude-code/fake-session") as ws:
-                    ws.send_json({"type": "auth", "api_key": "wrong-key"})
+                    ws.send_json({"type": "auth", "api_key": "wrong-key", "session_token": "tok"})
                     ws.receive_json()
             assert exc_info.value.code == 4001
 
     def test_ws_accepts_valid_auth_message(self, client):
-        """WebSocket should accept when correct API key sent in auth message."""
+        """WebSocket passes API key check then closes with 4004 for unknown session."""
         with patch("api.server._api_key", "secret-key"):
-            # Should pass auth, then close with 4004 (session not found)
-            with client.websocket_connect("/ws/claude-code/fake-session") as ws:
-                ws.send_json({"type": "auth", "api_key": "secret-key"})
-                # Connection proceeds past auth; server will close with 4004
+            from starlette.websockets import WebSocketDisconnect
+
+            # Correct API key but session doesn't exist → 4004 after API-key check.
+            with pytest.raises(WebSocketDisconnect) as exc_info:
+                with client.websocket_connect("/ws/claude-code/fake-session") as ws:
+                    ws.send_json(
+                        {"type": "auth", "api_key": "secret-key", "session_token": "any-token"}
+                    )
+                    ws.receive_json()
+            assert exc_info.value.code == 4004
+
+    def test_ws_rejects_wrong_session_token(self, client):
+        """WebSocket should reject a connection with an incorrect session token."""
+        from unittest.mock import MagicMock
+
+        from api.claude_code_sessions import ClaudeCodeSession
+
+        fake_session = MagicMock(spec=ClaudeCodeSession)
+        fake_session.session_token = "correct-token"  # nosec B105
+
+        with patch("api.server._api_key", "secret-key"):
+            with patch("api.server.claude_code_mgr") as mock_mgr:
+                mock_mgr.get_session.return_value = fake_session
+                from starlette.websockets import WebSocketDisconnect
+
+                with pytest.raises(WebSocketDisconnect) as exc_info:
+                    with client.websocket_connect("/ws/claude-code/some-session") as ws:
+                        ws.send_json(
+                            {
+                                "type": "auth",
+                                "api_key": "secret-key",
+                                "session_token": "wrong-token",
+                            }
+                        )
+                        ws.receive_json()
+                assert exc_info.value.code == 4003
+
+    def test_ws_accepts_correct_session_token(self, client):
+        """WebSocket should proceed when both API key and session token are correct."""
+        from unittest.mock import MagicMock
+
+        from api.claude_code_sessions import ClaudeCodeSession
+
+        fake_session = MagicMock(spec=ClaudeCodeSession)
+        fake_session.session_token = "correct-token"  # nosec B105
+
+        async def _fake_events():
+            # Yield nothing — immediately return so the handler exits cleanly
+            return
+            yield  # pragma: no cover — makes it an async generator
+
+        fake_session.events = _fake_events
+
+        with patch("api.server._api_key", "secret-key"):
+            with patch("api.server.claude_code_mgr") as mock_mgr:
+                mock_mgr.get_session.return_value = fake_session
+                # Connection should pass auth + token check and enter the event loop
+                with client.websocket_connect("/ws/claude-code/some-session") as ws:
+                    ws.send_json(
+                        {
+                            "type": "auth",
+                            "api_key": "secret-key",
+                            "session_token": "correct-token",
+                        }
+                    )
 
 
 @pytest.mark.asyncio
