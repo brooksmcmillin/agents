@@ -10,7 +10,7 @@ from typing import Any
 
 from agent_framework import Agent
 
-from .constants import DEFAULT_MCP_SERVER_URL, ENV_MCP_SERVER_URL
+from .constants import DEFAULT_MCP_RELAY_URL, DEFAULT_MCP_SERVER_URL, ENV_MCP_SERVER_URL
 
 logger = logging.getLogger(__name__)
 
@@ -81,10 +81,15 @@ def build_agent_registry() -> dict[str, AgentEntry]:
         "mcp_client_config": {"prefer_device_flow": True},
     }
 
+    mcp_relay_config: dict[str, Any] = {
+        "mcp_urls": [DEFAULT_MCP_RELAY_URL],
+        "mcp_client_config": {"prefer_device_flow": True},
+    }
+
     return {
         "chatbot": (
             ChatbotAgent,
-            None,
+            {**mcp_relay_config},
             "General-purpose chatbot with full MCP tool access",
         ),
         "code-analysis": (
