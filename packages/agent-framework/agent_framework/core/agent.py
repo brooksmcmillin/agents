@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any, TextIO, cast
 
 from anthropic import AsyncAnthropic
 from anthropic.types import (
+    Message,
     MessageParam,
     ServerToolUseBlock,
     TextBlock,
@@ -920,6 +921,212 @@ class Agent(ABC):
             elif trace_ctx is not None:
                 trace_ctx.__exit__(None, None, None)
 
+    async def _call_claude(
+        self,
+        tools: list[dict[str, Any]],
+        on_text_delta: Callable[[str], None] | None = None,
+    ) -> Message:
+        """Call Claude API, using streaming when a text callback is provided.
+
+        Args:
+            tools: Tool definitions in Anthropic format.
+            on_text_delta: Optional callback for streaming text deltas.
+                When provided, the streaming API is used; otherwise the
+                blocking ``messages.create`` endpoint is called.
+
+        Returns:
+            The final ``Message`` from the Claude API.
+        """
+        if on_text_delta is not None:
+            async with self.client.messages.stream(
+                model=self.model,
+                max_tokens=16000,
+                system=self.get_system_prompt(),
+                messages=self.messages,
+                tools=cast(list[ToolParam], tools),
+            ) as stream:
+                async for text in stream.text_stream:
+                    on_text_delta(text)
+                return await stream.get_final_message()
+        else:
+            return await self.client.messages.create(
+                model=self.model,
+                max_tokens=16000,
+                system=self.get_system_prompt(),
+                messages=self.messages,
+                tools=cast(list[ToolParam], tools),
+            )
+
+    def _make_tool_error_result(
+        self,
+        tool_use_id: str,
+        error: Exception,
+        *,
+        is_permission_error: bool = False,
+    ) -> dict[str, Any]:
+        """Build a tool-result dict that reports an error back to Claude.
+
+        Args:
+            tool_use_id: The ``id`` of the ``ToolUseBlock`` that failed.
+            error: The exception that was raised.
+            is_permission_error: When ``True``, the result is tagged with a
+                ``permission_denied`` security event and uses a
+                "Permission denied" prefix.  Otherwise the result uses a
+                "Tool execution failed" prefix and is additionally checked
+                for SSRF-related keywords.
+
+        Returns:
+            A dict suitable for inclusion in the ``tool_results`` list sent
+            back to the Claude API.
+        """
+        if is_permission_error:
+            return {
+                "type": "tool_result",
+                "tool_use_id": tool_use_id,
+                "content": f"Permission denied: {error}",
+                "is_error": True,
+                SECURITY_EVENT_KEY: "permission_denied",
+            }
+
+        error_result: dict[str, Any] = {
+            "type": "tool_result",
+            "tool_use_id": tool_use_id,
+            "content": f"Tool execution failed: {error}",
+            "is_error": True,
+        }
+        # Tag SSRF-related errors for context-aware trimming
+        error_str = str(error).lower()
+        if any(
+            kw in error_str
+            for kw in (
+                "ssrf",
+                "blocked hostname",
+                "blocked ip",
+                "private ip",
+                "metadata endpoint",
+            )
+        ):
+            error_result[SECURITY_EVENT_KEY] = "ssrf_block"
+        return error_result
+
+    async def _execute_tool_calls(
+        self,
+        tool_calls: list[ToolUseBlock],
+        trace_ctx,
+        on_tool_start: Callable[[str], None] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Execute a batch of tool calls and return their results.
+
+        Each tool is called via :pymethod:`_call_mcp_tool_with_reconnect`
+        with optional observability spans.  Errors (including
+        ``PermissionError``) are caught per-tool and reported back to the
+        model via error result dicts.
+
+        Args:
+            tool_calls: ``ToolUseBlock`` instances extracted from the
+                assistant response.
+            trace_ctx: Optional observability trace context.
+            on_tool_start: Optional callback invoked when a tool call
+                begins, receiving the tool name.
+
+        Returns:
+            A list of tool-result dicts ready to append to the conversation.
+        """
+        tool_results: list[dict[str, Any]] = []
+        for tool_call in tool_calls:
+            logger.info(f"Executing tool: {tool_call.name}")
+            if on_tool_start is not None:
+                on_tool_start(tool_call.name)
+
+            # Prepare tool input for observability (preserve non-dict inputs)
+            tool_input = (
+                tool_call.input
+                if isinstance(tool_call.input, dict)
+                else {"_raw_input": str(tool_call.input)}
+            )
+
+            # Start tool span for observability
+            tool_span = None
+            tool_span_exc_info: tuple | None = None
+            if (
+                trace_ctx is not None
+                and self._observability_enabled
+                and observe_tool_call is not None
+            ):
+                tool_span = observe_tool_call(
+                    trace_ctx,
+                    tool_call.name,
+                    tool_input,
+                ).__enter__()
+
+            try:
+                # Call MCP tool (reconnects to server each time)
+                result = await self._call_mcp_tool_with_reconnect(
+                    tool_call.name,
+                    tool_call.input,
+                )
+
+                # End tool span with success
+                if tool_span is not None:
+                    result_str = str(result)
+                    truncated_output = (
+                        result_str[:500] + "... [truncated]"
+                        if len(result_str) > 500
+                        else result_str
+                    )
+                    tool_span.end(output=truncated_output, level="DEFAULT")
+
+                tool_results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": tool_call.id,
+                        "content": str(result),
+                    }
+                )
+
+            except PermissionError as e:
+                # Handle permission errors gracefully - return as tool error
+                # so Claude can explain the limitation to the user naturally
+                logger.warning(f"Permission denied for {tool_call.name}: {e}")
+                tool_span_exc_info = (type(e), e, e.__traceback__)
+
+                # End tool span with error
+                if tool_span is not None:
+                    tool_span.end(
+                        output=f"Permission denied: {e}",
+                        level="WARNING",
+                        metadata={"error_type": "PermissionError"},
+                    )
+
+                tool_results.append(
+                    self._make_tool_error_result(tool_call.id, e, is_permission_error=True)
+                )
+
+            except Exception as e:
+                # Handle other tool errors
+                logger.error(f"Tool execution error for {tool_call.name}: {e}")
+                tool_span_exc_info = (type(e), e, e.__traceback__)
+
+                # End tool span with error
+                if tool_span is not None:
+                    tool_span.end(
+                        output=f"Tool execution failed: {e}",
+                        level="ERROR",
+                        metadata={"error_type": type(e).__name__},
+                    )
+
+                tool_results.append(self._make_tool_error_result(tool_call.id, e))
+
+            finally:
+                # Always close the tool span context manager
+                if tool_span is not None:
+                    if tool_span_exc_info is not None:
+                        tool_span.__exit__(*tool_span_exc_info)
+                    else:
+                        tool_span.__exit__(None, None, None)
+
+        return tool_results
+
     async def _process_message_internal(
         self,
         user_message: str,
@@ -979,25 +1186,7 @@ class Agent(ABC):
 
             try:
                 # Call Claude (streaming when callback provided, blocking otherwise)
-                if on_text_delta is not None:
-                    async with self.client.messages.stream(
-                        model=self.model,
-                        max_tokens=16000,
-                        system=self.get_system_prompt(),
-                        messages=self.messages,
-                        tools=cast(list[ToolParam], tools),
-                    ) as stream:
-                        async for text in stream.text_stream:
-                            on_text_delta(text)
-                        response = await stream.get_final_message()
-                else:
-                    response = await self.client.messages.create(
-                        model=self.model,
-                        max_tokens=16000,
-                        system=self.get_system_prompt(),
-                        messages=self.messages,
-                        tools=cast(list[ToolParam], tools),
-                    )
+                response = await self._call_claude(tools, on_text_delta)
 
                 # Track token usage
                 self.total_input_tokens += response.usage.input_tokens
@@ -1065,130 +1254,19 @@ class Agent(ABC):
                     )
 
                     # Execute tool calls and collect results
-                    tool_results = []
-                    for tool_call in tool_calls:
-                        logger.info(f"Executing tool: {tool_call.name}")
-                        if on_tool_start is not None:
-                            on_tool_start(tool_call.name)
-
-                        # Prepare tool input for observability (preserve non-dict inputs)
-                        tool_input = (
-                            tool_call.input
-                            if isinstance(tool_call.input, dict)
-                            else {"_raw_input": str(tool_call.input)}
-                        )
-
-                        # Start tool span for observability
-                        tool_span = None
-                        tool_span_exc_info: tuple | None = None
-                        if (
-                            trace_ctx is not None
-                            and self._observability_enabled
-                            and observe_tool_call is not None
-                        ):
-                            tool_span = observe_tool_call(
-                                trace_ctx,
-                                tool_call.name,
-                                tool_input,
-                            ).__enter__()
-
-                        try:
-                            # Call MCP tool (reconnects to server each time)
-                            result = await self._call_mcp_tool_with_reconnect(
-                                tool_call.name,
-                                tool_call.input,
-                            )
-
-                            # End tool span with success
-                            if tool_span is not None:
-                                result_str = str(result)
-                                truncated_output = (
-                                    result_str[:500] + "... [truncated]"
-                                    if len(result_str) > 500
-                                    else result_str
-                                )
-                                tool_span.end(output=truncated_output, level="DEFAULT")
-
-                            tool_results.append(
-                                {
-                                    "type": "tool_result",
-                                    "tool_use_id": tool_call.id,
-                                    "content": str(result),
-                                }
-                            )
-
-                        except PermissionError as e:
-                            # Handle permission errors gracefully - return as tool error
-                            # so Claude can explain the limitation to the user naturally
-                            logger.warning(f"Permission denied for {tool_call.name}: {e}")
-                            tool_span_exc_info = (type(e), e, e.__traceback__)
-
-                            # End tool span with error
-                            if tool_span is not None:
-                                tool_span.end(
-                                    output=f"Permission denied: {e}",
-                                    level="WARNING",
-                                    metadata={"error_type": "PermissionError"},
-                                )
-
-                            tool_results.append(
-                                {
-                                    "type": "tool_result",
-                                    "tool_use_id": tool_call.id,
-                                    "content": f"Permission denied: {e}",
-                                    "is_error": True,
-                                    SECURITY_EVENT_KEY: "permission_denied",
-                                }
-                            )
-
-                        except Exception as e:
-                            # Handle other tool errors
-                            logger.error(f"Tool execution error for {tool_call.name}: {e}")
-                            tool_span_exc_info = (type(e), e, e.__traceback__)
-
-                            # End tool span with error
-                            if tool_span is not None:
-                                tool_span.end(
-                                    output=f"Tool execution failed: {e}",
-                                    level="ERROR",
-                                    metadata={"error_type": type(e).__name__},
-                                )
-
-                            error_result: dict[str, Any] = {
-                                "type": "tool_result",
-                                "tool_use_id": tool_call.id,
-                                "content": f"Tool execution failed: {e}",
-                                "is_error": True,
-                            }
-                            # Tag SSRF-related errors for context-aware trimming
-                            error_str = str(e).lower()
-                            if any(
-                                kw in error_str
-                                for kw in (
-                                    "ssrf",
-                                    "blocked hostname",
-                                    "blocked ip",
-                                    "private ip",
-                                    "metadata endpoint",
-                                )
-                            ):
-                                error_result[SECURITY_EVENT_KEY] = "ssrf_block"
-                            tool_results.append(error_result)
-
-                        finally:
-                            # Always close the tool span context manager
-                            if tool_span is not None:
-                                if tool_span_exc_info is not None:
-                                    tool_span.__exit__(*tool_span_exc_info)
-                                else:
-                                    tool_span.__exit__(None, None, None)
+                    tool_results = await self._execute_tool_calls(
+                        tool_calls, trace_ctx, on_tool_start
+                    )
 
                     # Add tool results to conversation
                     self.messages.append(
-                        {
-                            "role": "user",
-                            "content": tool_results,
-                        }
+                        cast(
+                            MessageParam,
+                            {
+                                "role": "user",
+                                "content": tool_results,
+                            },
+                        )
                     )
 
                     # Continue loop to get Claude's response to tool results
