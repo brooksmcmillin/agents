@@ -176,6 +176,11 @@ One-off mode:
         "-p",
         help="Comma-separated permissions (e.g. READ,SEND). Limits what tools the agent can use.",
     )
+    parser.add_argument(
+        "--skip-failed-mcp",
+        action="store_true",
+        help="Skip remote MCP servers that fail to connect (e.g., due to OAuth) instead of blocking.",
+    )
 
     args = parser.parse_args()
 
@@ -192,6 +197,11 @@ One-off mode:
     # Build GitHub MCP config lazily so --list works without GITHUB_MCP_PAT
     if args.agent in GITHUB_MCP_AGENTS:
         agent_kwargs = github_mcp_config()
+
+    # Inject skip_failed_mcp_urls into agent kwargs if flag is set
+    if args.skip_failed_mcp:
+        agent_kwargs = dict(agent_kwargs or {})
+        agent_kwargs["skip_failed_mcp_urls"] = True
 
     # Build execution context if --permissions specified
     execution_context = None

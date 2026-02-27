@@ -138,7 +138,7 @@ async def run_agent_cmd(
         description: Short description shown before the command.
         permissions: Optional comma-separated permissions (e.g. "READ,SEND").
     """
-    cmd = [UV, "run", "python", RUN_AGENT, agent, "-q"]
+    cmd = [UV, "run", "python", RUN_AGENT, agent, "-q", "--skip-failed-mcp"]
     if permissions:
         cmd.extend(["--permissions", permissions])
     cmd.append(message)
@@ -186,7 +186,7 @@ async def demo_memory_namespace() -> None:
 
         await run_agent_cmd(
             "chatbot",
-            "Search your memories for 'rocket' and tell me what you found.",
+            "Do you have any memories about rockets? Show me what you find.",
             "Chatbot searches its own namespace:",
         )
 

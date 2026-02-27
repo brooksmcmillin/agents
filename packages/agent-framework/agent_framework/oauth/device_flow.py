@@ -396,8 +396,8 @@ class DeviceFlowHandler(OAuthHandlerBase):
 
         # Poll for token
         logger.info("⏳ Waiting for user authorization...")
-        print("⏳ Waiting for authorization... (checking every 5 seconds)")
-        print()
+        print("⏳ Waiting for authorization... (checking every 5 seconds)", flush=True)
+        print(flush=True)
         token_set = await self.poll_for_token(
             device_code=device_code,
             interval=interval,
@@ -405,8 +405,8 @@ class DeviceFlowHandler(OAuthHandlerBase):
         )
 
         # Notify user of success
-        print("✅ Authorization successful!")
-        print()
+        print("✅ Authorization successful!", flush=True)
+        print(flush=True)
         return token_set
 
     def _display_authorization_instructions(
@@ -427,25 +427,26 @@ class DeviceFlowHandler(OAuthHandlerBase):
         expires_minutes = expires_in // 60
 
         # Print to stdout so user can see the instructions
-        print("\n" + "=" * 60)
-        print("🔐 DEVICE AUTHORIZATION REQUIRED")
-        print("=" * 60)
-        print()
-        print("To authorize this device, please:")
-        print()
+        # flush=True ensures output is visible in piped/subprocess contexts
+        print("\n" + "=" * 60, flush=True)
+        print("🔐 DEVICE AUTHORIZATION REQUIRED", flush=True)
+        print("=" * 60, flush=True)
+        print(flush=True)
+        print("To authorize this device, please:", flush=True)
+        print(flush=True)
 
         if verification_uri_complete:
-            print(f"  1. Visit: {verification_uri_complete}")
-            print()
-            print("  OR")
-            print()
-            print(f"  1. Visit: {verification_uri}")
-            print(f"  2. Enter code: {user_code}")
+            print(f"  1. Visit: {verification_uri_complete}", flush=True)
+            print(flush=True)
+            print("  OR", flush=True)
+            print(flush=True)
+            print(f"  1. Visit: {verification_uri}", flush=True)
+            print(f"  2. Enter code: {user_code}", flush=True)
         else:
-            print(f"  1. Visit: {verification_uri}")
-            print(f"  2. Enter code: {user_code}")
+            print(f"  1. Visit: {verification_uri}", flush=True)
+            print(f"  2. Enter code: {user_code}", flush=True)
 
-        print()
-        print(f"This code expires in {expires_minutes} minutes.")
-        print("=" * 60)
-        print()
+        print(flush=True)
+        print(f"This code expires in {expires_minutes} minutes.", flush=True)
+        print("=" * 60, flush=True)
+        print(flush=True)

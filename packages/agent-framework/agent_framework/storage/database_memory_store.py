@@ -542,6 +542,10 @@ class DatabaseMemoryStore:
         """
         Search memories by text in key or value.
 
+        Matches the full query first, then falls back to per-word matching
+        so that plurals and partial terms still find results (e.g. "rockets"
+        matches a memory containing "rocket").
+
         Args:
             query: Search query (case-insensitive)
 
@@ -563,6 +567,53 @@ class DatabaseMemoryStore:
                 """,
                 self._agent_name,
                 search_pattern,
+            )
+
+        if rows:
+            return [self._row_to_memory(row) for row in rows]
+
+        # Per-word fallback: match if any query word (3+ chars) appears in
+        # the key or value.  For each word we also generate a stemmed form
+        # (strip trailing s/es/ed/ing) so that "rockets" matches "rocket".
+        words = [w for w in query.lower().split() if len(w) >= 3]
+        if not words:
+            return []
+
+        # Build OR conditions for each word and its stem
+        conditions: list[str] = []
+        params: list[str] = [self._agent_name]
+        param_idx = 2  # $1 is agent_name
+
+        for word in words:
+            stems = {word}
+            # Naive English suffix stripping for common plurals/tenses
+            if word.endswith("ing") and len(word) > 5:
+                stems.add(word[:-3])
+            if word.endswith("ed") and len(word) > 4:
+                stems.add(word[:-2])
+            if word.endswith("es") and len(word) > 4:
+                stems.add(word[:-2])
+            if word.endswith("s") and len(word) > 4:
+                stems.add(word[:-1])
+
+            for stem in stems:
+                escaped = stem.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+                conditions.append(
+                    f"(key ILIKE ${param_idx} ESCAPE '\\' OR value ILIKE ${param_idx} ESCAPE '\\')"
+                )
+                params.append(f"%{escaped}%")
+                param_idx += 1
+
+        where_clause = " OR ".join(conditions)
+        async with self._get_connection() as conn:
+            rows = await conn.fetch(
+                f"""
+                SELECT * FROM memories
+                WHERE agent_name = $1
+                  AND ({where_clause})
+                ORDER BY importance DESC, updated_at DESC
+                """,
+                *params,
             )
 
         return [self._row_to_memory(row) for row in rows]
