@@ -11,6 +11,8 @@ import os
 
 from anthropic import AsyncAnthropic
 
+from shared.json_parsing import strip_and_parse_json
+
 from .models import TriageResult, TriageVerdict, resolve_model
 from .prompts import DEPENDENCY_DETECTION_PROMPT, TRIAGE_SYSTEM_PROMPT
 
@@ -105,7 +107,7 @@ async def detect_dependencies(
         )
 
         raw_text = "".join(getattr(block, "text", "") for block in response.content)
-        parsed = _strip_and_parse_json(raw_text)
+        parsed = strip_and_parse_json(raw_text)
         if isinstance(parsed, list):
             return parsed
         return []
@@ -161,7 +163,7 @@ def _parse_triage_result(raw_text: str) -> TriageResult:
     Handles markdown fences, validates fields, and clamps values.
     Falls back to NOT_ACTIONABLE on any parse error.
     """
-    parsed = _strip_and_parse_json(raw_text)
+    parsed = strip_and_parse_json(raw_text)
     if not isinstance(parsed, dict):
         logger.warning(f"Triage response was not a JSON object: {raw_text[:200]}")
         return TriageResult(
@@ -211,13 +213,3 @@ def _parse_triage_result(raw_text: str) -> TriageResult:
         pre_research_queries=parsed.get("pre_research_queries", []),
         blocking_reason=parsed.get("blocking_reason"),
     )
-
-
-def _strip_and_parse_json(text: str) -> dict | list | None:
-    """Extract and parse JSON from LLM response text.
-
-    Delegates to shared.json_parsing.strip_and_parse_json.
-    """
-    from shared.json_parsing import strip_and_parse_json
-
-    return strip_and_parse_json(text)

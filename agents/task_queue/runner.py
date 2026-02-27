@@ -20,7 +20,7 @@ from agent_framework.tools import send_slack_message
 
 from agents.orchestrator.models import AutonomyTier, OrchestratorConfig, Task
 from agents.orchestrator.state_machine import Orchestrator
-from shared import BatchAgent, parse_task_result
+from shared import BatchAgent, parse_json_result, parse_task_result
 
 from .dependency_graph import compute_processing_order, identify_blocked_tasks
 from .lightweight_executor import execute_lightweight
@@ -148,7 +148,7 @@ class TaskQueueRunner(BatchAgent):
         if parent_id:
             try:
                 result = await self.call_tool("get_task", {"task_id": parent_id})
-                data = json.loads(result) if isinstance(result, str) else result
+                data = parse_json_result(result)
                 parent_task = data.get("task", data)
                 parent_category = parent_task.get("category") or ""
                 if parent_category:
@@ -473,7 +473,7 @@ class TaskQueueRunner(BatchAgent):
             task_id = _normalize_task_id(task_id)
             try:
                 result = await self.call_tool("get_task", {"task_id": task_id})
-                data = json.loads(result) if isinstance(result, str) else result
+                data = parse_json_result(result)
                 if "error" in data:
                     logger.error(f"Failed to fetch {task_id}: {data['error']}")
                     continue
@@ -567,7 +567,7 @@ class TaskQueueRunner(BatchAgent):
                 continue
             try:
                 result = await self.call_tool("list_dependencies", {"task_id": task_id})
-                data = json.loads(result) if isinstance(result, str) else result
+                data = parse_json_result(result)
                 deps = data.get("dependencies", [])
                 if deps:
                     dependencies[task_id] = deps

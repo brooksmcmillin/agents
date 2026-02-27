@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 
 from agent_framework.tools import send_slack_message
 
-from shared import BatchAgent, parse_priority, parse_task_result
+from shared import BatchAgent, format_priority_emoji, parse_priority, parse_task_result
 
 
 class TaskNotifier(BatchAgent):
@@ -90,7 +90,7 @@ def _format_task_message(overdue: list[dict], today: list[dict], upcoming: list[
             title = task.get("title", "Untitled")
             due = task.get("due_date", "No due date")
             priority = parse_priority(task.get("priority"))
-            emoji = ":exclamation:" if priority >= 8 else ":small_orange_diamond:"
+            emoji = format_priority_emoji(priority)
             parts.append(f"{emoji} {title} (due: {due})")
         if len(overdue) > 5:
             parts.append(f"...and {len(overdue) - 5} more")
@@ -100,7 +100,7 @@ def _format_task_message(overdue: list[dict], today: list[dict], upcoming: list[
         for task in today[:5]:
             title = task.get("title", "Untitled")
             priority = parse_priority(task.get("priority"))
-            emoji = ":star:" if priority >= 8 else ":small_blue_diamond:"
+            emoji = format_priority_emoji(priority)
             parts.append(f"{emoji} {title}")
         if len(today) > 5:
             parts.append(f"...and {len(today) - 5} more")

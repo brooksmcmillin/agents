@@ -8,6 +8,25 @@ priority values.
 import json
 
 
+def parse_json_result(result: str | dict) -> dict:
+    """Parse MCP tool result JSON into a dict.
+
+    Handles both pre-parsed dicts and raw JSON strings returned by
+    MCP tool calls.  Use this when you need the full response object
+    (e.g. ``get_task``, ``list_dependencies``) rather than just the
+    ``tasks`` list.
+
+    Args:
+        result: JSON string or dict from MCP tool call
+
+    Returns:
+        Parsed dict (empty dict if result is falsy)
+    """
+    if isinstance(result, str):
+        return json.loads(result)
+    return result if isinstance(result, dict) else {}
+
+
 def parse_task_result(result: str | dict) -> list[dict]:
     """Parse MCP tool result into task list.
 
