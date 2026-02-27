@@ -25,6 +25,7 @@ import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
+from pydantic import BaseModel, Field, field_validator
 
 load_dotenv()
 
@@ -35,82 +36,51 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Maximum allowed length for string fields from JSON input
-_MAX_TITLE_LEN = 200
-_MAX_DESCRIPTION_LEN = 10000
-_MAX_CATEGORY_LEN = 100
-_MAX_TAG_LEN = 50
-_MAX_TAGS_COUNT = 20
-
 
 class TaskFileValidationError(Exception):
     """Raised when a task file contains invalid data."""
 
 
-def _validate_task_dict(td: dict, index: int) -> None:
-    """Validate a single task dictionary from JSON input.
+class TaskFileEntry(BaseModel):
+    """Pydantic model for a single task entry loaded from a JSON task file.
 
-    Args:
-        td: Task dictionary to validate.
-        index: Position in the task list (for error messages).
-
-    Raises:
-        TaskFileValidationError: If validation fails.
+    Validates all fields with appropriate constraints before the orchestrator
+    converts the entry into an internal Task object.
     """
-    if not isinstance(td, dict):
-        raise TaskFileValidationError(
-            f"Task #{index}: expected a JSON object, got {type(td).__name__}"
-        )
 
-    # title is required
-    if "title" not in td:
-        raise TaskFileValidationError(f"Task #{index}: missing required field 'title'")
-    if not isinstance(td["title"], str) or not td["title"].strip():
-        raise TaskFileValidationError(f"Task #{index}: 'title' must be a non-empty string")
-    if len(td["title"]) > _MAX_TITLE_LEN:
-        raise TaskFileValidationError(f"Task #{index}: 'title' exceeds {_MAX_TITLE_LEN} characters")
+    title: str = Field(..., min_length=1, max_length=200, description="Task title (required)")
+    description: str | None = Field(default=None, max_length=10000, description="Task description")
+    priority: int | None = Field(default=None, ge=1, le=10, description="Priority 1-10")
+    autonomy_tier: int | None = Field(default=None, description="Autonomy tier: 1, 2, 3, or 4")
+    tags: list[str] | None = Field(default=None, max_length=20, description="List of tags (max 20)")
+    category: str | None = Field(default=None, max_length=100, description="Task category")
 
-    # description (optional)
-    if "description" in td:
-        if not isinstance(td["description"], str):
-            raise TaskFileValidationError(f"Task #{index}: 'description' must be a string")
-        if len(td["description"]) > _MAX_DESCRIPTION_LEN:
-            raise TaskFileValidationError(
-                f"Task #{index}: 'description' exceeds {_MAX_DESCRIPTION_LEN} characters"
-            )
+    @field_validator("title")
+    @classmethod
+    def title_must_not_be_blank(cls, v: str) -> str:
+        """Ensure title is not only whitespace."""
+        if not v.strip():
+            raise ValueError("'title' must be a non-empty string")
+        return v
 
-    # priority (optional)
-    if "priority" in td:
-        if not isinstance(td["priority"], int) or not (1 <= td["priority"] <= 10):
-            raise TaskFileValidationError(f"Task #{index}: 'priority' must be an integer 1-10")
+    @field_validator("autonomy_tier")
+    @classmethod
+    def autonomy_tier_must_be_valid(cls, v: int | None) -> int | None:
+        """Ensure autonomy_tier is one of 1, 2, 3, or 4."""
+        if v is not None and v not in (1, 2, 3, 4):
+            raise ValueError("'autonomy_tier' must be 1, 2, 3, or 4")
+        return v
 
-    # autonomy_tier (optional)
-    if "autonomy_tier" in td:
-        if not isinstance(td["autonomy_tier"], int) or td["autonomy_tier"] not in (1, 2, 3, 4):
-            raise TaskFileValidationError(f"Task #{index}: 'autonomy_tier' must be 1, 2, 3, or 4")
-
-    # tags (optional)
-    if "tags" in td:
-        if not isinstance(td["tags"], list):
-            raise TaskFileValidationError(f"Task #{index}: 'tags' must be a list")
-        if len(td["tags"]) > _MAX_TAGS_COUNT:
-            raise TaskFileValidationError(f"Task #{index}: too many tags (max {_MAX_TAGS_COUNT})")
-        for i, tag in enumerate(td["tags"]):
-            if not isinstance(tag, str):
-                raise TaskFileValidationError(f"Task #{index}: tag #{i} must be a string")
-            if len(tag) > _MAX_TAG_LEN:
-                raise TaskFileValidationError(
-                    f"Task #{index}: tag #{i} exceeds {_MAX_TAG_LEN} characters"
-                )
-
-    # category (optional)
-    if "category" in td:
-        if not isinstance(td["category"], str):
-            raise TaskFileValidationError(f"Task #{index}: 'category' must be a string")
-        if len(td["category"]) > _MAX_CATEGORY_LEN:
-            raise TaskFileValidationError(
-                f"Task #{index}: 'category' exceeds {_MAX_CATEGORY_LEN} characters"
-            )
+    @field_validator("tags")
+    @classmethod
+    def tags_must_have_valid_items(cls, v: list[str] | None) -> list[str] | None:
+        """Ensure each tag is a non-empty string within the max length."""
+        if v is None:
+            return v
+        for i, tag in enumerate(v):
+            if len(tag) > 50:
+                raise ValueError(f"tag #{i} exceeds 50 characters")
+        return v
 
 
 def parse_args() -> argparse.Namespace:
@@ -223,7 +193,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_tasks_from_file(file_path: str) -> list[dict]:
+def load_tasks_from_file(file_path: str) -> list[TaskFileEntry]:
     """Load and validate tasks from a JSON file.
 
     Expected format:
@@ -241,6 +211,8 @@ def load_tasks_from_file(file_path: str) -> list[dict]:
     Raises:
         TaskFileValidationError: If the file contains invalid data.
     """
+    from pydantic import ValidationError
+
     path = Path(file_path)
     if not path.exists():
         logger.error(f"Task file not found: {file_path}")
@@ -261,10 +233,22 @@ def load_tasks_from_file(file_path: str) -> list[dict]:
             f"Task file must contain a JSON array or object, got {type(data).__name__}"
         )
 
+    entries: list[TaskFileEntry] = []
     for i, td in enumerate(data):
-        _validate_task_dict(td, i)
+        if not isinstance(td, dict):
+            raise TaskFileValidationError(
+                f"Task #{i}: expected a JSON object, got {type(td).__name__}"
+            )
+        try:
+            entries.append(TaskFileEntry.model_validate(td))
+        except ValidationError as exc:
+            # Re-raise as TaskFileValidationError with a human-readable message
+            messages = "; ".join(
+                f"'{'.'.join(str(loc) for loc in e['loc'])}': {e['msg']}" for e in exc.errors()
+            )
+            raise TaskFileValidationError(f"Task #{i}: {messages}") from exc
 
-    return data
+    return entries
 
 
 async def run_orchestrator(args: argparse.Namespace) -> int:
@@ -307,16 +291,16 @@ async def run_orchestrator(args: argparse.Namespace) -> int:
             logger.error(f"Task file validation failed: {e}")
             return 1
 
-        for td in task_dicts:
-            tier_value = td.get("autonomy_tier", args.tier)
+        for entry in task_dicts:
+            tier_value = entry.autonomy_tier if entry.autonomy_tier is not None else args.tier
             tasks.append(
                 Task(
-                    title=td["title"],
-                    description=td.get("description", ""),
-                    priority=td.get("priority", args.priority),
+                    title=entry.title,
+                    description=entry.description or "",
+                    priority=entry.priority if entry.priority is not None else args.priority,
                     autonomy_tier=AutonomyTier(tier_value),
-                    tags=td.get("tags", []),
-                    category=td.get("category", args.category),
+                    tags=entry.tags or [],
+                    category=entry.category if entry.category is not None else args.category,
                     workspace_name=args.workspace,
                 )
             )
