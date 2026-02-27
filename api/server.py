@@ -201,6 +201,10 @@ async def _generate_conversation_title(user_message: str, assistant_response: st
 session_mgr = SessionManager()
 claude_code_mgr = ClaudeCodeSessionManager()
 
+# Dummy token used by _check_session_token to make the response time for a
+# non-existent session indistinguishable from a wrong-token response.
+_DUMMY_SESSION_TOKEN: str = secrets.token_urlsafe(32)
+
 # Conversation store - initialized lazily if DATABASE_URL is set
 _conversation_store: DatabaseConversationStore | None = None
 
@@ -418,15 +422,16 @@ def _check_session_token(
         HTTPException: 403 if the session is not found or the token is wrong.
     """
     session = claude_code_mgr.get_session(session_id)
-    token_ok = (
-        isinstance(x_session_token, str)
-        and session is not None
-        and secrets.compare_digest(
-            x_session_token.encode("utf-8"),
-            session.session_token.encode("utf-8"),
-        )
+    # Always run compare_digest to avoid timing side-channels.  When the session
+    # doesn't exist or the provided token is not a string, we compare a dummy
+    # value so the response time is indistinguishable from a wrong-token attempt.
+    stored_token = session.session_token if session is not None else _DUMMY_SESSION_TOKEN
+    candidate = x_session_token if isinstance(x_session_token, str) else ""
+    digest_ok = secrets.compare_digest(
+        candidate.encode("utf-8"),
+        stored_token.encode("utf-8"),
     )
-    if not token_ok or session is None:
+    if session is None or not digest_ok:
         raise HTTPException(status_code=403, detail="Session not found or invalid token")
     return session
 
@@ -1107,9 +1112,9 @@ async def delete_claude_code_session(
     Requires the ``X-Session-Token`` header matching the token returned when
     the session was created.
     """
-    _check_session_token(session_id, x_session_token)
-    # Session existence already verified by _check_session_token
-    await claude_code_mgr.terminate_session(session_id)
+    session = _check_session_token(session_id, x_session_token)
+    # Use the verified session object directly rather than looking it up again
+    await claude_code_mgr.terminate_session(session.session_id)
 
 
 @app.post("/claude-code/sessions/{session_id}/input", status_code=204)
