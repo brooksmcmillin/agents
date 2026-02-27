@@ -921,6 +921,36 @@ class Agent(ABC):
             elif trace_ctx is not None:
                 trace_ctx.__exit__(None, None, None)
 
+    def _messages_for_api(self) -> list[MessageParam]:
+        """Return a copy of self.messages with internal metadata stripped.
+
+        The ``_security_event`` key is used by the context-trimming logic to
+        pin security-relevant tool results, but the Anthropic API rejects
+        extra fields on tool_result blocks.  Strip it before sending.
+        """
+        cleaned: list[MessageParam] = []
+        for msg in self.messages:
+            # Tool result blocks are plain dicts at runtime (built by
+            # _make_tool_error_result), but MessageParam types them as
+            # ContentBlockParam which doesn't include dict.  Use Any to
+            # avoid pyright narrowing to Never.
+            content: Any = msg.get("content")
+            if isinstance(content, list) and any(
+                isinstance(block, dict) and SECURITY_EVENT_KEY in block for block in content
+            ):
+                new_blocks: list[Any] = []
+                for block in content:
+                    if isinstance(block, dict) and SECURITY_EVENT_KEY in block:
+                        new_blocks.append(
+                            {k: v for k, v in block.items() if k != SECURITY_EVENT_KEY}
+                        )
+                    else:
+                        new_blocks.append(block)
+                cleaned.append(cast(MessageParam, {**msg, "content": new_blocks}))
+            else:
+                cleaned.append(cast(MessageParam, msg))
+        return cleaned
+
     async def _call_claude(
         self,
         tools: list[dict[str, Any]],
@@ -937,12 +967,13 @@ class Agent(ABC):
         Returns:
             The final ``Message`` from the Claude API.
         """
+        api_messages = self._messages_for_api()
         if on_text_delta is not None:
             async with self.client.messages.stream(
                 model=self.model,
                 max_tokens=16000,
                 system=self.get_system_prompt(),
-                messages=self.messages,
+                messages=api_messages,
                 tools=cast(list[ToolParam], tools),
             ) as stream:
                 async for text in stream.text_stream:
@@ -953,7 +984,7 @@ class Agent(ABC):
                 model=self.model,
                 max_tokens=16000,
                 system=self.get_system_prompt(),
-                messages=self.messages,
+                messages=api_messages,
                 tools=cast(list[ToolParam], tools),
             )
 

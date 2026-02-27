@@ -11,8 +11,24 @@ Usage:
 import argparse
 import asyncio
 import sys
+from pathlib import Path
 
-from shared import GITHUB_MCP_AGENTS, build_agent_registry, github_mcp_config, run_agent
+# Ensure project root is on sys.path so `shared` is importable regardless of
+# how the script is invoked (e.g. `python bin/run-agent` sets sys.path[0] to bin/).
+_project_root = str(Path(__file__).resolve().parent.parent)
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
+
+from agent_framework.permissions.context import ExecutionContext  # noqa: E402
+from agent_framework.permissions.identity import AgentIdentity  # noqa: E402
+from agent_framework.permissions.permissions import Permission, PermissionSet  # noqa: E402
+
+from shared import (  # noqa: E402
+    GITHUB_MCP_AGENTS,
+    build_agent_registry,
+    github_mcp_config,
+    run_agent,
+)
 
 # Build registry lazily — agent imports happen here, not at module scope.
 AGENTS = build_agent_registry()
@@ -25,11 +41,31 @@ def list_agents() -> None:
         print(f"  • {name:15s} {desc}")
 
 
+def parse_permissions(raw: str) -> PermissionSet:
+    """Parse a comma-separated permission string into a PermissionSet.
+
+    Args:
+        raw: Comma-separated permission names (e.g. "READ,SEND")
+
+    Returns:
+        PermissionSet with the specified permissions
+    """
+    valid = {p.name: p for p in Permission}
+    perms: list[Permission] = []
+    for name in raw.split(","):
+        name = name.strip().upper()
+        if name not in valid:
+            raise ValueError(f"Unknown permission {name!r}. Valid: {', '.join(valid)}")
+        perms.append(valid[name])
+    return PermissionSet(perms)
+
+
 async def run_once(
     agent_class: type,
     agent_kwargs: dict | None,
     message: str,
     quiet: bool = False,
+    execution_context: ExecutionContext | None = None,
 ) -> None:
     """Run an agent with a single message and exit.
 
@@ -38,6 +74,7 @@ async def run_once(
         agent_kwargs: Keyword arguments to pass to agent constructor
         message: The message to send to the agent
         quiet: If True, suppress status messages (only show response)
+        execution_context: Optional execution context with permission constraints
     """
     try:
         agent = agent_class(**(agent_kwargs or {}))
@@ -62,7 +99,10 @@ async def run_once(
             streamed = False
 
         await agent.process_message(
-            message, on_text_delta=_stream_delta, on_tool_start=_show_tool_status
+            message,
+            execution_context=execution_context,
+            on_text_delta=_stream_delta,
+            on_tool_start=_show_tool_status,
         )
         if streamed:
             print()  # trailing newline after streamed output
@@ -131,6 +171,11 @@ One-off mode:
         action="store_true",
         help="Quiet mode: only output the agent's response (for scripting)",
     )
+    parser.add_argument(
+        "--permissions",
+        "-p",
+        help="Comma-separated permissions (e.g. READ,SEND). Limits what tools the agent can use.",
+    )
 
     args = parser.parse_args()
 
@@ -148,9 +193,24 @@ One-off mode:
     if args.agent in GITHUB_MCP_AGENTS:
         agent_kwargs = github_mcp_config()
 
+    # Build execution context if --permissions specified
+    execution_context = None
+    if args.permissions:
+        perm_set = parse_permissions(args.permissions)
+        execution_context = ExecutionContext(
+            caller=AgentIdentity(name=agent_class.__name__, source="cli"),
+            permissions=perm_set,
+        )
+
     if args.message:
         # One-off mode: process single message and exit
-        await run_once(agent_class, agent_kwargs, args.message, quiet=args.quiet)
+        await run_once(
+            agent_class,
+            agent_kwargs,
+            args.message,
+            quiet=args.quiet,
+            execution_context=execution_context,
+        )
     else:
         # Interactive mode
         print(f"Starting {args.agent} agent...")

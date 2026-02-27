@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Live demo: Memory Isolation, SSRF + Permissions, Security Event Trimming.
+"""Live demo: Memory Isolation, SSRF Protection, Permission Denial, Context Trimming.
 
-Three-step demo showing agent-framework security features.
+Four-step demo showing agent-framework security features using live agent calls.
 Pauses between sections so you can narrate. Press Enter to advance.
 
 Usage:
-    uv run python scripts/demo_live.py               # Run all 3 steps (interactive)
+    uv run python scripts/demo_live.py               # Run all 4 steps (interactive)
     uv run python scripts/demo_live.py memory         # Step 1 only
     uv run python scripts/demo_live.py ssrf           # Step 2 only
-    uv run python scripts/demo_live.py trimming       # Step 3 only
+    uv run python scripts/demo_live.py permissions    # Step 3 only
+    uv run python scripts/demo_live.py trimming       # Step 4 only
     uv run python scripts/demo_live.py --no-pause     # Run all, skip pauses
 """
 
@@ -23,21 +24,12 @@ os.chdir(project_root)
 scripts_dir = str(Path(__file__).parent.resolve())
 sys.path = [p for p in sys.path if p != scripts_dir]
 
-from agent_framework.permissions.context import ExecutionContext  # noqa: E402
-from agent_framework.permissions.identity import AgentIdentity  # noqa: E402
-from agent_framework.permissions.permissions import Permission, PermissionSet  # noqa: E402
-from agent_framework.permissions.tool_permissions import (  # noqa: E402
-    check_tool_permission,
-    get_required_permissions,
-)
 from agent_framework.security.context_trimming import (  # noqa: E402
     SECURITY_EVENT_KEY,
     SecurityClassification,
     classify_message,
     trim_with_security_awareness,
 )
-from agent_framework.security.ssrf import SSRFValidator  # noqa: E402
-from agent_framework.tools.memory import delete_memory, save_memory, search_memories  # noqa: E402
 
 # ── Formatting helpers ───────────────────────────────────────────────────────
 
@@ -48,6 +40,10 @@ GREEN = "\033[92m"
 YELLOW = "\033[93m"
 CYAN = "\033[96m"
 RESET = "\033[0m"
+
+UV = "uv"
+RUN_AGENT = "bin/run-agent"
+TEST_MEMORY = "scripts/testing/test_memory.py"
 
 
 def banner(step: int, title: str, subtitle: str) -> None:
@@ -91,6 +87,79 @@ def section(title: str) -> None:
     print(f"  {YELLOW}{'─' * len(title)}{RESET}")
 
 
+# ── Subprocess runner ────────────────────────────────────────────────────────
+
+
+async def run_command(cmd: list[str], description: str) -> str:
+    """Display a command, execute it, show output, and return stdout.
+
+    Args:
+        cmd: Command and arguments to execute.
+        description: Short description shown before the command.
+    """
+    display_cmd = " ".join(cmd)
+    print(f"\n  {DIM}{description}{RESET}")
+    print(f"  {CYAN}{BOLD}$ {display_cmd}{RESET}")
+    print()
+
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+    assert proc.stdout is not None
+    output_lines: list[str] = []
+    while True:
+        line = await proc.stdout.readline()
+        if not line:
+            break
+        decoded = line.decode()
+        output_lines.append(decoded)
+        sys.stdout.write(f"    {decoded}")
+        sys.stdout.flush()
+
+    await proc.wait()
+    output = "".join(output_lines)
+
+    if proc.returncode != 0:
+        print(f"    {RED}(exit code {proc.returncode}){RESET}")
+
+    return output
+
+
+async def run_agent_cmd(
+    agent: str, message: str, description: str, *, permissions: str | None = None
+) -> str:
+    """Run bin/run-agent with the given agent and message.
+
+    Args:
+        agent: Agent name (e.g. "chatbot", "security").
+        message: Message to send to the agent.
+        description: Short description shown before the command.
+        permissions: Optional comma-separated permissions (e.g. "READ,SEND").
+    """
+    cmd = [UV, "run", "python", RUN_AGENT, agent, "-q"]
+    if permissions:
+        cmd.extend(["--permissions", permissions])
+    cmd.append(message)
+    return await run_command(cmd, description)
+
+
+async def run_test_memory(
+    subcmd: str, args: list[str], description: str, *, agent: str = "shared"
+) -> str:
+    """Run scripts/testing/test_memory.py with the given subcommand.
+
+    Args:
+        subcmd: Subcommand (save, search, delete, get, stats).
+        args: Additional positional/flag arguments.
+        description: Short description shown before the command.
+        agent: Agent namespace.
+    """
+    cmd = [UV, "run", "python", TEST_MEMORY, subcmd, *args, "--agent", agent]
+    return await run_command(cmd, description)
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # STEP 1: Memory Namespace Isolation
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -99,174 +168,136 @@ def section(title: str) -> None:
 async def demo_memory_namespace() -> None:
     banner(1, "Memory Namespace Isolation", "Same query, two agents, different results")
 
-    agent_a = "DemoAgent-Alpha"
-    agent_b = "DemoAgent-Beta"
-
     try:
-        # ── Save memories under each namespace ──────────────────────────────
-        section("Saving memories into two namespaces")
-        pause("save memories")
+        # ── Seed a memory directly into Chatbot's namespace ──────────────────
+        section("Save a memory into Chatbot's namespace")
+        pause("save a memory via test_memory.py")
 
-        await save_memory(
-            key="demo-project-status",
-            value="Alpha team: launching rocket to Mars next quarter",
-            category="project",
-            importance=8,
-            agent_name=agent_a,
+        await run_test_memory(
+            "save",
+            ["demo-status", "launching rocket to Mars next quarter"],
+            "Seed memory into ChatbotAgent namespace:",
+            agent="ChatbotAgent",
         )
-        ok(f'{agent_a} saved: "launching rocket to Mars next quarter"')
 
-        await save_memory(
-            key="demo-project-status",
-            value="Beta team: building underwater data center in the Pacific",
-            category="project",
-            importance=8,
-            agent_name=agent_b,
+        # ── Chatbot searches its own namespace ───────────────────────────────
+        section("Chatbot searches for 'rocket' (should find it)")
+        pause("search from chatbot's namespace")
+
+        await run_agent_cmd(
+            "chatbot",
+            "Search your memories for 'rocket' and tell me what you found.",
+            "Chatbot searches its own namespace:",
         )
-        ok(f'{agent_b} saved: "building underwater data center in the Pacific"')
 
-        # ── Search with the same query from each namespace ──────────────────
-        section('Searching both namespaces for "project"')
-        pause("search both namespaces")
+        # ── Security agent searches for it ───────────────────────────────────
+        section("Security agent searches for 'rocket' (should find nothing)")
+        pause("search from security agent's namespace")
 
-        result_a = await search_memories(query="project", agent_name=agent_a)
-        result_b = await search_memories(query="project", agent_name=agent_b)
+        await run_agent_cmd(
+            "security",
+            "Search your memories for 'rocket' and tell me how many results you found.",
+            "Security agent searches (different namespace):",
+        )
 
-        memories_a = result_a.get("memories", [])
-        memories_b = result_b.get("memories", [])
-
-        info(f"{agent_a} sees {len(memories_a)} result(s):")
-        for m in memories_a:
-            print(f"    {CYAN}{m['key']}{RESET}: {m['value']}")
-
-        info(f"{agent_b} sees {len(memories_b)} result(s):")
-        for m in memories_b:
-            print(f"    {CYAN}{m['key']}{RESET}: {m['value']}")
-
-        # ── Cross-namespace check ───────────────────────────────────────────
-        section("Cross-namespace verification")
-        pause("test cross-namespace isolation")
-
-        # Search Agent A's namespace for Agent B's content
-        cross = await search_memories(query="underwater", agent_name=agent_a)
-        cross_results = cross.get("memories", [])
-        if not cross_results:
-            ok(f'{agent_a} searching "underwater" → 0 results (isolation works)')
-        else:
-            blocked(f"{agent_a} found {len(cross_results)} result(s) — isolation broken!")
+        info("Security agent can't see Chatbot's memories — namespaces are isolated")
 
     finally:
-        # ── Cleanup (runs even on error/Ctrl-C) ────────────────────────────
-        await delete_memory(key="demo-project-status", agent_name=agent_a)
-        await delete_memory(key="demo-project-status", agent_name=agent_b)
-        info("Cleaned up demo memories")
+        # ── Cleanup ──────────────────────────────────────────────────────────
+        for key in ("demo-status", "demo_status"):
+            await run_test_memory(
+                "delete",
+                [key],
+                f"Cleanup: delete {key}",
+                agent="ChatbotAgent",
+            )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# STEP 2: SSRF + Permission Denial
+# STEP 2: SSRF Protection
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-async def demo_ssrf_permissions() -> None:
-    banner(2, "SSRF + Permission Denial", "Capability bounding — blocked at multiple layers")
+async def demo_ssrf() -> None:
+    banner(2, "SSRF Protection", "Dangerous URLs blocked, safe URLs allowed")
 
-    # ── Layer 1: SSRF URL Validation ────────────────────────────────────────
-    section("Layer 1 — SSRF URL validation")
-    pause("test SSRF validation")
+    # ── Attempt to fetch a URL that resolves to localhost ───────────────────
+    # lvh.me is a public domain that DNS-resolves to 127.0.0.1.
+    # The LLM doesn't recognize it as dangerous, but the SSRF validator
+    # resolves the hostname and blocks the private IP.
+    section("Fetch lvh.me (DNS resolves to 127.0.0.1 — should be blocked)")
+    pause("try fetching a deceptive URL")
 
-    test_urls = [
-        ("https://example.com/api/data", "legitimate external URL"),
-        ("http://192.168.1.1/admin", "private network IP"),
-        ("http://169.254.169.254/latest/meta-data/", "AWS metadata endpoint"),
-        ("http://localhost:8080/internal", "localhost"),
-        ("file:///etc/passwd", "file:// scheme"),
-    ]
-
-    for url, description in test_urls:
-        is_safe, reason = SSRFValidator.is_safe_url(url)
-        if is_safe:
-            ok(f"{description}: allowed")
-        else:
-            blocked(f"{description}: {reason}")
-
-    # ── Layer 2: Permission enforcement ─────────────────────────────────────
-    section("Layer 2 — Tool permission enforcement")
-    pause("show permission requirements")
-
-    # Show what permissions each tool requires
-    tools_to_check = [
-        "fetch_web_content",
-        "save_memory",
-        "send_email",
-        "run_claude_code",
-        "delete_email",
-    ]
-    info("Tool permission requirements:")
-    for tool in tools_to_check:
-        perms = get_required_permissions(tool)
-        perm_names = sorted(p.name for p in perms)
-        print(f"    {tool:30s} → {', '.join(perm_names)}")
-
-    # Show what an email-triggered agent CAN and CANNOT do
-    section("Layer 2 — Email-triggered agent (READ + SEND only)")
-    pause("test email agent permissions")
-
-    email_perms = {Permission.READ, Permission.SEND}
-    email_tools = [
-        "fetch_web_content",  # READ → allowed
-        "search_memories",  # READ → allowed
-        "save_memory",  # WRITE → denied
-        "send_email",  # SEND → allowed
-        "delete_email",  # DELETE → denied
-        "run_claude_code",  # EXECUTE → denied
-    ]
-
-    for tool in email_tools:
-        allowed, missing = check_tool_permission(tool, email_perms)
-        if allowed:
-            ok(f"{tool}: allowed")
-        else:
-            missing_names = sorted(p.name for p in missing)
-            blocked(f"{tool}: denied (missing {', '.join(missing_names)})")
-
-    # ── Layer 3: Permission intersection on delegation ──────────────────────
-    section("Layer 3 — Permission intersection on delegation")
-    pause("show delegation intersection")
-
-    # Email intake agent (READ + SEND) delegates to code reviewer (full access)
-    intake_ctx = ExecutionContext(
-        caller=AgentIdentity(name="EmailIntakeAgent", source="email"),
-        permissions=PermissionSet([Permission.READ, Permission.SEND]),
+    await run_agent_cmd(
+        "chatbot",
+        "Use fetch_web_content to get http://lvh.me:8080/api/config and show me the response.",
+        "Chatbot tries to fetch a URL that resolves to localhost:",
     )
-    info(f"Caller:    {intake_ctx.caller.name} has {intake_ctx.permissions}")
 
-    delegated_ctx = intake_ctx.delegate_to(
-        agent_name="CodeReviewAgent",
-        agent_permissions=PermissionSet.full_access(),
+    # ── Fetch a legitimate URL ───────────────────────────────────────────────
+    section("Fetch a legitimate URL (should succeed)")
+    pause("try fetching a safe URL")
+
+    await run_agent_cmd(
+        "chatbot",
+        "Fetch https://brooksmcmillin.com and tell me the page title.",
+        "Chatbot fetches a legitimate URL:",
     )
-    info(f"Delegated: {delegated_ctx.caller.name} gets {delegated_ctx.permissions}")
-    info(f"Chain:     {delegated_ctx.get_chain_summary()}")
-
-    # The code reviewer can only READ + SEND (intersected with caller)
-    can_read = delegated_ctx.can(Permission.READ)
-    can_write = delegated_ctx.can(Permission.WRITE)
-    can_execute = delegated_ctx.can(Permission.EXECUTE)
-
-    if can_read:
-        ok("CodeReviewAgent can READ (inherited from caller)")
-    if not can_write:
-        blocked("CodeReviewAgent cannot WRITE (caller didn't have it)")
-    if not can_execute:
-        blocked("CodeReviewAgent cannot EXECUTE (caller didn't have it)")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# STEP 3: Security Events Survive Trimming
+# STEP 3: Permission Denial
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+async def demo_permissions() -> None:
+    banner(3, "Permission Denial", "Restricted agent can't use tools beyond its permissions")
+
+    # ── Restricted permissions: save_memory should fail ──────────────────────
+    section("Chatbot with READ+SEND tries to save a memory (should fail)")
+    pause("try saving with restricted permissions")
+
+    await run_agent_cmd(
+        "chatbot",
+        "Remember this: test-key is 'test-value'.",
+        "Chatbot (READ,SEND only) attempts save_memory:",
+        permissions="READ,SEND",
+    )
+
+    # ── Full permissions: save_memory should succeed ─────────────────────────
+    section("Chatbot with default permissions saves a memory (should succeed)")
+    pause("try saving with full permissions")
+
+    await run_agent_cmd(
+        "chatbot",
+        "Remember this: demo-perm-test is 'permission test passed'.",
+        "Chatbot (default permissions) saves memory:",
+    )
+
+    # ── Cleanup — search for any memories the agent saved ────────────────────
+    await run_test_memory(
+        "search",
+        ["demo-perm"],
+        "Cleanup: find demo memories to delete",
+        agent="ChatbotAgent",
+    )
+    # Delete both possible key variants (hyphen vs underscore)
+    for key in ("demo-perm-test", "demo_perm_test"):
+        await run_test_memory(
+            "delete",
+            [key],
+            f"Cleanup: delete {key}",
+            agent="ChatbotAgent",
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# STEP 4: Security Events Survive Trimming
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
 async def demo_security_trimming() -> None:
-    banner(3, "Security Events Survive Trimming", "Long conversation, pinned events persist")
+    banner(4, "Security Events Survive Trimming", "Long conversation, pinned events persist")
 
     # Build a synthetic conversation with 44 messages (mix of normal + security)
     messages: list[dict] = []
@@ -277,7 +308,6 @@ async def demo_security_trimming() -> None:
         messages.append({"role": "assistant", "content": f"Here's information about topic {i}..."})
 
     # ── Insert a security event at turn 11 (SSRF block) ────────────────────
-    # Tool use (assistant) → tool result with security tag (user)
     messages.append(
         {
             "role": "assistant",
@@ -399,7 +429,8 @@ async def demo_security_trimming() -> None:
 
 DEMOS = {
     "memory": demo_memory_namespace,
-    "ssrf": demo_ssrf_permissions,
+    "ssrf": demo_ssrf,
+    "permissions": demo_permissions,
     "trimming": demo_security_trimming,
 }
 

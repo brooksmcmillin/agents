@@ -6,11 +6,12 @@ pieces manually if someone asks "how does that work?"
 ## Running the Demo
 
 ```bash
-uv run python scripts/demo_live.py           # All 3 steps, interactive (Enter to advance)
-uv run python scripts/demo_live.py memory    # Step 1 only
-uv run python scripts/demo_live.py ssrf      # Step 2 only
-uv run python scripts/demo_live.py trimming  # Step 3 only
-uv run python scripts/demo_live.py --no-pause  # Unattended (CI, recording)
+uv run python scripts/demo_live.py               # All 4 steps, interactive (Enter to advance)
+uv run python scripts/demo_live.py memory         # Step 1 only
+uv run python scripts/demo_live.py ssrf           # Step 2 only
+uv run python scripts/demo_live.py permissions    # Step 3 only
+uv run python scripts/demo_live.py trimming       # Step 4 only
+uv run python scripts/demo_live.py --no-pause     # Unattended (CI, recording)
 ```
 
 ---
