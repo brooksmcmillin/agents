@@ -539,15 +539,11 @@ class Agent(ABC):
             Configured RemoteMCPClient instance
         """
         # Determine OAuth behavior - disable if auth_token is provided
-        # or if skip_failed_mcp_urls is set (fail fast instead of prompting)
         auth_token = self.mcp_client_config.get("auth_token")
-        if self.skip_failed_mcp_urls:
-            enable_oauth = False
-        else:
-            enable_oauth = self.mcp_client_config.get(
-                "enable_oauth",
-                auth_token is None,  # Default: enable OAuth only if no token
-            )
+        enable_oauth = self.mcp_client_config.get(
+            "enable_oauth",
+            auth_token is None,  # Default: enable OAuth only if no token
+        )
 
         return RemoteMCPClient(
             url,
@@ -696,7 +692,7 @@ class Agent(ABC):
                 async with self._create_remote_mcp_client(url) as mcp:
                     mcp_tools = await mcp.list_tools()
                     self.tools[url] = [tool["name"] for tool in mcp_tools]
-            except Exception as e:
+            except (ConnectionError, TimeoutError, OSError, ValueError, RuntimeError) as e:
                 if self.skip_failed_mcp_urls:
                     logger.warning(f"Skipping failed remote MCP server {url}: {e}")
                     failed_urls.append(url)
@@ -770,7 +766,7 @@ class Agent(ABC):
                 print(f"❌ Timeout while connecting to MCP server at {url}")
                 print("The connection was established but listing tools timed out.")
                 return
-            except Exception as e:
+            except (ConnectionError, OSError, ValueError, RuntimeError) as e:
                 if self.skip_failed_mcp_urls:
                     logger.warning(
                         f"Failed to connect to remote MCP server at {url}: {e}, skipping"
@@ -1431,7 +1427,7 @@ class Agent(ABC):
                         }
                         for tool in mcp_tools
                     ]
-            except Exception as e:
+            except (ConnectionError, TimeoutError, OSError, ValueError, RuntimeError) as e:
                 if self.skip_failed_mcp_urls:
                     logger.warning(f"Skipping failed remote MCP server {url}: {e}")
                     failed_urls.append(url)
