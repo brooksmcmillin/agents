@@ -20,12 +20,15 @@ A FastAPI-based REST server that exposes all agents as HTTP endpoints, supportin
 
 ### 🤖 Multi-Agent Support
 
-Access all 5 agents via REST API:
+Access all 8 interactive agents via REST API:
 - **chatbot**: General-purpose assistant with full tool access
 - **pr**: PR and content strategy assistant
 - **tasks**: Interactive task management (requires remote MCP)
 - **security**: Security research assistant
 - **business**: Business strategy and monetization advisor
+- **code-analysis**: Repository analysis for security, performance, and architecture
+- **events**: Local events discovery with preference learning
+- **red-team**: Authorized penetration testing
 
 ### 📊 Token Tracking
 
@@ -141,30 +144,18 @@ curl http://localhost:8080/health
 
 List all available agents. **Requires authentication.**
 
-**Response**:
+**Response** (example — actual list comes from `shared/registry.py`):
 ```json
 {
   "agents": [
-    {
-      "name": "chatbot",
-      "description": "General-purpose chatbot with full MCP tool access"
-    },
-    {
-      "name": "pr",
-      "description": "PR and content strategy assistant"
-    },
-    {
-      "name": "tasks",
-      "description": "Interactive task management agent"
-    },
-    {
-      "name": "security",
-      "description": "Security research assistant"
-    },
-    {
-      "name": "business",
-      "description": "Business strategy and monetization advisor"
-    }
+    { "name": "chatbot", "description": "General-purpose chatbot with full MCP tool access" },
+    { "name": "pr", "description": "PR and content strategy assistant" },
+    { "name": "tasks", "description": "Interactive task management agent" },
+    { "name": "security", "description": "Security research assistant" },
+    { "name": "business", "description": "Business strategy and monetization advisor" },
+    { "name": "code-analysis", "description": "Repository analysis agent..." },
+    { "name": "events", "description": "Local events discovery with preference learning" },
+    { "name": "red-team", "description": "Red team security testing agent" }
   ]
 }
 ```
