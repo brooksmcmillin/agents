@@ -33,6 +33,8 @@ logger = logging.getLogger(__name__)
 
 # Validation constants
 MAX_AGENT_NAME_LENGTH = 100  # Matches VARCHAR(100) in database schema
+MAX_KEY_LENGTH = 256  # Prevents resource exhaustion via oversized keys
+MAX_VALUE_LENGTH = 10000  # Prevents resource exhaustion via oversized values
 AGENT_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 # Thread locks for store registry access
@@ -390,6 +392,18 @@ async def save_memory(
     Returns:
         Confirmation with the saved memory details
     """
+    # Validate key and value lengths to prevent resource exhaustion
+    if len(key) > MAX_KEY_LENGTH:
+        return {
+            "status": "error",
+            "message": f"key exceeds maximum length of {MAX_KEY_LENGTH} characters (got {len(key)})",
+        }
+    if len(value) > MAX_VALUE_LENGTH:
+        return {
+            "status": "error",
+            "message": f"value exceeds maximum length of {MAX_VALUE_LENGTH} characters (got {len(value)})",
+        }
+
     logger.info(f"Saving memory for agent '{agent_name}': {key}")
 
     try:
@@ -690,10 +704,12 @@ TOOL_SCHEMAS = [
             "properties": {
                 "key": {
                     "type": "string",
+                    "maxLength": 256,
                     "description": "Unique identifier (e.g., 'user_blog_url', 'brand_voice', 'twitter_goal')",
                 },
                 "value": {
                     "type": "string",
+                    "maxLength": 10000,
                     "description": "The information to remember",
                 },
                 "category": {
