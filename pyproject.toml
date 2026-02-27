@@ -64,7 +64,7 @@ voice = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-addopts = "--import-mode=importlib --cov --cov-branch --cov-report=term-missing"
+addopts = "--import-mode=importlib --cov --cov-report=term-missing"
 testpaths = [
     "tests",
     "packages/agent-framework/tests",
@@ -89,8 +89,6 @@ omit = [
 ]
 
 [tool.coverage.report]
-show_missing = true
-skip_covered = false
 precision = 2
 exclude_lines = [
     "pragma: no cover",
