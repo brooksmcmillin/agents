@@ -42,7 +42,7 @@ memories/
 
 # Testing
 .pytest_cache/
-.testmondata
+.testmondata*
 .coverage
 .coverage.*
 htmlcov/
