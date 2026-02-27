@@ -207,6 +207,30 @@ class TestSSRFValidator:
         is_safe, reason = SSRFValidator.is_safe_url("http://localhost:3000/")
         assert not is_safe
 
+    # --- IPv4-mapped IPv6 address protection ---
+
+    def test_blocks_ipv4_mapped_ipv6_private(self) -> None:
+        """IPv4-mapped IPv6 private address is blocked (e.g. ::ffff:192.168.1.1)."""
+        is_safe, reason = SSRFValidator.is_safe_url("http://[::ffff:192.168.1.1]/")
+        assert not is_safe
+
+    def test_blocks_ipv4_mapped_ipv6_loopback(self) -> None:
+        """IPv4-mapped IPv6 loopback is blocked (::ffff:127.0.0.1)."""
+        is_safe, reason = SSRFValidator.is_safe_url("http://[::ffff:127.0.0.1]/")
+        assert not is_safe
+
+    def test_allows_ipv4_mapped_ipv6_public(self) -> None:
+        """IPv4-mapped IPv6 public address is allowed (e.g. ::ffff:8.8.8.8)."""
+        is_safe, reason = SSRFValidator.is_safe_url("http://[::ffff:8.8.8.8]/")
+        assert is_safe, f"Expected safe but got: {reason}"
+
+    # --- 0.0.0.0 / 0.0.0.0/8 protection ---
+
+    def test_blocks_0_0_0_0_8_range(self) -> None:
+        """The 0.0.0.0/8 'this network' range is blocked."""
+        is_safe, reason = SSRFValidator.is_safe_url("http://0.1.2.3/")
+        assert not is_safe
+
     # --- DNS Resolution Protection ---
 
     @patch("socket.getaddrinfo")
@@ -541,16 +565,16 @@ class TestSSRFDocumentation:
         # This test always passes but documents the checklist
         assert all(checklist.values()) or not all(checklist.values())
 
-    def test_ssrf_implementation_locations(self):
-        """Document where SSRF protection should be implemented."""
-        locations = [
-            "/home/brooks/build/agents/shared/security_utils.py",  # New file
-            "/home/brooks/build/agents/mcp_server/tools/web_analyzer.py",  # Update
-            "/home/brooks/build/agents/mcp_server/tools/web_reader.py",  # Update
-        ]
+    def test_ssrf_implementation_locations(self) -> None:
+        """Document where SSRF protection is implemented."""
+        # SSRF protection is applied in:
+        # packages/agent-framework/agent_framework/security/ssrf.py  (SSRFValidator, SSRFTransport)
+        # packages/agent-framework/agent_framework/tools/web_reader.py  (fetch_web_content)
+        # packages/agent-framework/agent_framework/tools/web_analyzer.py  (analyze_website)
+        from agent_framework.security import SSRFTransport, SSRFValidator
 
-        # This test documents the locations
-        assert len(locations) == 3
+        assert SSRFValidator is not None
+        assert SSRFTransport is not None
 
     def test_ssrf_protection_example_usage(self):
         """Document example usage of SSRF protection."""
@@ -690,3 +714,18 @@ class TestSSRFTransport:
     def test_ssrf_transport_is_async_http_transport_subclass(self) -> None:
         """SSRFTransport is a proper httpx.AsyncHTTPTransport subclass."""
         assert issubclass(SSRFTransport, httpx.AsyncHTTPTransport)
+
+    @pytest.mark.asyncio
+    @patch("socket.getaddrinfo")
+    async def test_blocks_ipv4_mapped_ipv6_private_at_connect_time(
+        self, mock_getaddrinfo: MagicMock
+    ) -> None:
+        """Transport blocks IPv4-mapped IPv6 private addresses at connect time."""
+        # ::ffff:192.168.1.1 is an IPv4-mapped IPv6 form of 192.168.1.1
+        mock_getaddrinfo.return_value = [(10, 1, 6, "", ("::ffff:192.168.1.1", 80, 0, 0))]
+
+        transport = SSRFTransport()
+        async with transport:
+            with pytest.raises(httpx.ConnectError, match="DNS rebinding detected"):
+                async with httpx.AsyncClient(transport=transport, follow_redirects=False) as client:
+                    await client.get("http://mapped-ipv6.attacker.com/")

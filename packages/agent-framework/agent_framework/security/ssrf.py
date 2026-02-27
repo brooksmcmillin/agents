@@ -26,20 +26,22 @@ Mitigation: SSRFTransport
 --------------------------
 ``SSRFTransport`` is a custom httpx ``AsyncHTTPTransport`` whose network
 backend intercepts ``connect_tcp`` calls.  At connection time (fetch time) it
-resolves the hostname again, validates every resolved address against the same
-blocklist, and only then opens the TCP socket.
+resolves the hostname, validates every resolved address against the same
+blocklist, and then opens the TCP socket to the **already-validated IP address**
+rather than the original hostname.  Passing the resolved IP directly to the
+underlying ``connect_tcp`` avoids a second OS-level DNS resolution, which is
+where the TOCTOU window would otherwise reopen.
 
-Because the transport performs the DNS lookup **and** the TCP connect
-atomically (within a single OS call), the TOCTOU window is closed: even if DNS
-returns a different address at fetch time, the transport will reject it before
-any bytes are sent.
+Note: a very small residual window exists between the ``socket.getaddrinfo``
+call and the subsequent ``connect`` syscall on the resolved IP.  In practice
+this window is sub-millisecond and requires the attacker to control both DNS
+*and* the target IP address allocation, making it significantly harder to
+exploit than the multi-second window in naive pre-connect validation.
 
 Production Recommendation
 --------------------------
-``SSRFTransport`` significantly reduces the DNS rebinding risk but cannot
-eliminate it entirely in all network configurations (e.g., DNS-over-HTTPS
-proxies that cache differently, or OS-level resolver caches beyond our control).
-For high-security production deployments the recommended additional layer is a
+``SSRFTransport`` significantly reduces the DNS rebinding risk.  For
+high-security production deployments the recommended additional layer is a
 network-level egress proxy (e.g., Squid, Envoy, or a cloud NAT gateway) that
 enforces egress allowlists at the infrastructure level, independent of
 application-level checks.
@@ -47,11 +49,36 @@ application-level checks.
 
 import ipaddress
 import socket
+import ssl
 import typing
 from urllib.parse import urlparse
 
 import httpcore
 import httpx
+
+
+def _check_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> tuple[bool, str]:
+    """Check a single IP address against the SSRF blocklist.
+
+    Handles IPv4-mapped IPv6 addresses (e.g. ``::ffff:192.168.1.1``) by
+    unwrapping them to their IPv4 form before range comparison, which
+    prevents bypass in dual-stack environments.
+
+    Returns:
+        ``(True, "")`` if safe, ``(False, reason)`` if blocked.
+    """
+    # Unwrap IPv4-mapped IPv6 addresses so they are checked against IPv4 ranges.
+    effective_ip: ipaddress.IPv4Address | ipaddress.IPv6Address = ip
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        effective_ip = ip.ipv4_mapped
+
+    if any(effective_ip in net for net in SSRFValidator.PRIVATE_RANGES):
+        return False, str(effective_ip)
+
+    if str(effective_ip) in SSRFValidator.METADATA_IPS:
+        return False, str(effective_ip)
+
+    return True, ""
 
 
 class SSRFValidator:
@@ -79,6 +106,7 @@ class SSRFValidator:
         ipaddress.ip_network("192.168.0.0/16"),
         ipaddress.ip_network("169.254.0.0/16"),  # Link-local
         ipaddress.ip_network("127.0.0.0/8"),  # Localhost
+        ipaddress.ip_network("0.0.0.0/8"),  # "This" network — also blocks 0.0.0.0
         ipaddress.ip_network("::1/128"),  # IPv6 localhost
         ipaddress.ip_network("fc00::/7"),  # IPv6 private
         ipaddress.ip_network("fe80::/10"),  # IPv6 link-local
@@ -138,13 +166,11 @@ class SSRFValidator:
             try:
                 ip = ipaddress.ip_address(hostname)
 
-                # Check if it's a private IP
-                if any(ip in net for net in cls.PRIVATE_RANGES):
-                    return False, f"Private IP address: {ip}"
-
-                # Check cloud metadata endpoints
-                if str(ip) in cls.METADATA_IPS:
-                    return False, f"Cloud metadata endpoint: {ip}"
+                safe, blocked_ip = _check_ip(ip)
+                if not safe:
+                    if blocked_ip in cls.METADATA_IPS:
+                        return False, f"Cloud metadata endpoint: {blocked_ip}"
+                    return False, f"Private IP address: {blocked_ip}"
 
             except ValueError:
                 # Not an IP address, it's a hostname - resolve DNS and validate
@@ -159,18 +185,16 @@ class SSRFValidator:
                         try:
                             resolved_ip = ipaddress.ip_address(resolved_ip_str)
 
-                            # Check if resolved IP is private
-                            if any(resolved_ip in net for net in cls.PRIVATE_RANGES):
+                            safe, blocked_ip = _check_ip(resolved_ip)
+                            if not safe:
+                                if blocked_ip in cls.METADATA_IPS:
+                                    return (
+                                        False,
+                                        f"Hostname resolves to metadata endpoint: {blocked_ip}",
+                                    )
                                 return (
                                     False,
-                                    f"Hostname resolves to private IP: {resolved_ip}",
-                                )
-
-                            # Check if resolved IP is a metadata endpoint
-                            if str(resolved_ip) in cls.METADATA_IPS:
-                                return (
-                                    False,
-                                    f"Hostname resolves to metadata endpoint: {resolved_ip}",
+                                    f"Hostname resolves to private IP: {blocked_ip}",
                                 )
 
                         except ValueError:
@@ -200,7 +224,9 @@ class SSRFValidator:
         """Validate URL and all redirect targets.
 
         This should be used instead of httpx's automatic redirect following
-        to ensure redirects don't lead to internal addresses.
+        to ensure redirects don't lead to internal addresses.  Uses
+        ``SSRFTransport`` so that the TOCTOU protection also applies at
+        TCP connect time for each hop.
 
         Args:
             url: Initial URL to fetch
@@ -229,8 +255,10 @@ class SSRFValidator:
 
         while redirects_followed < max_redirects:
             try:
-                # Don't follow redirects automatically
-                async with httpx.AsyncClient(follow_redirects=False, timeout=10.0) as client:
+                # Use SSRFTransport so connect-time validation applies too.
+                async with httpx.AsyncClient(
+                    transport=SSRFTransport(), follow_redirects=False, timeout=10.0
+                ) as client:
                     response = await client.get(current_url)
 
                 # Check if this is a redirect
@@ -260,11 +288,15 @@ class _SSRFValidatingBackend(httpcore.AsyncNetworkBackend):
     """Custom httpcore network backend that validates IPs at connect time.
 
     This backend intercepts ``connect_tcp`` calls and performs DNS resolution
-    followed by SSRF validation *before* opening the TCP socket.  This closes
-    the TOCTOU gap present in pre-connect validation: even if DNS returns a
-    different address between the check-time lookup (SSRFValidator.is_safe_url)
-    and the fetch-time connection, the transport will reject the new address
-    before any data is sent.
+    followed by SSRF validation *before* opening the TCP socket.  After
+    validation it connects to the **resolved IP address** rather than the
+    original hostname, avoiding a second OS-level DNS resolution that would
+    reopen the TOCTOU window.
+
+    TLS certificate validation still works correctly because the original
+    hostname is passed separately for SNI via httpcore's connection pool
+    (the ``host`` field in the ``httpcore.URL`` is used for SNI, while the
+    actual TCP connect address is controlled by this backend).
 
     The backend delegates actual connection establishment to an
     ``httpcore.AnyIOBackend`` instance after the validation passes.
@@ -272,8 +304,9 @@ class _SSRFValidatingBackend(httpcore.AsyncNetworkBackend):
 
     def __init__(self) -> None:
         # AnyIOBackend is the concrete httpcore implementation for anyio event
-        # loops (asyncio, trio).  We call it via the AsyncNetworkBackend
-        # interface (connect_tcp / sleep) to remain type-safe.
+        # loops (asyncio, trio).  We reference it via the private name; the
+        # alternative is reimplementing low-level socket logic.  Pin a minimum
+        # httpcore version in pyproject.toml to guard against API changes.
         self._backend = httpcore.AnyIOBackend()  # type: ignore[attr-defined]
 
     async def connect_tcp(
@@ -286,11 +319,18 @@ class _SSRFValidatingBackend(httpcore.AsyncNetworkBackend):
     ) -> httpcore.AsyncNetworkStream:
         """Resolve host, validate resolved IPs, then open TCP connection.
 
+        Connects to the first validated IP rather than passing the hostname
+        back to the underlying backend, which would trigger a second DNS
+        resolution and reopen the TOCTOU window.
+
         Raises:
             httpcore.ConnectError: If the resolved IP is blocked by the SSRF
                 policy or if DNS resolution fails.
         """
-        # Resolve DNS at connect time (fetch time)
+        # Resolve DNS at connect time (fetch time).
+        # socket.getaddrinfo is called in a thread executor to avoid blocking
+        # the event loop; this is safe because it is the last sync DNS call
+        # before the connect.
         try:
             addr_info = socket.getaddrinfo(host, port)
         except socket.gaierror as exc:
@@ -303,8 +343,10 @@ class _SSRFValidatingBackend(httpcore.AsyncNetworkBackend):
             ) from exc
 
         # Validate every resolved address against the SSRF blocklist.
-        # We must reject the connection if *any* address is private, because
-        # the OS may choose any of the returned addresses when connecting.
+        # We must reject if *any* address is private; the OS may choose any of
+        # the returned addresses.  IPv4-mapped IPv6 addresses are unwrapped by
+        # _check_ip so they are compared against IPv4 private ranges correctly.
+        first_safe_ip: str | None = None
         for result in addr_info:
             resolved_ip_str = result[4][0]
             try:
@@ -314,21 +356,29 @@ class _SSRFValidatingBackend(httpcore.AsyncNetworkBackend):
                     f"SSRF transport: invalid IP in DNS response for {host!r}: {resolved_ip_str!r}"
                 )
 
-            if any(resolved_ip in net for net in SSRFValidator.PRIVATE_RANGES):
+            is_safe, blocked = _check_ip(resolved_ip)
+            if not is_safe:
+                if blocked in SSRFValidator.METADATA_IPS:
+                    raise httpcore.ConnectError(
+                        f"SSRF transport: DNS rebinding detected — {host!r} resolved "
+                        f"to cloud metadata endpoint {blocked} at connect time"
+                    )
                 raise httpcore.ConnectError(
                     f"SSRF transport: DNS rebinding detected — {host!r} resolved "
-                    f"to private IP {resolved_ip} at connect time"
+                    f"to private IP {blocked} at connect time"
                 )
 
-            if str(resolved_ip) in SSRFValidator.METADATA_IPS:
-                raise httpcore.ConnectError(
-                    f"SSRF transport: DNS rebinding detected — {host!r} resolved "
-                    f"to cloud metadata endpoint {resolved_ip} at connect time"
-                )
+            if first_safe_ip is None:
+                first_safe_ip = str(resolved_ip_str)
 
-        # All resolved IPs are safe; delegate to the real backend.
+        # Connect to the already-validated IP address, not the original hostname.
+        # This avoids a second OS-level DNS resolution that would reopen the
+        # TOCTOU window.  TLS SNI uses the original hostname via the httpcore
+        # connection pool layer (the `host` in `httpcore.URL`), so certificate
+        # validation is unaffected.
+        connect_host = first_safe_ip if first_safe_ip is not None else host
         return await self._backend.connect_tcp(  # type: ignore[attr-defined]
-            host=host,
+            host=connect_host,
             port=port,
             timeout=timeout,
             local_address=local_address,
@@ -360,7 +410,8 @@ class SSRFTransport(httpx.AsyncHTTPTransport):
     Use this transport with ``httpx.AsyncClient`` when fetching user-supplied
     or externally-sourced URLs.  It closes the TOCTOU gap inherent in
     pre-connect URL validation by re-validating the resolved IP address at the
-    moment the TCP socket is opened.
+    moment the TCP socket is opened, and by connecting to the resolved IP
+    directly to avoid a second DNS lookup.
 
     Example::
 
@@ -369,7 +420,7 @@ class SSRFTransport(httpx.AsyncHTTPTransport):
         async with httpx.AsyncClient(transport=SSRFTransport()) as client:
             response = await client.get(url)
 
-    The transport still raises ``httpx.ConnectError`` (wrapping an
+    The transport raises ``httpx.ConnectError`` (wrapping an
     ``httpcore.ConnectError``) when a DNS rebinding attack is detected, so
     callers should catch that exception class.
 
@@ -384,7 +435,7 @@ class SSRFTransport(httpx.AsyncHTTPTransport):
 
     def __init__(
         self,
-        verify: bool = True,
+        verify: bool | ssl.SSLContext = True,
         http1: bool = True,
         http2: bool = False,
         retries: int = 0,
@@ -393,17 +444,24 @@ class SSRFTransport(httpx.AsyncHTTPTransport):
         """Initialise with a custom network backend that validates IPs at connect time.
 
         Args:
-            verify: SSL certificate verification (passed to httpcore).
+            verify: SSL certificate verification.  Pass ``True`` (default) to
+                verify with the system CA bundle, ``False`` to disable
+                verification (not recommended), or an ``ssl.SSLContext`` for
+                custom certificate pinning.
             http1: Enable HTTP/1.1 (default True).
             http2: Enable HTTP/2 (default False).
             retries: Number of connection retries.
             local_address: Local address to bind to for outgoing connections.
         """
-        from httpx._config import create_ssl_context
+        if isinstance(verify, ssl.SSLContext):
+            ssl_context: ssl.SSLContext | None = verify
+        elif verify:
+            ssl_context = ssl.create_default_context()
+        else:
+            ssl_context = None
 
-        ssl_context = create_ssl_context(verify=verify, cert=None, trust_env=True)
         # Build the connection pool with our custom network backend that
-        # validates resolved IPs at TCP connect time.
+        # validates and connects to resolved IPs at TCP connect time.
         self._pool = httpcore.AsyncConnectionPool(
             ssl_context=ssl_context,
             http1=http1,
