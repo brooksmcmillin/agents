@@ -200,7 +200,7 @@ def handle_add_task_email(subject: str, body: str, sender_email: str) -> str | N
         f"Title: {title}\n"
         f"Description: {body}\n"
         f"Source: email from {sender_email}\n"
-        f"--- END EMAIL CONTENT ---\n\n"
+        f"--- END EMAIL CONTENT (untrusted) ---\n\n"
         f"Steps:\n"
         f"1. Use create_task to create this task with the title and description above\n"
         f"2. Use classify_task to classify it with appropriate action_type and autonomy_tier\n"
