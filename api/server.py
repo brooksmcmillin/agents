@@ -1213,20 +1213,20 @@ async def claude_code_websocket(websocket: WebSocket, session_id: str) -> None:
     # the session exists.  Returning the same close code for "session not found"
     # and "wrong token" prevents authenticated callers from enumerating valid
     # session IDs by observing differential responses.
+    #
+    # Always run compare_digest to avoid timing side-channels: use
+    # _DUMMY_SESSION_TOKEN so the work done when the session doesn't exist is
+    # indistinguishable from a real wrong-token check.
+    stored_token = session.session_token if session is not None else _DUMMY_SESSION_TOKEN
     provided_token = auth_data.get("session_token")
-    token_ok = (
-        isinstance(provided_token, str)
-        and session is not None
-        and secrets.compare_digest(
-            provided_token.encode("utf-8"),
-            session.session_token.encode("utf-8"),
-        )
+    candidate = provided_token if isinstance(provided_token, str) else ""
+    digest_ok = secrets.compare_digest(
+        candidate.encode("utf-8"),
+        stored_token.encode("utf-8"),
     )
-    if not token_ok:
+    if session is None or not digest_ok:
         await websocket.close(code=4003, reason="Session not found or invalid token")
         return
-
-    assert session is not None  # guaranteed by token_ok being True
 
     async def send_events() -> None:
         """Send session events to WebSocket client."""
