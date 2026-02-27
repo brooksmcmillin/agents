@@ -6,6 +6,34 @@ priority values.
 """
 
 import json
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def parse_json_result(result: str | dict) -> dict:
+    """Parse MCP tool result JSON into a dict.
+
+    Handles both pre-parsed dicts and raw JSON strings returned by
+    MCP tool calls.  Use this when you need the full response object
+    (e.g. ``get_task``, ``list_dependencies``) rather than just the
+    ``tasks`` list.
+
+    Args:
+        result: JSON string or dict from MCP tool call
+
+    Returns:
+        Parsed dict (empty dict if result is an unexpected type)
+    """
+    if isinstance(result, str):
+        return json.loads(result)
+    if isinstance(result, dict):
+        return result
+    logger.warning(
+        "parse_json_result received unexpected type %s; returning empty dict",
+        type(result).__name__,
+    )
+    return {}
 
 
 def parse_task_result(result: str | dict) -> list[dict]:

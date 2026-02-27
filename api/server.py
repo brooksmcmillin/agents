@@ -35,6 +35,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from types import TracebackType
 from typing import TYPE_CHECKING, Any, TypeVar
 
 if TYPE_CHECKING:
@@ -479,6 +480,42 @@ else:
 F = TypeVar("F", bound=Callable[..., Any])
 
 
+class _TokenSnapshot:
+    """Context manager that captures token usage delta for a single agent turn.
+
+    Usage::
+
+        async with _TokenSnapshot(agent) as snap:
+            response_text = await agent.process_message(...)
+        usage = snap.usage  # TokenUsage with input/output deltas
+
+    Attributes:
+        usage: Populated after ``__aexit__`` with the token delta.
+    """
+
+    def __init__(self, agent: Agent) -> None:
+        self._agent = agent
+        self._input_before: int = 0
+        self._output_before: int = 0
+        self.usage: TokenUsage = TokenUsage(input_tokens=0, output_tokens=0)
+
+    async def __aenter__(self) -> "_TokenSnapshot":
+        self._input_before = self._agent.total_input_tokens
+        self._output_before = self._agent.total_output_tokens
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        self.usage = TokenUsage(
+            input_tokens=self._agent.total_input_tokens - self._input_before,
+            output_tokens=self._agent.total_output_tokens - self._output_before,
+        )
+
+
 def rate_limit(limit_string: str) -> Callable[[F], F]:
     """Apply rate limit decorator only if rate limiting is enabled."""
 
@@ -528,11 +565,10 @@ async def stateless_message(
     multi-turn context.
     """
     agent = _create_agent(agent_name)
-    input_before = agent.total_input_tokens
-    output_before = agent.total_output_tokens
 
     try:
-        response_text = await agent.process_message(body.message)
+        async with _TokenSnapshot(agent) as snap:
+            response_text = await agent.process_message(body.message)
     except Exception as e:
         logger.exception("Agent %s failed processing message", _sanitize_log_input(agent_name))
         raise HTTPException(status_code=500, detail="Internal server error") from e
@@ -541,10 +577,7 @@ async def stateless_message(
         response=response_text,
         agent=agent_name,
         session_id=None,
-        usage=TokenUsage(
-            input_tokens=agent.total_input_tokens - input_before,
-            output_tokens=agent.total_output_tokens - output_before,
-        ),
+        usage=snap.usage,
     )
 
 
@@ -593,14 +626,13 @@ async def session_message(
         raise HTTPException(status_code=404, detail="Session not found or expired")
 
     agent = session.agent
-    input_before = agent.total_input_tokens
-    output_before = agent.total_output_tokens
 
     try:
-        response_text = await agent.process_message(
-            body.message,
-            session_id=session_id,  # For Langfuse tracing
-        )
+        async with _TokenSnapshot(agent) as snap:
+            response_text = await agent.process_message(
+                body.message,
+                session_id=session_id,  # For Langfuse tracing
+            )
     except Exception as e:
         logger.exception("Session %s failed processing message", _sanitize_log_input(session_id))
         raise HTTPException(status_code=500, detail="Internal server error") from e
@@ -611,10 +643,7 @@ async def session_message(
         response=response_text,
         agent=agent.get_agent_name(),
         session_id=session_id,
-        usage=TokenUsage(
-            input_tokens=agent.total_input_tokens - input_before,
-            output_tokens=agent.total_output_tokens - output_before,
-        ),
+        usage=snap.usage,
     )
 
 
@@ -799,14 +828,12 @@ async def conversation_message(
         if msg.role in ("user", "assistant"):
             agent.messages.append({"role": msg.role, "content": msg.content})  # type: ignore[arg-type]
 
-    input_before = agent.total_input_tokens
-    output_before = agent.total_output_tokens
-
     try:
-        response_text = await agent.process_message(
-            body.message,
-            session_id=conversation_id,  # For Langfuse tracing
-        )
+        async with _TokenSnapshot(agent) as snap:
+            response_text = await agent.process_message(
+                body.message,
+                session_id=conversation_id,  # For Langfuse tracing
+            )
     except Exception as e:
         logger.exception(
             "Conversation %s failed processing message", _sanitize_log_input(conversation_id)
@@ -838,10 +865,7 @@ async def conversation_message(
         agent=conv.agent_name,
         session_id=None,
         conversation_id=conversation_id,
-        usage=TokenUsage(
-            input_tokens=agent.total_input_tokens - input_before,
-            output_tokens=agent.total_output_tokens - output_before,
-        ),
+        usage=snap.usage,
     )
 
 
