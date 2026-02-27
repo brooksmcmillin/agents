@@ -7,6 +7,8 @@ import pytest
 
 from agent_framework.storage.memory_store import DEFAULT_AGENT_NAME
 from agent_framework.tools.memory import (
+    MAX_KEY_LENGTH,
+    MAX_VALUE_LENGTH,
     InvalidAgentNameError,
     get_memories,
     get_memory_store,
@@ -147,6 +149,78 @@ class TestSaveMemory:
 
         assert result["status"] == "error"
         assert "Failed to save memory" in result["message"]
+
+    @pytest.mark.asyncio
+    async def test_save_memory_key_too_long(self):
+        """Test save_memory rejects keys exceeding MAX_KEY_LENGTH."""
+        long_key = "k" * (MAX_KEY_LENGTH + 1)
+        result = await save_memory(key=long_key, value="some value")
+
+        assert result["status"] == "error"
+        assert "key exceeds maximum length" in result["message"]
+        assert str(MAX_KEY_LENGTH) in result["message"]
+
+    @pytest.mark.asyncio
+    async def test_save_memory_key_at_max_length_succeeds(self):
+        """Test save_memory accepts keys exactly at MAX_KEY_LENGTH."""
+        exact_key = "k" * MAX_KEY_LENGTH
+        mock_memory = MagicMock()
+        mock_memory.key = exact_key
+        mock_memory.value = "value"
+        mock_memory.category = None
+        mock_memory.tags = []
+        mock_memory.importance = 5
+        mock_time = MagicMock()
+        mock_time.isoformat.return_value = "2024-01-01T00:00:00"
+        mock_memory.created_at = mock_time
+        mock_memory.updated_at = mock_time
+
+        mock_store = AsyncMock()
+        mock_store.save_memory.return_value = mock_memory
+
+        with patch(
+            "agent_framework.tools.memory.get_active_memory_store",
+            return_value=mock_store,
+        ):
+            result = await save_memory(key=exact_key, value="value")
+
+        assert result["status"] == "success"
+
+    @pytest.mark.asyncio
+    async def test_save_memory_value_too_long(self):
+        """Test save_memory rejects values exceeding MAX_VALUE_LENGTH."""
+        long_value = "v" * (MAX_VALUE_LENGTH + 1)
+        result = await save_memory(key="valid_key", value=long_value)
+
+        assert result["status"] == "error"
+        assert "value exceeds maximum length" in result["message"]
+        assert str(MAX_VALUE_LENGTH) in result["message"]
+
+    @pytest.mark.asyncio
+    async def test_save_memory_value_at_max_length_succeeds(self):
+        """Test save_memory accepts values exactly at MAX_VALUE_LENGTH."""
+        exact_value = "v" * MAX_VALUE_LENGTH
+        mock_memory = MagicMock()
+        mock_memory.key = "key"
+        mock_memory.value = exact_value
+        mock_memory.category = None
+        mock_memory.tags = []
+        mock_memory.importance = 5
+        mock_time = MagicMock()
+        mock_time.isoformat.return_value = "2024-01-01T00:00:00"
+        mock_memory.created_at = mock_time
+        mock_memory.updated_at = mock_time
+
+        mock_store = AsyncMock()
+        mock_store.save_memory.return_value = mock_memory
+
+        with patch(
+            "agent_framework.tools.memory.get_active_memory_store",
+            return_value=mock_store,
+        ):
+            result = await save_memory(key="key", value=exact_value)
+
+        assert result["status"] == "success"
 
 
 class TestGetMemories:
@@ -401,3 +475,35 @@ class TestAgentNameValidation:
 
         with pytest.raises(InvalidAgentNameError, match="path traversal"):
             get_memory_store(agent_name="../malicious")
+
+
+class TestSaveMemoryToolSchema:
+    """Tests for the save_memory tool schema constraints."""
+
+    def _get_save_memory_schema(self) -> dict:
+        from agent_framework.tools.memory import TOOL_SCHEMAS
+
+        for schema in TOOL_SCHEMAS:
+            if schema["name"] == "save_memory":
+                return schema["input_schema"]
+        raise AssertionError("save_memory schema not found")
+
+    def test_key_has_max_length_constraint(self):
+        """Test that the key field has a maxLength of 256."""
+        schema = self._get_save_memory_schema()
+        key_schema = schema["properties"]["key"]
+        assert "maxLength" in key_schema, "key field must have maxLength constraint"
+        assert key_schema["maxLength"] == MAX_KEY_LENGTH
+
+    def test_value_has_max_length_constraint(self):
+        """Test that the value field has a maxLength of 10000."""
+        schema = self._get_save_memory_schema()
+        value_schema = schema["properties"]["value"]
+        assert "maxLength" in value_schema, "value field must have maxLength constraint"
+        assert value_schema["maxLength"] == MAX_VALUE_LENGTH
+
+    def test_agent_name_retains_max_length_constraint(self):
+        """Test that the existing agent_name maxLength constraint is unchanged."""
+        schema = self._get_save_memory_schema()
+        agent_name_schema = schema["properties"]["agent_name"]
+        assert agent_name_schema["maxLength"] == 100
