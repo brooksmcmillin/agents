@@ -145,12 +145,11 @@ class TestTaskContext:
     def test_get_related_context_requires_two_keywords(self) -> None:
         """Requires at least 2 keyword overlap to include notes."""
         ctx = TaskContext()
-        ctx.research_notes["task_5"] = "Some random unrelated research content"
-        # Only single keyword overlap expected (both have 'research')
-        result = ctx.get_related_context("Research something", "Some query")
-        # With only 1+ overlap 'research'/'some', test that short overlaps are filtered
-        # This is intentionally a boundary case
-        assert isinstance(result, str)
+        # "unrelated" and "content" are the only significant keywords in the notes.
+        # The query has no overlap with those words, so it should not match.
+        ctx.research_notes["task_5"] = "widget rendering optimization techniques"
+        result = ctx.get_related_context("Deploy application", "Push code to production server")
+        assert result == ""
 
     def test_task_context_tracks_ids(self) -> None:
         """TaskContext tracks completed, failed, partial, and skipped IDs."""
@@ -521,11 +520,18 @@ class TestComputeProcessingOrder:
         assert ids.index("task_child") < ids.index("task_parent")
 
     def test_three_level_chain(self) -> None:
-        """A -> B -> C should place C (leaf) before A and B.
+        """A -> B -> C: the leaf task C is placed first.
 
-        Note: The topological sort defers tasks with any incomplete in-list
-        dependencies to the 'remaining' bucket. Only the leaf task C gets
-        placed first. A and B end up in 'remaining' in their original order.
+        The topological sort only promotes tasks whose in-list incomplete
+        dependencies have already been placed. Because _build_blocked_by marks
+        both A and B as blocked (they each have an incomplete in-list dep),
+        neither enters the initial ready queue. Only C (the leaf) is placed by
+        the topological pass; A and B both fall into the 'remaining' bucket and
+        appear after C in their original input order.
+
+        This is intentional behaviour: the algorithm guarantees that leaf nodes
+        are processed before their dependents, but does not recursively promote
+        intermediate nodes within a single pass.
         """
         tasks = [_make_task("C"), _make_task("B"), _make_task("A")]
         deps = {
@@ -534,10 +540,9 @@ class TestComputeProcessingOrder:
         }
         result = compute_processing_order(tasks, deps)
         ids = [t["id"] for t in result]
-        # C is a leaf with no deps — it is ready first
+        # C is a leaf with no deps — it is placed first by the topological sort
         assert ids[0] == "C"
-        # A and B are both blocked by in-list deps and end up in 'remaining'
-        # in their original input order
+        # All three tasks must still appear in the result
         assert set(ids) == {"A", "B", "C"}
 
     def test_completed_dep_does_not_block(self) -> None:
@@ -760,7 +765,8 @@ class TestBuildTriageUserMessage:
     def test_includes_action_type_if_present(self) -> None:
         task = {"id": "t1", "title": "T", "action_type": "code"}
         msg = _build_triage_user_message(task, [], "")
-        assert "action_type" in msg.lower() or "code" in msg
+        # The field is formatted as "Action type (pre-classified): code"
+        assert "Action type (pre-classified): code" in msg
 
     def test_includes_autonomy_tier_if_present(self) -> None:
         task = {"id": "t1", "title": "T", "autonomy_tier": 2}
@@ -788,11 +794,15 @@ class TestBuildTriageUserMessage:
     def test_limits_tools_to_30(self) -> None:
         """Tools list is capped at 30 items in the message."""
         task = {"id": "t1", "title": "T"}
-        tools = [f"tool_{i}" for i in range(50)]
+        # Use a consistent prefix that avoids substring ambiguity
+        tools = [f"myuniquetool_{i:03d}" for i in range(50)]
         msg = _build_triage_user_message(task, tools, "")
-        # Only 30 tools should appear
-        tool_count = sum(1 for t in tools if t in msg)
-        assert tool_count <= 30
+        # Tools 30-49 must not appear in the message at all
+        for tool in tools[30:]:
+            assert tool not in msg, f"Tool beyond limit appeared in message: {tool}"
+        # At least some of the first 30 tools must appear
+        included = [t for t in tools[:30] if t in msg]
+        assert len(included) > 0
 
 
 # ---------------------------------------------------------------------------
@@ -1046,7 +1056,11 @@ class TestRunRoutine:
             captured_summary.append(summary)
 
         with (
-            patch("shared.notifications.notify_routine_complete", side_effect=capture_notify),
+            patch(
+                "shared.notifications.notify_routine_complete",
+                new_callable=AsyncMock,
+                side_effect=capture_notify,
+            ),
             patch("shared.notifications.notify_error", new_callable=AsyncMock),
             patch("agents.task_manager.main.TaskManagerAgent", mock_agent_cls),
         ):
@@ -1057,15 +1071,21 @@ class TestRunRoutine:
 
 
 # ---------------------------------------------------------------------------
-# Full workflow simulation tests (create → classify → execute → note → complete)
+# System prompt content tests (workflow coverage via prompt verification)
+#
+# These tests verify that the TaskManager system prompt correctly documents
+# all execution workflows for each action_type (create → classify → execute
+# → note → complete). They check prompt content rather than simulating live
+# API calls.
 # ---------------------------------------------------------------------------
 
 
-class TestTaskWorkflowPipeline:
-    """Simulate the full task execution pipeline for each action_type.
+class TestSystemPromptContent:
+    """Verify that task execution workflows are correctly documented in the system prompt.
 
-    These tests mock the MCP tool calls and verify the correct sequence
-    of operations is performed for each action_type.
+    Checks that each action_type (code, research, email, document, communication,
+    review, other) has an execution workflow section with the required steps,
+    and that safety/autonomy tier controls are properly specified.
     """
 
     def _make_workflow_task(
