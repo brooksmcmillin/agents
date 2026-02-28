@@ -9,8 +9,10 @@ All tool schemas are co-located with their implementations in
 
 import asyncio
 import logging
+import os
 
 from agent_framework.server import create_mcp_server
+from agent_framework.telemetry import configure_tool_logger
 
 from .auth import OAuthHandler, TokenStore
 from .config import settings
@@ -26,6 +28,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Configure tool invocation logger
+tool_log_path = os.getenv("MCP_TOOL_LOG_PATH", "/var/log/mcp-tools/invocations.jsonl")
+configure_tool_logger(tool_log_path)
 
 # Initialize auth components
 token_store = TokenStore(

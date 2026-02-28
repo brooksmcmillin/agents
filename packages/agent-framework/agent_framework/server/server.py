@@ -5,6 +5,7 @@ This module provides utilities for creating MCP servers with tool registration.
 
 import json
 import logging
+import time
 from collections.abc import Callable, Sequence
 from typing import Any
 
@@ -12,6 +13,7 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import EmbeddedResource, ImageContent, TextContent, Tool
 
+from agent_framework.telemetry import log_tool_invocation
 from agent_framework.tools import ALL_TOOL_SCHEMAS
 
 logger = logging.getLogger(__name__)
@@ -106,6 +108,10 @@ class MCPServerBase:
             """Execute a tool with the given arguments."""
             logger.info(f"Calling tool: {name} with arguments: {arguments}")
 
+            start = time.perf_counter()
+            result: dict | None = None
+            error: BaseException | None = None
+
             try:
                 # Check if tool exists
                 if name not in self._tool_handlers:
@@ -124,50 +130,60 @@ class MCPServerBase:
                 ]
 
             except ValueError as e:
+                error = e
                 logger.error(f"Validation error in {name}: {e}")
+                result = {
+                    "error": "validation_error",
+                    "message": str(e),
+                    "tool": name,
+                }
                 return [
                     TextContent(
                         type="text",
-                        text=json.dumps(
-                            {
-                                "error": "validation_error",
-                                "message": str(e),
-                                "tool": name,
-                            }
-                        ),
+                        text=json.dumps(result),
                     )
                 ]
 
             except PermissionError as e:
+                error = e
                 logger.error(f"Auth error in {name}: {e}")
+                result = {
+                    "error": "authentication_required",
+                    "message": str(e),
+                    "tool": name,
+                    "action_required": "Please complete OAuth authentication flow",
+                }
                 return [
                     TextContent(
                         type="text",
-                        text=json.dumps(
-                            {
-                                "error": "authentication_required",
-                                "message": str(e),
-                                "tool": name,
-                                "action_required": "Please complete OAuth authentication flow",
-                            }
-                        ),
+                        text=json.dumps(result),
                     )
                 ]
 
             except Exception as e:
+                error = e
                 logger.exception(f"Error executing tool {name}: {e}")
+                result = {
+                    "error": "execution_error",
+                    "message": str(e),
+                    "tool": name,
+                }
                 return [
                     TextContent(
                         type="text",
-                        text=json.dumps(
-                            {
-                                "error": "execution_error",
-                                "message": str(e),
-                                "tool": name,
-                            }
-                        ),
+                        text=json.dumps(result),
                     )
                 ]
+
+            finally:
+                duration_ms = (time.perf_counter() - start) * 1000
+                log_tool_invocation(
+                    tool_name=name,
+                    arguments=arguments if isinstance(arguments, dict) else {},
+                    result=result,
+                    duration_ms=duration_ms,
+                    error=error,
+                )
 
     async def run(self) -> None:
         """Run the MCP server."""

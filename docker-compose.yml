@@ -37,6 +37,8 @@ services:
       - agent_logs:/var/log/agents
       # Persist memories (if using file backend)
       - ./memories:/app/memories
+      # Tool invocation logs
+      - mcp_tool_logs:/var/log/mcp-tools
     ports:
       - "8080:8080"
     extra_hosts:
@@ -141,4 +143,6 @@ volumes:
   grafana_data:
     driver: local
   agent_logs:
+    driver: local
+  mcp_tool_logs:
     driver: local
