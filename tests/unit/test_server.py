@@ -44,13 +44,17 @@ def make_tool_schema(
     }
 
 
-def _capture_call_tool_fn(server: MCPServerBase) -> Callable:
+def _capture_call_tool_fn(server: MCPServerBase) -> list[Callable]:
     """
     Capture the inner call_tool closure registered by setup_handlers.
 
     We intercept the server.app.call_tool decorator factory, record the
     function passed to it, then still invoke the real decorator so the
     server remains fully functional.
+
+    Returns:
+        A list that will be populated with the captured handler function
+        after setup_handlers() is called on the server.
     """
     captured: list[Callable] = []
     original_call_tool = server.app.call_tool  # bound method
@@ -68,9 +72,13 @@ def _capture_call_tool_fn(server: MCPServerBase) -> Callable:
     return captured
 
 
-def _capture_list_tools_fn(server: MCPServerBase) -> Callable:
+def _capture_list_tools_fn(server: MCPServerBase) -> list[Callable]:
     """
     Capture the inner list_tools closure registered by setup_handlers.
+
+    Returns:
+        A list that will be populated with the captured handler function
+        after setup_handlers() is called on the server.
     """
     captured: list[Callable] = []
     original_list_tools = server.app.list_tools  # bound method
@@ -86,6 +94,12 @@ def _capture_list_tools_fn(server: MCPServerBase) -> Callable:
 
     server.app.list_tools = capturing_list_tools  # type: ignore[method-assign]
     return captured
+
+
+def _make_bare_server() -> MCPServerBase:
+    """Return an MCPServerBase with no default tools registered."""
+    with patch("agent_framework.server.server.ALL_TOOL_SCHEMAS", []):
+        return MCPServerBase("test", setup_defaults=False)
 
 
 # ---------------------------------------------------------------------------
@@ -131,13 +145,9 @@ class TestMCPServerBaseInit:
 class TestRegisterTool:
     """Tests for MCPServerBase.register_tool."""
 
-    def _server(self) -> MCPServerBase:
-        with patch("agent_framework.server.server.ALL_TOOL_SCHEMAS", []):
-            return MCPServerBase("test", setup_defaults=False)
-
     def test_register_single_tool(self) -> None:
         """Registering a tool should add it to self.tools."""
-        server = self._server()
+        server = _make_bare_server()
         handler = AsyncMock(return_value={"ok": True})
         server.register_tool("my_tool", "does stuff", {}, handler)
 
@@ -147,7 +157,7 @@ class TestRegisterTool:
 
     def test_register_tool_stores_handler(self) -> None:
         """Handler should be stored in _tool_handlers under the tool name."""
-        server = self._server()
+        server = _make_bare_server()
         handler = AsyncMock(return_value={})
         server.register_tool("tool_a", "desc", {}, handler)
 
@@ -155,7 +165,7 @@ class TestRegisterTool:
 
     def test_register_tool_stores_input_schema(self) -> None:
         """Input schema should be preserved exactly as provided."""
-        server = self._server()
+        server = _make_bare_server()
         schema = {
             "type": "object",
             "properties": {"url": {"type": "string"}},
@@ -167,7 +177,7 @@ class TestRegisterTool:
 
     def test_register_multiple_tools(self) -> None:
         """All registered tools should be independently accessible."""
-        server = self._server()
+        server = _make_bare_server()
         for name in ("tool_1", "tool_2", "tool_3"):
             server.register_tool(name, f"{name} desc", {}, AsyncMock())
 
@@ -175,7 +185,7 @@ class TestRegisterTool:
 
     def test_registering_same_name_overwrites(self) -> None:
         """Re-registering a tool by the same name replaces the previous entry."""
-        server = self._server()
+        server = _make_bare_server()
         first_handler = AsyncMock(return_value={"v": 1})
         second_handler = AsyncMock(return_value={"v": 2})
         server.register_tool("dup", "first", {}, first_handler)
@@ -193,13 +203,9 @@ class TestRegisterTool:
 class TestRegisterToolsFromSchemas:
     """Tests for MCPServerBase.register_tools_from_schemas."""
 
-    def _server(self) -> MCPServerBase:
-        with patch("agent_framework.server.server.ALL_TOOL_SCHEMAS", []):
-            return MCPServerBase("test", setup_defaults=False)
-
     def test_registers_all_schemas(self) -> None:
         """All schemas passed to the method should be registered."""
-        server = self._server()
+        server = _make_bare_server()
         schemas = [make_tool_schema(f"tool_{i}") for i in range(5)]
         server.register_tools_from_schemas(schemas)
 
@@ -209,7 +215,7 @@ class TestRegisterToolsFromSchemas:
 
     def test_empty_list_leaves_tools_unchanged(self) -> None:
         """Passing an empty list should not affect existing tools."""
-        server = self._server()
+        server = _make_bare_server()
         server.register_tool("existing", "desc", {}, AsyncMock())
         server.register_tools_from_schemas([])
 
@@ -218,7 +224,7 @@ class TestRegisterToolsFromSchemas:
 
     def test_schema_dict_fields_are_forwarded(self) -> None:
         """name, description, and input_schema from each schema should be stored."""
-        server = self._server()
+        server = _make_bare_server()
         schema = make_tool_schema(
             name="special",
             description="special tool",
@@ -296,6 +302,22 @@ class TestSetupHandlersListTools:
 
         tools = await captured[0]()
         assert tools == []
+
+    @pytest.mark.asyncio
+    async def test_list_tools_includes_input_schema(self) -> None:
+        """list_tools closure should include the inputSchema for each tool."""
+        with patch("agent_framework.server.server.ALL_TOOL_SCHEMAS", []):
+            server = MCPServerBase("test", setup_defaults=False)
+
+        input_schema = {"type": "object", "properties": {"q": {"type": "string"}}}
+        server.register_tool("search", "Search docs", input_schema, AsyncMock())
+
+        captured: list[Callable] = _capture_list_tools_fn(server)
+        server.setup_handlers()
+
+        tools = await captured[0]()
+        tool = next(t for t in tools if t.name == "search")
+        assert tool.inputSchema == input_schema
 
 
 # ---------------------------------------------------------------------------
@@ -412,6 +434,7 @@ class TestSetupHandlersCallTool:
         data = json.loads(result[0].text)
         assert data["error"] == "validation_error"
         assert "bad param value" in data["message"]
+        assert data["tool"] == "validate_tool"
 
     @pytest.mark.asyncio
     async def test_tool_invocation_logging_is_called_on_success(self) -> None:
@@ -442,7 +465,11 @@ class TestSetupHandlersCallTool:
             await captured[0]("failing_tool", {})
 
         mock_log.assert_called_once()
-        assert mock_log.call_args.kwargs["error"] is not None
+        call_kwargs = mock_log.call_args.kwargs
+        assert call_kwargs["tool_name"] == "failing_tool"
+        assert "duration_ms" in call_kwargs
+        assert isinstance(call_kwargs["error"], ValueError)
+        assert "bad input" in str(call_kwargs["error"])
 
     @pytest.mark.asyncio
     async def test_call_tool_with_empty_arguments(self) -> None:
@@ -615,8 +642,10 @@ class TestMCPServerRun:
             with patch("agent_framework.server.server.logger") as mock_logger:
                 await server.run()
 
-        # Should have logged with the server name
-        logged_messages = [str(call) for call in mock_logger.info.call_args_list]
+        # Should have logged with the server name - check actual message strings
+        logged_messages = [
+            call.args[0] if call.args else "" for call in mock_logger.info.call_args_list
+        ]
         assert any("log-name-test" in msg for msg in logged_messages)
 
 
