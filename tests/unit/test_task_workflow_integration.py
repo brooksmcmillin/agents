@@ -1012,7 +1012,11 @@ class TestRunRoutine:
 
         with (
             patch("shared.notifications.notify_routine_complete", new_callable=AsyncMock),
-            patch("shared.notifications.notify_error", side_effect=capture_notify_error),
+            patch(
+                "shared.notifications.notify_error",
+                new_callable=AsyncMock,
+                side_effect=capture_notify_error,
+            ),
             patch("agents.task_manager.main.TaskManagerAgent", mock_agent_cls),
         ):
             with pytest.raises(ConnectionError):
