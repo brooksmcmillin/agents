@@ -466,6 +466,7 @@ class TestSetupHandlersCallTool:
         mock_log.assert_called_once()
         call_kwargs = mock_log.call_args.kwargs
         assert call_kwargs["tool_name"] == "failing_tool"
+        assert "duration_ms" in call_kwargs
         assert isinstance(call_kwargs["error"], ValueError)
         assert "bad input" in str(call_kwargs["error"])
 
