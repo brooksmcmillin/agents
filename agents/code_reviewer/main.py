@@ -68,6 +68,26 @@ REVIEW_AGENTS: list[dict[str, str]] = [
 PER_AGENT_TIMEOUT = 600  # 10 minutes per agent
 PER_AGENT_MAX_TURNS = 30
 
+# Allowlist of environment variables safe to pass to Claude Code subprocesses.
+# Using an allowlist (vs denylist) ensures new secrets never leak by default.
+ALLOWED_ENV_NAMES = frozenset(
+    {
+        "PATH",
+        "HOME",
+        "USER",
+        "LOGNAME",
+        "SHELL",
+        "TERM",
+        "TMPDIR",
+        "TEMP",
+        "TMP",
+        # GitHub tokens needed by sub-agents that use gh CLI / GitHub API
+        "GITHUB_TOKEN",
+        "GH_TOKEN",
+    }
+)
+ALLOWED_ENV_PREFIXES = ("LANG", "LC_", "XDG_")
+
 
 @dataclass
 class AgentResult:
@@ -135,30 +155,10 @@ async def run_review(folder_path: str, model: str = "opus") -> str | None:
 
     Returns the combined review output, or None if all agents failed.
     """
-    # Allowlist: only pass environment variables the subprocess actually needs.
-    # This prevents leaking secrets (API tokens, DB creds, etc.) to child processes.
-    _ALLOWED_ENV_NAMES = {
-        "PATH",
-        "HOME",
-        "USER",
-        "LOGNAME",
-        "SHELL",
-        "TERM",
-        "TMPDIR",
-        "TEMP",
-        "TMP",
-        "EDITOR",
-        "VISUAL",
-    }
-    _ALLOWED_ENV_PREFIXES = (
-        "LANG",
-        "LC_",
-        "XDG_",
-    )
     custom_env = {
         k: v
         for k, v in os.environ.items()
-        if k in _ALLOWED_ENV_NAMES or k.startswith(_ALLOWED_ENV_PREFIXES)
+        if k in ALLOWED_ENV_NAMES or k.startswith(ALLOWED_ENV_PREFIXES)
     }
 
     logger.info(
