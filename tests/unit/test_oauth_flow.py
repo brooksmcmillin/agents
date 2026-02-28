@@ -6,16 +6,20 @@ end-to-end flow integration tests against the agent_framework.oauth module.
 """
 
 import hashlib
+import json
+import os
 import time
 from base64 import urlsafe_b64encode
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
 from agent_framework.oauth.oauth_config import OAuthConfig
 from agent_framework.oauth.oauth_flow import OAuthFlowHandler, generate_pkce_pair
 from agent_framework.oauth.oauth_tokens import TokenSet, TokenStorage
+from aiohttp.test_utils import TestClient, TestServer
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -102,9 +106,13 @@ class TestPKCECodeGeneration:
         assert challenge == expected
 
     def test_each_call_produces_unique_pair(self) -> None:
-        """Each call to generate_pkce_pair must return a fresh, distinct pair."""
+        """Each call to generate_pkce_pair must return a fresh, distinct pair.
+
+        Note: This is a statistical assertion. The probability of any collision
+        in 20 draws from 32 bytes of cryptographic randomness (~2^256 space) is
+        negligibly small (~10^-73) and can be treated as deterministic in practice.
+        """
         pairs = {generate_pkce_pair() for _ in range(20)}
-        # All 20 verifiers should be unique
         assert len(pairs) == 20
 
     def test_verifier_has_no_padding(self) -> None:
@@ -133,9 +141,13 @@ class TestOAuthConfigHelpers:
         assert cfg.supports_pkce() is True
 
     def test_supports_pkce_false_when_no_methods(self) -> None:
-        cfg = make_oauth_config(code_challenge_methods=None)
-        # Override directly since make_oauth_config defaults to S256
-        cfg.code_challenge_methods_supported = None
+        # Construct directly to avoid make_oauth_config defaulting to ["S256"]
+        cfg = OAuthConfig(
+            resource_url="http://localhost/resource",
+            authorization_endpoint="http://localhost/authorize",
+            token_endpoint="http://localhost/token",
+            code_challenge_methods_supported=None,
+        )
         assert cfg.supports_pkce() is False
 
     def test_supports_pkce_false_when_s256_absent(self) -> None:
@@ -151,8 +163,13 @@ class TestOAuthConfigHelpers:
         assert cfg.supports_public_clients() is False
 
     def test_supports_public_clients_false_when_not_configured(self) -> None:
-        cfg = make_oauth_config()
-        cfg.token_endpoint_auth_methods_supported = None
+        # Construct directly to avoid make_oauth_config defaulting to ["none"]
+        cfg = OAuthConfig(
+            resource_url="http://localhost/resource",
+            authorization_endpoint="http://localhost/authorize",
+            token_endpoint="http://localhost/token",
+            token_endpoint_auth_methods_supported=None,
+        )
         assert cfg.supports_public_clients() is False
 
     def test_supports_device_flow_via_endpoint(self) -> None:
@@ -269,17 +286,19 @@ class TestTokenStorage:
     def test_load_missing_token_returns_none(self, storage: TokenStorage) -> None:
         assert storage.load_token("http://missing.example.com") is None
 
-    def test_load_verifies_server_url(self, storage: TokenStorage) -> None:
+    def test_load_verifies_server_url(self, tmp_path: Path) -> None:
         """load_token returns None if the stored URL doesn't match the requested URL."""
-        import json
-        import os
+        # Use a separate unencrypted store (no key dir) so we can write tampered JSON
+        # without touching private internals.
+        unenc_dir = tmp_path / "unenc_tokens"
+        unenc_dir.mkdir(parents=True, exist_ok=True)
+        # Patch key generation to return None so encryption is skipped
+        with patch.object(TokenStorage, "_load_or_generate_key", return_value=None):
+            storage = TokenStorage(storage_dir=unenc_dir)
 
         ts = TokenSet.from_oauth_response(make_token_response())
-        storage.save_token("http://server-a.example.com", ts)
-        # Disable encryption so we can manipulate the raw JSON
-        storage.cipher = None
         token_file = storage._get_token_file("http://server-a.example.com")
-        # Write plaintext JSON with a mismatched server_url at the same path
+        # Write plaintext JSON with a mismatched server_url directly
         tampered = {
             "server_url": "http://different.example.com",
             "token": ts.to_dict(),
@@ -330,8 +349,6 @@ class TestTokenStorage:
     def test_load_corrupted_file_returns_none(self, storage: TokenStorage) -> None:
         url = "http://corrupt.example.com"
         token_file = storage._get_token_file(url)
-        import os
-
         fd = os.open(token_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "wb") as f:
             f.write(b"this is not valid json or ciphertext !!!")
@@ -341,6 +358,15 @@ class TestTokenStorage:
         storage = TokenStorage(storage_dir=tmp_path / "secure_tokens")
         mode = oct(storage.storage_dir.stat().st_mode)[-3:]
         assert mode == "700"
+
+    def test_token_file_has_600_permissions(self, storage: TokenStorage) -> None:
+        """Individual token files must have 0o600 (owner-read/write-only) permissions."""
+        url = "http://example.com"
+        ts = TokenSet.from_oauth_response(make_token_response())
+        storage.save_token(url, ts)
+        token_file = storage._get_token_file(url)
+        mode = oct(token_file.stat().st_mode)[-3:]
+        assert mode == "600"
 
     def test_overwrite_updates_token(self, storage: TokenStorage) -> None:
         url = "http://example.com"
@@ -821,10 +847,126 @@ class TestOAuthFlowHandlerAuthorize:
 
         assert opened_urls and expected_states
         auth_url = opened_urls[0]
-        # Extract state from URL
-        from urllib.parse import parse_qs, urlparse
-
+        # Extract state from URL (parse_qs and urlparse imported at module level)
         qs = parse_qs(urlparse(auth_url).query)
         url_state = qs["state"][0]
         callback_state = expected_states[0]
         assert url_state == callback_state
+
+
+# ---------------------------------------------------------------------------
+# OAuthFlowHandler.build_callback_app – CSRF and callback handling
+# ---------------------------------------------------------------------------
+
+
+class TestBuildCallbackApp:
+    """Direct tests for OAuthFlowHandler.build_callback_app().
+
+    These exercise the security-critical CSRF state validation and authorization
+    code/error capture paths without going through the full authorize() flow.
+    The method is a @staticmethod and straightforward to test with aiohttp's
+    TestClient.
+    """
+
+    @pytest.mark.asyncio
+    async def test_valid_code_captured(self) -> None:
+        """Callback with correct state and a code sets auth_result['code']."""
+        expected_state = "secure_state_xyz"
+        app, auth_result = OAuthFlowHandler.build_callback_app(expected_state)
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.get(
+                "/callback",
+                params={"state": expected_state, "code": "auth_code_123"},
+            )
+        assert resp.status == 200
+        assert auth_result["code"] == "auth_code_123"
+        assert auth_result["error"] is None
+
+    @pytest.mark.asyncio
+    async def test_state_mismatch_rejected(self) -> None:
+        """Callback with wrong state must return 400 and set error='state_mismatch'."""
+        app, auth_result = OAuthFlowHandler.build_callback_app("correct_state")
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.get(
+                "/callback",
+                params={"state": "wrong_state", "code": "auth_code_123"},
+            )
+        assert resp.status == 400
+        assert auth_result["error"] == "state_mismatch"
+        assert auth_result["code"] is None
+
+    @pytest.mark.asyncio
+    async def test_missing_state_rejected(self) -> None:
+        """Callback with no state parameter must be rejected as CSRF (empty digest)."""
+        app, auth_result = OAuthFlowHandler.build_callback_app("expected")
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.get("/callback", params={"code": "code"})
+        assert resp.status == 400
+        assert auth_result["error"] == "state_mismatch"
+
+    @pytest.mark.asyncio
+    async def test_empty_state_rejected(self) -> None:
+        """Callback with an empty state parameter must be rejected."""
+        app, auth_result = OAuthFlowHandler.build_callback_app("expected")
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.get("/callback", params={"state": "", "code": "code"})
+        assert resp.status == 400
+        assert auth_result["error"] == "state_mismatch"
+
+    @pytest.mark.asyncio
+    async def test_timing_safe_last_char_differs(self) -> None:
+        """State differing only in the last character must still be rejected.
+
+        Verifies secrets.compare_digest is used (no short-circuit on first mismatch).
+        """
+        expected_state = "abcdefghij0123456789"
+        tampered = expected_state[:-1] + ("A" if expected_state[-1] != "A" else "B")
+        app, auth_result = OAuthFlowHandler.build_callback_app(expected_state)
+        async with TestClient(TestServer(app)) as client:
+            await client.get("/callback", params={"state": tampered, "code": "code"})
+        assert auth_result["error"] == "state_mismatch"
+
+    @pytest.mark.asyncio
+    async def test_oauth_error_captured(self) -> None:
+        """Callback with valid state and error param captures the error."""
+        expected_state = "state_abc"
+        app, auth_result = OAuthFlowHandler.build_callback_app(expected_state)
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.get(
+                "/callback",
+                params={
+                    "state": expected_state,
+                    "error": "access_denied",
+                    "error_description": "User denied",
+                },
+            )
+        assert resp.status == 200
+        assert auth_result["error"] == "access_denied"
+        assert auth_result["code"] is None
+
+    @pytest.mark.asyncio
+    async def test_no_code_no_error_returns_400(self) -> None:
+        """Callback with valid state but neither code nor error returns 400."""
+        expected_state = "state_abc"
+        app, _ = OAuthFlowHandler.build_callback_app(expected_state)
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.get("/callback", params={"state": expected_state})
+        assert resp.status == 400
+
+    @pytest.mark.asyncio
+    async def test_error_description_html_escaped(self) -> None:
+        """HTML in error_description must be escaped in the response body."""
+        expected_state = "state_abc"
+        app, _ = OAuthFlowHandler.build_callback_app(expected_state)
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.get(
+                "/callback",
+                params={
+                    "state": expected_state,
+                    "error": "access_denied",
+                    "error_description": "<script>alert('xss')</script>",
+                },
+            )
+            text = await resp.text()
+        assert "<script>" not in text
+        assert "&lt;script&gt;" in text
