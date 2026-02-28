@@ -286,7 +286,7 @@ agents/                    # Agent implementations
 api/                       # REST API server (FastAPI)
 webui/                     # React frontend
 mcp_server/                # Shared MCP server and tools
-infra/                     # Infrastructure configs (Grafana, Loki, Promtail)
+infra/                     # Infrastructure configs (systemd service files)
 docs/                      # Documentation
 packages/                  # Internal libraries (monorepo)
 ├── agent-framework/       # Base agent classes, MCP client, and tools

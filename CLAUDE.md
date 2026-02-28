@@ -11,7 +11,7 @@ Multi-agent system built with Claude (Anthropic SDK) and Model Context Protocol 
 2. **API Server** (`api/`) - FastAPI REST server for HTTP access to agents
 3. **Web UI** (`webui/`) - React web interface for agents
 4. **MCP Server** (`mcp_server/`) - MCP server config and OAuth infrastructure
-5. **Infrastructure** (`infra/`) - Grafana, Loki, Promtail configs
+5. **Infrastructure** (`infra/`) - Systemd service files
 6. **Shared Utilities** (`shared/`) - Common code reusable across agents
 7. **Packages** (`packages/`) - Internal libraries:
    - `agent-framework/` - Base Agent class, MCP tools, MCP client, security utilities

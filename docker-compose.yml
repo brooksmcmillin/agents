@@ -21,7 +21,7 @@ services:
       LOG_LEVEL: INFO
       LOKI_ENABLED: "true"
       LOG_FORMAT: json
-      LOG_DIR: /var/log/agents
+      LOG_DIR: /var/log/mcp-tools
 
       # Optional: Add other environment variables as needed
       # MCP_SERVER_URL: ${MCP_SERVER_URL:-}
