@@ -39,6 +39,7 @@ from agent_framework.permissions import (
     get_required_permissions,
 )
 from agent_framework.security.context_trimming import (
+    PINNED_EVENT_KEY,
     SECURITY_EVENT_KEY,
     trim_with_security_awareness,
 )
@@ -958,10 +959,11 @@ class Agent(ABC):
     def _messages_for_api(self) -> list[MessageParam]:
         """Return a copy of self.messages with internal metadata stripped.
 
-        The ``_security_event`` key is used by the context-trimming logic to
-        pin security-relevant tool results, but the Anthropic API rejects
-        extra fields on tool_result blocks.  Strip it before sending.
+        The ``_security_event`` and ``_pinned`` keys are used by the
+        context-trimming logic to pin messages, but the Anthropic API rejects
+        extra fields on tool_result blocks.  Strip them before sending.
         """
+        _internal_keys = {SECURITY_EVENT_KEY, PINNED_EVENT_KEY}
         cleaned: list[MessageParam] = []
         for msg in self.messages:
             # Tool result blocks are plain dicts at runtime (built by
@@ -970,13 +972,13 @@ class Agent(ABC):
             # avoid pyright narrowing to Never.
             content: Any = msg.get("content")
             if isinstance(content, list) and any(
-                isinstance(block, dict) and SECURITY_EVENT_KEY in block for block in content
+                isinstance(block, dict) and _internal_keys & block.keys() for block in content
             ):
                 new_blocks: list[Any] = []
                 for block in content:
-                    if isinstance(block, dict) and SECURITY_EVENT_KEY in block:
+                    if isinstance(block, dict) and _internal_keys & block.keys():
                         new_blocks.append(
-                            {k: v for k, v in block.items() if k != SECURITY_EVENT_KEY}
+                            {k: v for k, v in block.items() if k not in _internal_keys}
                         )
                     else:
                         new_blocks.append(block)
