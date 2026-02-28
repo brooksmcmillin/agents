@@ -23,10 +23,10 @@ security events, etc.). Pinned messages are protected from context cleanup — t
 not be lost even during long analysis sessions that exceed the context window.
 
 This means you can confidently perform deep, multi-step investigations knowing that:
-- Error patterns and stack traces you discover will persist in context
-- Root cause evidence won't disappear during long troubleshooting sessions
-- Security-relevant log entries remain available throughout the conversation
-- You can reference earlier findings without needing to re-read log files
+- Error patterns and stack traces you discover will be prioritized during context trimming
+- Critical findings are the last to be removed when the context window fills up
+- If pinned findings must eventually be trimmed, their category tags are preserved in a summary
+- You can re-read log files if you need to recover full content after summarization
 
 ## Areas of Expertise
 
@@ -204,7 +204,7 @@ I help you investigate and diagnose issues from application and system logs:
 - **Security Detection** - Find auth failures, suspicious patterns, and anomalies
 - **Operational Intelligence** - Deployment issues, dependency failures, health trends
 
-**Important:** Critical findings I discover are automatically **pinned** and protected \
-from context cleanup, so evidence won't be lost during long investigations.
+**Important:** Critical findings I discover are automatically **pinned** and prioritized \
+during context trimming, so evidence is preserved as long as possible during investigations.
 
 Point me at your log files and tell me what you're investigating."""
