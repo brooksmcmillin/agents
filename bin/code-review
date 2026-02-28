@@ -54,7 +54,7 @@ check_mcp_token() {
     return 1
   fi
 
-  local token expires_at now_ms
+  local token now_ms
   token=$(python3 -c "
 import json, sys
 creds = json.load(open('$CREDENTIALS_FILE'))
@@ -86,9 +86,10 @@ sys.exit(1)
 
   # Validate token against introspection endpoint
   local introspect_result
-  introspect_result=$(curl -sf --max-time 10 \
+  introspect_result=$(printf 'token=%s' "$access_token" | \
+    curl -sf --max-time 10 \
     -X POST "https://mcp-auth.brooksmcmillin.com/introspect" \
-    -d "token=${access_token}" 2>/dev/null) || {
+    --data-binary @- 2>/dev/null) || {
     echo "Warning: could not reach introspection endpoint, trusting local expiry" >&2
     return 0
   }
@@ -109,20 +110,18 @@ notify_token_expired() {
   if [[ -n "${NTFY_TOKEN:-}" ]]; then
     auth_args=(-H "Authorization: Bearer ${NTFY_TOKEN}")
   fi
-  curl -sf --max-time 10 \
+  if curl -sf --max-time 10 \
     "${auth_args[@]}" \
     -H "Title: Code Review: MCP Token Expired" \
     -H "Priority: high" \
     -H "Tags: warning,key" \
     -d "$msg" \
-    "$NTFY_URL" >/dev/null 2>&1 || true
-  echo "Notification sent to $NTFY_URL" >&2
+    "$NTFY_URL" >/dev/null 2>&1; then
+    echo "Notification sent to $NTFY_URL" >&2
+  else
+    echo "Warning: failed to send notification to $NTFY_URL" >&2
+  fi
 }
-
-if ! check_mcp_token; then
-  notify_token_expired "TaskManager MCP OAuth token is expired or invalid. Code review cannot create tasks. Re-authenticate at https://mcp-auth.brooksmcmillin.com/"
-  exit 1
-fi
 
 # Defaults
 PER_DAY=2
@@ -147,6 +146,25 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Preflight: verify MCP token (skip for dry-run)
+if ! $DRY_RUN; then
+  if ! check_mcp_token; then
+    notify_token_expired "TaskManager MCP OAuth token is expired or invalid. Code review cannot create tasks. Re-authenticate at https://mcp-auth.brooksmcmillin.com/"
+    exit 1
+  fi
+fi
+
+# Validate inputs
+if ! [[ "$PER_DAY" =~ ^[1-9][0-9]*$ ]]; then
+  echo "Error: --per-day must be a positive integer, got '$PER_DAY'" >&2
+  exit 1
+fi
+
+if ! [[ "$START_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+  echo "Error: --start must be YYYY-MM-DD format, got '$START_DATE'" >&2
+  exit 1
+fi
+
 # Resolve directory
 TARGET_DIR=$(realpath "$TARGET_DIR")
 if [[ ! -d "$TARGET_DIR" ]]; then
@@ -161,8 +179,18 @@ else
   RUN_AGENTS=("${AGENTS[@]}")
 fi
 
+# Verify agents directory exists
+if [[ ! -d "$AGENTS_DIR" ]]; then
+  echo "Error: agents directory not found: $AGENTS_DIR" >&2
+  exit 1
+fi
+
 # Verify agents exist
 for agent in "${RUN_AGENTS[@]}"; do
+  if ! [[ "$agent" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+    echo "Error: invalid agent name '${agent}' (must be alphanumeric, hyphens, underscores)" >&2
+    exit 1
+  fi
   if [[ ! -f "${AGENTS_DIR}/${agent}.md" ]]; then
     echo "Error: agent '${agent}' not found at ${AGENTS_DIR}/${agent}.md" >&2
     exit 1
@@ -210,13 +238,7 @@ ALLOWED_TOOLS=(
   "mcp__taskmanager__search_tasks"
 )
 
-# Build --allowedTools argument
-TOOLS_ARG=()
-for tool in "${ALLOWED_TOOLS[@]}"; do
-  TOOLS_ARG+=("$tool")
-done
-
-CMD=(claude -p "$PROMPT" --allowedTools "${TOOLS_ARG[@]}")
+CMD=(claude -p "$PROMPT" --allowedTools "${ALLOWED_TOOLS[@]}")
 
 if $DRY_RUN; then
   echo "Would run:"
