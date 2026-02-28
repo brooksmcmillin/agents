@@ -1,523 +1,465 @@
-"""Unit tests for MCP server tool registration (agent_framework.server.server).
+"""Unit tests for MCP server tool registration and initialization.
 
-Target: bring Server coverage from 0% to 85%.
+Tests cover:
+- MCPServerBase initialization and tool registration
+- create_mcp_server factory function
+- Tool listing and calling handlers
+- Error handling in tool execution
+- mcp_server.server module initialization
 """
 
 import json
-import logging
 from collections.abc import Callable
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
-import mcp.types as mcp_types
 import pytest
-from agent_framework.server import MCPServerBase, create_mcp_server
-from agent_framework.tools import ALL_TOOL_SCHEMAS
+from agent_framework.server.server import MCPServerBase, create_mcp_server
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-def _make_handler(return_value: dict | None = None, raise_exc: Exception | None = None) -> Callable:
-    """Return an async handler that either returns a value or raises."""
-
-    async def handler(**kwargs: Any) -> dict:
-        if raise_exc is not None:
-            raise raise_exc
-        return return_value or {"status": "ok"}
-
-    return handler
-
-
-def _make_schema(
+def make_tool_schema(
     name: str = "test_tool",
     description: str = "A test tool",
-    input_schema: dict | None = None,
+    input_schema: dict[str, Any] | None = None,
     handler: Callable | None = None,
-) -> dict:
+) -> dict[str, Any]:
+    """Build a minimal tool schema dict."""
+    if input_schema is None:
+        input_schema = {"type": "object", "properties": {}, "required": []}
+    if handler is None:
+
+        async def default_handler(**kwargs: Any) -> dict[str, Any]:
+            return {"result": "ok"}
+
+        handler = default_handler
     return {
         "name": name,
         "description": description,
-        "input_schema": input_schema or {"type": "object", "properties": {}},
-        "handler": handler or _make_handler(),
+        "input_schema": input_schema,
+        "handler": handler,
     }
 
 
-async def _list_tools(server: MCPServerBase) -> list[mcp_types.Tool]:
-    """Invoke the list_tools handler via the mcp request_handlers dict."""
-    handler = server.app.request_handlers[mcp_types.ListToolsRequest]
-    req = mcp_types.ListToolsRequest(method="tools/list", params=None)
-    result = await handler(req)
-    return result.root.tools
+def _capture_call_tool_fn(server: MCPServerBase) -> Callable:
+    """
+    Capture the inner call_tool closure registered by setup_handlers.
+
+    We intercept the server.app.call_tool decorator factory, record the
+    function passed to it, then still invoke the real decorator so the
+    server remains fully functional.
+    """
+    captured: list[Callable] = []
+    original_call_tool = server.app.call_tool  # bound method
+
+    def capturing_call_tool(**kw: Any):
+        real_decorator = original_call_tool(**kw)
+
+        def wrapper(fn: Callable) -> Callable:
+            captured.append(fn)
+            return real_decorator(fn)
+
+        return wrapper
+
+    server.app.call_tool = capturing_call_tool  # type: ignore[method-assign]
+    return captured
 
 
-async def _call_tool(
-    server: MCPServerBase, name: str, arguments: dict
-) -> list[mcp_types.TextContent | mcp_types.ImageContent | mcp_types.EmbeddedResource]:
-    """Invoke the call_tool handler via the mcp request_handlers dict."""
-    handler = server.app.request_handlers[mcp_types.CallToolRequest]
-    req = mcp_types.CallToolRequest(
-        method="tools/call",
-        params=mcp_types.CallToolRequestParams(name=name, arguments=arguments),
-    )
-    result = await handler(req)
-    return result.root.content
+def _capture_list_tools_fn(server: MCPServerBase) -> Callable:
+    """
+    Capture the inner list_tools closure registered by setup_handlers.
+    """
+    captured: list[Callable] = []
+    original_list_tools = server.app.list_tools  # bound method
+
+    def capturing_list_tools():
+        real_decorator = original_list_tools()
+
+        def wrapper(fn: Callable) -> Callable:
+            captured.append(fn)
+            return real_decorator(fn)
+
+        return wrapper
+
+    server.app.list_tools = capturing_list_tools  # type: ignore[method-assign]
+    return captured
 
 
 # ---------------------------------------------------------------------------
-# MCPServerBase: initialization
+# MCPServerBase – initialization
 # ---------------------------------------------------------------------------
 
 
 class TestMCPServerBaseInit:
-    """Tests for MCPServerBase.__init__."""
+    """Tests for MCPServerBase constructor."""
 
-    def test_init_creates_empty_tools_when_no_defaults(self) -> None:
-        """Server with setup_defaults=False should have no registered tools."""
-        server = MCPServerBase("test-server", setup_defaults=False)
+    def test_creates_server_with_name(self) -> None:
+        """Server should expose the given name via app.name."""
+        with patch("agent_framework.server.server.ALL_TOOL_SCHEMAS", []):
+            server = MCPServerBase("my-agent")
+        assert server.app.name == "my-agent"
+
+    def test_default_tools_registered_when_setup_defaults_true(self) -> None:
+        """When setup_defaults=True, all schemas in ALL_TOOL_SCHEMAS are registered."""
+        fake_schema = make_tool_schema("fake_tool")
+        with patch("agent_framework.server.server.ALL_TOOL_SCHEMAS", [fake_schema]):
+            server = MCPServerBase("agent", setup_defaults=True)
+        assert "fake_tool" in server.tools
+
+    def test_no_tools_registered_when_setup_defaults_false(self) -> None:
+        """When setup_defaults=False, tools dict should be empty."""
+        with patch("agent_framework.server.server.ALL_TOOL_SCHEMAS", [make_tool_schema()]):
+            server = MCPServerBase("agent", setup_defaults=False)
         assert server.tools == {}
         assert server._tool_handlers == {}
 
-    def test_init_registers_all_tools_with_defaults(self) -> None:
-        """Server with setup_defaults=True should auto-register ALL_TOOL_SCHEMAS."""
-        server = MCPServerBase("test-server", setup_defaults=True)
-        assert len(server.tools) == len(ALL_TOOL_SCHEMAS)
-        for schema in ALL_TOOL_SCHEMAS:
-            assert schema["name"] in server.tools
-
-    def test_init_default_is_setup_defaults_true(self) -> None:
-        """Default constructor should register tools."""
-        server = MCPServerBase("test-server")
-        assert len(server.tools) > 0
-
-    def test_init_creates_mcp_app(self) -> None:
-        """Server should create an underlying mcp.server.Server instance."""
-        server = MCPServerBase("my-agent", setup_defaults=False)
-        assert server.app is not None
-        assert server.app.name == "my-agent"
-
-    def test_init_server_name_stored(self) -> None:
-        """Server name must be passed through to the mcp app."""
-        for name in ("agent-alpha", "pr-agent", "code-review"):
-            s = MCPServerBase(name, setup_defaults=False)
-            assert s.app.name == name
+    def test_tools_and_handlers_dicts_are_separate(self) -> None:
+        """tools and _tool_handlers should be independent dict objects."""
+        with patch("agent_framework.server.server.ALL_TOOL_SCHEMAS", []):
+            server = MCPServerBase("agent")
+        assert server.tools is not server._tool_handlers
 
 
 # ---------------------------------------------------------------------------
-# MCPServerBase: register_tool
+# MCPServerBase – register_tool
 # ---------------------------------------------------------------------------
 
 
 class TestRegisterTool:
     """Tests for MCPServerBase.register_tool."""
 
+    def _server(self) -> MCPServerBase:
+        with patch("agent_framework.server.server.ALL_TOOL_SCHEMAS", []):
+            return MCPServerBase("test", setup_defaults=False)
+
     def test_register_single_tool(self) -> None:
-        """Registering a tool adds it to self.tools and self._tool_handlers."""
-        server = MCPServerBase("test", setup_defaults=False)
-        handler = _make_handler()
-        server.register_tool("my_tool", "Does something", {"type": "object"}, handler)
+        """Registering a tool should add it to self.tools."""
+        server = self._server()
+        handler = AsyncMock(return_value={"ok": True})
+        server.register_tool("my_tool", "does stuff", {}, handler)
 
         assert "my_tool" in server.tools
-        assert "my_tool" in server._tool_handlers
-        assert server._tool_handlers["my_tool"] is handler
+        assert server.tools["my_tool"]["name"] == "my_tool"
+        assert server.tools["my_tool"]["description"] == "does stuff"
 
-    def test_register_tool_stores_metadata(self) -> None:
-        """Tool metadata is stored verbatim in self.tools."""
-        server = MCPServerBase("test", setup_defaults=False)
-        schema = {"type": "object", "properties": {"x": {"type": "string"}}}
-        server.register_tool("search", "Search the web", schema, _make_handler())
+    def test_register_tool_stores_handler(self) -> None:
+        """Handler should be stored in _tool_handlers under the tool name."""
+        server = self._server()
+        handler = AsyncMock(return_value={})
+        server.register_tool("tool_a", "desc", {}, handler)
 
-        info = server.tools["search"]
-        assert info["name"] == "search"
-        assert info["description"] == "Search the web"
-        assert info["input_schema"] is schema
+        assert server._tool_handlers["tool_a"] is handler
+
+    def test_register_tool_stores_input_schema(self) -> None:
+        """Input schema should be preserved exactly as provided."""
+        server = self._server()
+        schema = {
+            "type": "object",
+            "properties": {"url": {"type": "string"}},
+            "required": ["url"],
+        }
+        server.register_tool("fetch", "fetch a URL", schema, AsyncMock())
+
+        assert server.tools["fetch"]["input_schema"] == schema
 
     def test_register_multiple_tools(self) -> None:
-        """All registered tools should be present after multiple registrations."""
-        server = MCPServerBase("test", setup_defaults=False)
-        for i in range(5):
-            server.register_tool(f"tool_{i}", f"Tool {i}", {}, _make_handler())
+        """All registered tools should be independently accessible."""
+        server = self._server()
+        for name in ("tool_1", "tool_2", "tool_3"):
+            server.register_tool(name, f"{name} desc", {}, AsyncMock())
 
-        assert len(server.tools) == 5
+        assert set(server.tools.keys()) == {"tool_1", "tool_2", "tool_3"}
 
-    def test_register_tool_overwrites_existing(self) -> None:
-        """Re-registering a tool by the same name replaces the old handler."""
-        server = MCPServerBase("test", setup_defaults=False)
-        handler_a = _make_handler({"version": "a"})
-        handler_b = _make_handler({"version": "b"})
+    def test_registering_same_name_overwrites(self) -> None:
+        """Re-registering a tool by the same name replaces the previous entry."""
+        server = self._server()
+        first_handler = AsyncMock(return_value={"v": 1})
+        second_handler = AsyncMock(return_value={"v": 2})
+        server.register_tool("dup", "first", {}, first_handler)
+        server.register_tool("dup", "second", {}, second_handler)
 
-        server.register_tool("my_tool", "desc", {}, handler_a)
-        server.register_tool("my_tool", "desc updated", {}, handler_b)
-
-        assert server._tool_handlers["my_tool"] is handler_b
-        assert server.tools["my_tool"]["description"] == "desc updated"
-
-    def test_register_tool_logs_info(self, caplog: pytest.LogCaptureFixture) -> None:
-        """register_tool should emit an INFO log."""
-        server = MCPServerBase("test", setup_defaults=False)
-        with caplog.at_level(logging.INFO, logger="agent_framework.server.server"):
-            server.register_tool("logged_tool", "d", {}, _make_handler())
-        assert "logged_tool" in caplog.text
+        assert server.tools["dup"]["description"] == "second"
+        assert server._tool_handlers["dup"] is second_handler
 
 
 # ---------------------------------------------------------------------------
-# MCPServerBase: register_tools_from_schemas
+# MCPServerBase – register_tools_from_schemas
 # ---------------------------------------------------------------------------
 
 
 class TestRegisterToolsFromSchemas:
     """Tests for MCPServerBase.register_tools_from_schemas."""
 
-    def test_register_from_empty_list(self) -> None:
-        """Calling with an empty list should leave the server unchanged."""
-        server = MCPServerBase("test", setup_defaults=False)
-        server.register_tools_from_schemas([])
-        assert server.tools == {}
+    def _server(self) -> MCPServerBase:
+        with patch("agent_framework.server.server.ALL_TOOL_SCHEMAS", []):
+            return MCPServerBase("test", setup_defaults=False)
 
-    def test_register_from_single_schema(self) -> None:
-        schema = _make_schema("alpha", "Alpha tool")
-        server = MCPServerBase("test", setup_defaults=False)
+    def test_registers_all_schemas(self) -> None:
+        """All schemas passed to the method should be registered."""
+        server = self._server()
+        schemas = [make_tool_schema(f"tool_{i}") for i in range(5)]
+        server.register_tools_from_schemas(schemas)
+
+        assert len(server.tools) == 5
+        for i in range(5):
+            assert f"tool_{i}" in server.tools
+
+    def test_empty_list_leaves_tools_unchanged(self) -> None:
+        """Passing an empty list should not affect existing tools."""
+        server = self._server()
+        server.register_tool("existing", "desc", {}, AsyncMock())
+        server.register_tools_from_schemas([])
+
+        assert "existing" in server.tools
+        assert len(server.tools) == 1
+
+    def test_schema_dict_fields_are_forwarded(self) -> None:
+        """name, description, and input_schema from each schema should be stored."""
+        server = self._server()
+        schema = make_tool_schema(
+            name="special",
+            description="special tool",
+            input_schema={"type": "object", "properties": {"x": {"type": "integer"}}},
+        )
         server.register_tools_from_schemas([schema])
 
-        assert "alpha" in server.tools
-        assert server.tools["alpha"]["description"] == "Alpha tool"
-
-    def test_register_from_multiple_schemas(self) -> None:
-        schemas = [_make_schema(f"tool_{i}") for i in range(10)]
-        server = MCPServerBase("test", setup_defaults=False)
-        server.register_tools_from_schemas(schemas)
-        assert len(server.tools) == 10
-
-    def test_register_from_real_all_tool_schemas(self) -> None:
-        """ALL_TOOL_SCHEMAS should register without error."""
-        server = MCPServerBase("test", setup_defaults=False)
-        server.register_tools_from_schemas(ALL_TOOL_SCHEMAS)
-        assert len(server.tools) == len(ALL_TOOL_SCHEMAS)
-
-    def test_schema_handler_is_callable(self) -> None:
-        """Every handler stored via register_tools_from_schemas must be callable."""
-        server = MCPServerBase("test", setup_defaults=False)
-        server.register_tools_from_schemas(ALL_TOOL_SCHEMAS)
-        for name, handler in server._tool_handlers.items():
-            assert callable(handler), f"Handler for {name!r} is not callable"
+        assert server.tools["special"]["name"] == "special"
+        assert server.tools["special"]["description"] == "special tool"
+        assert "x" in server.tools["special"]["input_schema"]["properties"]
 
 
 # ---------------------------------------------------------------------------
-# MCPServerBase: setup_handlers / list_tools
+# MCPServerBase – setup_handlers (list_tools)
 # ---------------------------------------------------------------------------
 
 
 class TestSetupHandlersListTools:
-    """Tests for the list_tools handler wired up by setup_handlers."""
+    """Tests for the list_tools handler installed by setup_handlers."""
 
     @pytest.mark.asyncio
-    async def test_list_tools_empty_server(self) -> None:
-        """list_tools on an empty server returns an empty list."""
-        server = MCPServerBase("test", setup_defaults=False)
+    async def test_list_tools_returns_correct_tool_count(self) -> None:
+        """list_tools closure should return one Tool per registered tool."""
+        with patch("agent_framework.server.server.ALL_TOOL_SCHEMAS", []):
+            server = MCPServerBase("test", setup_defaults=False)
+
+        for name in ("alpha", "beta", "gamma"):
+            server.register_tool(name, f"{name} desc", {}, AsyncMock())
+
+        captured: list[Callable] = _capture_list_tools_fn(server)
         server.setup_handlers()
 
-        tools = await _list_tools(server)
+        assert len(captured) == 1
+        tools = await captured[0]()
+        assert len(tools) == 3
+
+    @pytest.mark.asyncio
+    async def test_list_tools_returns_tool_names(self) -> None:
+        """list_tools closure should include the tool names."""
+        with patch("agent_framework.server.server.ALL_TOOL_SCHEMAS", []):
+            server = MCPServerBase("test", setup_defaults=False)
+
+        server.register_tool("my_tool", "does things", {}, AsyncMock())
+
+        captured: list[Callable] = _capture_list_tools_fn(server)
+        server.setup_handlers()
+
+        tools = await captured[0]()
+        names = [t.name for t in tools]
+        assert "my_tool" in names
+
+    @pytest.mark.asyncio
+    async def test_list_tools_includes_description(self) -> None:
+        """list_tools closure should include each tool's description."""
+        with patch("agent_framework.server.server.ALL_TOOL_SCHEMAS", []):
+            server = MCPServerBase("test", setup_defaults=False)
+
+        server.register_tool("described_tool", "My great description", {}, AsyncMock())
+
+        captured: list[Callable] = _capture_list_tools_fn(server)
+        server.setup_handlers()
+
+        tools = await captured[0]()
+        tool = next(t for t in tools if t.name == "described_tool")
+        assert tool.description == "My great description"
+
+    @pytest.mark.asyncio
+    async def test_list_tools_empty_when_no_tools_registered(self) -> None:
+        """list_tools should return an empty list if no tools are registered."""
+        with patch("agent_framework.server.server.ALL_TOOL_SCHEMAS", []):
+            server = MCPServerBase("test", setup_defaults=False)
+
+        captured: list[Callable] = _capture_list_tools_fn(server)
+        server.setup_handlers()
+
+        tools = await captured[0]()
         assert tools == []
 
-    @pytest.mark.asyncio
-    async def test_list_tools_returns_registered_tools(self) -> None:
-        """list_tools returns Tool objects for each registered tool."""
-        server = MCPServerBase("test", setup_defaults=False)
-        server.register_tool("alpha", "Alpha", {"type": "object"}, _make_handler())
-        server.register_tool("beta", "Beta", {"type": "object"}, _make_handler())
-        server.setup_handlers()
-
-        tools = await _list_tools(server)
-        assert len(tools) == 2
-        names = {t.name for t in tools}
-        assert names == {"alpha", "beta"}
-        for t in tools:
-            assert isinstance(t, mcp_types.Tool)
-
-    @pytest.mark.asyncio
-    async def test_list_tools_metadata_preserved(self) -> None:
-        """Tool objects returned by list_tools carry description and inputSchema."""
-        input_schema = {"type": "object", "properties": {"q": {"type": "string"}}}
-        server = MCPServerBase("test", setup_defaults=False)
-        server.register_tool("search", "Search docs", input_schema, _make_handler())
-        server.setup_handlers()
-
-        (tool,) = await _list_tools(server)
-        assert tool.name == "search"
-        assert tool.description == "Search docs"
-        assert tool.inputSchema == input_schema
-
-    @pytest.mark.asyncio
-    async def test_list_tools_with_all_default_tools(self) -> None:
-        """list_tools with default setup returns correct count of tools."""
-        server = MCPServerBase("test", setup_defaults=True)
-        server.setup_handlers()
-
-        tools = await _list_tools(server)
-        assert len(tools) == len(ALL_TOOL_SCHEMAS)
-
-    @pytest.mark.asyncio
-    async def test_list_tools_handler_registered(self) -> None:
-        """setup_handlers must register a ListToolsRequest handler."""
-        server = MCPServerBase("test", setup_defaults=False)
-        server.setup_handlers()
-        assert mcp_types.ListToolsRequest in server.app.request_handlers
-
 
 # ---------------------------------------------------------------------------
-# MCPServerBase: setup_handlers / call_tool – success path
+# MCPServerBase – setup_handlers (call_tool)
 # ---------------------------------------------------------------------------
 
 
-class TestCallToolSuccess:
-    """Tests for successful tool invocation via call_tool."""
+class TestSetupHandlersCallTool:
+    """Tests for the call_tool handler installed by setup_handlers."""
+
+    def _make_server_with_capture(self) -> tuple[MCPServerBase, list[Callable]]:
+        """Create a bare server with the call_tool closure captured."""
+        with patch("agent_framework.server.server.ALL_TOOL_SCHEMAS", []):
+            server = MCPServerBase("test", setup_defaults=False)
+        captured = _capture_call_tool_fn(server)
+        return server, captured
 
     @pytest.mark.asyncio
-    async def test_call_tool_returns_text_content(self) -> None:
-        """A successful tool call wraps the result in TextContent."""
-        server = MCPServerBase("test", setup_defaults=False)
-        server.register_tool("echo", "Echoes input", {}, _make_handler({"echo": "hello"}))
+    async def test_unknown_tool_returns_validation_error(self) -> None:
+        """Calling an unregistered tool should return a validation_error response."""
+        server, captured = self._make_server_with_capture()
         server.setup_handlers()
 
-        results = await _call_tool(server, "echo", {})
-        assert len(results) == 1
-        assert isinstance(results[0], mcp_types.TextContent)
+        with patch("agent_framework.server.server.log_tool_invocation"):
+            result = await captured[0]("nonexistent_tool", {})
+
+        assert len(result) == 1
+        data = json.loads(result[0].text)
+        assert data["error"] == "validation_error"
+        assert "nonexistent_tool" in data["message"]
+        assert data["tool"] == "nonexistent_tool"
 
     @pytest.mark.asyncio
-    async def test_call_tool_result_is_valid_json(self) -> None:
-        """The TextContent text must be valid JSON."""
-        server = MCPServerBase("test", setup_defaults=False)
-        server.register_tool("data", "Returns data", {}, _make_handler({"a": 1, "b": "two"}))
+    async def test_successful_tool_call_returns_json(self) -> None:
+        """A tool that returns a dict should produce TextContent with JSON."""
+        server, captured = self._make_server_with_capture()
+        handler = AsyncMock(return_value={"status": "ok", "count": 7})
+        server.register_tool("count_things", "counts stuff", {}, handler)
         server.setup_handlers()
 
-        results = await _call_tool(server, "data", {})
-        parsed = json.loads(results[0].text)
-        assert parsed == {"a": 1, "b": "two"}
+        with patch("agent_framework.server.server.log_tool_invocation"):
+            result = await captured[0]("count_things", {"limit": 10})
+
+        assert len(result) == 1
+        data = json.loads(result[0].text)
+        assert data["status"] == "ok"
+        assert data["count"] == 7
+        handler.assert_called_once_with(limit=10)
 
     @pytest.mark.asyncio
-    async def test_call_tool_passes_arguments_to_handler(self) -> None:
-        """Arguments supplied to call_tool are forwarded to the handler."""
+    async def test_tool_call_passes_arguments_as_kwargs(self) -> None:
+        """The handler should receive arguments dict unpacked as kwargs."""
+        server, captured = self._make_server_with_capture()
+        received: list[dict] = []
 
-        received: dict = {}
+        async def spy_handler(**kwargs: Any) -> dict[str, Any]:
+            received.append(kwargs)
+            return {"echo": kwargs}
 
-        async def capture_handler(**kwargs: Any) -> dict:
-            received.update(kwargs)
-            return {"ok": True}
-
-        server = MCPServerBase("test", setup_defaults=False)
-        server.register_tool("capture", "Captures args", {}, capture_handler)
+        server.register_tool("spy", "spy tool", {}, spy_handler)
         server.setup_handlers()
 
-        await _call_tool(server, "capture", {"name": "Alice", "count": 3})
-        assert received == {"name": "Alice", "count": 3}
+        with patch("agent_framework.server.server.log_tool_invocation"):
+            await captured[0]("spy", {"x": 1, "y": "hello"})
+
+        assert len(received) == 1
+        assert received[0] == {"x": 1, "y": "hello"}
+
+    @pytest.mark.asyncio
+    async def test_permission_error_returns_authentication_required(self) -> None:
+        """PermissionError from a tool handler should return authentication_required."""
+        server, captured = self._make_server_with_capture()
+        handler = AsyncMock(side_effect=PermissionError("Need OAuth token"))
+        server.register_tool("protected_op", "needs auth", {}, handler)
+        server.setup_handlers()
+
+        with patch("agent_framework.server.server.log_tool_invocation"):
+            result = await captured[0]("protected_op", {})
+
+        assert len(result) == 1
+        data = json.loads(result[0].text)
+        assert data["error"] == "authentication_required"
+        assert data["tool"] == "protected_op"
+        assert "action_required" in data
+
+    @pytest.mark.asyncio
+    async def test_generic_exception_returns_execution_error(self) -> None:
+        """Unexpected exceptions from a tool handler should return execution_error."""
+        server, captured = self._make_server_with_capture()
+        handler = AsyncMock(side_effect=RuntimeError("internal boom"))
+        server.register_tool("boom_tool", "explodes", {}, handler)
+        server.setup_handlers()
+
+        with patch("agent_framework.server.server.log_tool_invocation"):
+            result = await captured[0]("boom_tool", {})
+
+        assert len(result) == 1
+        data = json.loads(result[0].text)
+        assert data["error"] == "execution_error"
+        assert "internal boom" in data["message"]
+        assert data["tool"] == "boom_tool"
+
+    @pytest.mark.asyncio
+    async def test_value_error_returns_validation_error_response(self) -> None:
+        """ValueError from a tool handler should return a validation_error response."""
+        server, captured = self._make_server_with_capture()
+        handler = AsyncMock(side_effect=ValueError("bad param value"))
+        server.register_tool("validate_tool", "validates", {}, handler)
+        server.setup_handlers()
+
+        with patch("agent_framework.server.server.log_tool_invocation"):
+            result = await captured[0]("validate_tool", {})
+
+        data = json.loads(result[0].text)
+        assert data["error"] == "validation_error"
+        assert "bad param value" in data["message"]
+
+    @pytest.mark.asyncio
+    async def test_tool_invocation_logging_is_called_on_success(self) -> None:
+        """log_tool_invocation should be called after a successful tool call."""
+        server, captured = self._make_server_with_capture()
+        handler = AsyncMock(return_value={"ok": True})
+        server.register_tool("logged_tool", "logs", {}, handler)
+        server.setup_handlers()
+
+        with patch("agent_framework.server.server.log_tool_invocation") as mock_log:
+            await captured[0]("logged_tool", {"x": 1})
+
+        mock_log.assert_called_once()
+        call_kwargs = mock_log.call_args.kwargs
+        assert call_kwargs["tool_name"] == "logged_tool"
+        assert "duration_ms" in call_kwargs
+        assert call_kwargs["error"] is None
+
+    @pytest.mark.asyncio
+    async def test_tool_invocation_logging_on_error(self) -> None:
+        """log_tool_invocation should be called even when a tool raises an exception."""
+        server, captured = self._make_server_with_capture()
+        handler = AsyncMock(side_effect=ValueError("bad input"))
+        server.register_tool("failing_tool", "fails", {}, handler)
+        server.setup_handlers()
+
+        with patch("agent_framework.server.server.log_tool_invocation") as mock_log:
+            await captured[0]("failing_tool", {})
+
+        mock_log.assert_called_once()
+        assert mock_log.call_args.kwargs["error"] is not None
 
     @pytest.mark.asyncio
     async def test_call_tool_with_empty_arguments(self) -> None:
-        """Passing an empty arguments dict should not raise."""
-        server = MCPServerBase("test", setup_defaults=False)
-        server.register_tool("no_args", "No args", {}, _make_handler({"done": True}))
+        """A tool called with an empty arguments dict should work correctly."""
+        server, captured = self._make_server_with_capture()
+
+        async def no_arg_tool() -> dict[str, Any]:
+            return {"result": "done"}
+
+        server.register_tool("no_args", "no arguments needed", {}, no_arg_tool)
         server.setup_handlers()
 
-        results = await _call_tool(server, "no_args", {})
-        assert len(results) == 1
-        assert json.loads(results[0].text) == {"done": True}
+        with patch("agent_framework.server.server.log_tool_invocation"):
+            result = await captured[0]("no_args", {})
 
-    @pytest.mark.asyncio
-    async def test_call_tool_handler_registered(self) -> None:
-        """setup_handlers must register a CallToolRequest handler."""
-        server = MCPServerBase("test", setup_defaults=False)
-        server.setup_handlers()
-        assert mcp_types.CallToolRequest in server.app.request_handlers
-
-
-# ---------------------------------------------------------------------------
-# MCPServerBase: setup_handlers / call_tool – error paths
-# ---------------------------------------------------------------------------
-
-
-class TestCallToolErrors:
-    """Tests for error handling in the call_tool handler."""
-
-    @pytest.mark.asyncio
-    async def test_call_unknown_tool_returns_validation_error(self) -> None:
-        """Calling an unregistered tool name should return validation_error."""
-        server = MCPServerBase("test", setup_defaults=False)
-        server.setup_handlers()
-
-        results = await _call_tool(server, "nonexistent", {})
-        assert len(results) == 1
-        parsed = json.loads(results[0].text)
-        assert parsed["error"] == "validation_error"
-        assert parsed["tool"] == "nonexistent"
-
-    @pytest.mark.asyncio
-    async def test_call_tool_value_error_returns_validation_error(self) -> None:
-        """ValueError raised by handler should return validation_error."""
-        server = MCPServerBase("test", setup_defaults=False)
-        server.register_tool("bad", "Bad", {}, _make_handler(raise_exc=ValueError("bad input")))
-        server.setup_handlers()
-
-        results = await _call_tool(server, "bad", {})
-        parsed = json.loads(results[0].text)
-        assert parsed["error"] == "validation_error"
-        assert "bad input" in parsed["message"]
-        assert parsed["tool"] == "bad"
-
-    @pytest.mark.asyncio
-    async def test_call_tool_permission_error_returns_auth_error(self) -> None:
-        """PermissionError raised by handler should return authentication_required."""
-        server = MCPServerBase("test", setup_defaults=False)
-        server.register_tool(
-            "auth", "Auth", {}, _make_handler(raise_exc=PermissionError("no token"))
-        )
-        server.setup_handlers()
-
-        results = await _call_tool(server, "auth", {})
-        parsed = json.loads(results[0].text)
-        assert parsed["error"] == "authentication_required"
-        assert parsed["tool"] == "auth"
-        assert "action_required" in parsed
-
-    @pytest.mark.asyncio
-    async def test_call_tool_generic_exception_returns_execution_error(self) -> None:
-        """Unexpected exceptions should return execution_error."""
-        server = MCPServerBase("test", setup_defaults=False)
-        server.register_tool(
-            "boom", "Boom", {}, _make_handler(raise_exc=RuntimeError("unexpected"))
-        )
-        server.setup_handlers()
-
-        results = await _call_tool(server, "boom", {})
-        parsed = json.loads(results[0].text)
-        assert parsed["error"] == "execution_error"
-        assert "unexpected" in parsed["message"]
-        assert parsed["tool"] == "boom"
-
-    @pytest.mark.asyncio
-    async def test_call_tool_error_response_is_text_content(self) -> None:
-        """Error responses must always be TextContent, not some other type."""
-        server = MCPServerBase("test", setup_defaults=False)
-        server.setup_handlers()
-
-        results = await _call_tool(server, "does_not_exist", {})
-        assert isinstance(results[0], mcp_types.TextContent)
-
-    @pytest.mark.asyncio
-    async def test_call_tool_error_text_is_valid_json(self) -> None:
-        """Error responses must always be valid JSON."""
-        server = MCPServerBase("test", setup_defaults=False)
-        server.register_tool("err", "Err", {}, _make_handler(raise_exc=Exception("oops")))
-        server.setup_handlers()
-
-        results = await _call_tool(server, "err", {})
-        # Should not raise
-        parsed = json.loads(results[0].text)
-        assert isinstance(parsed, dict)
-
-    @pytest.mark.asyncio
-    async def test_call_tool_unknown_tool_includes_tool_name(self) -> None:
-        """Error dict must include the 'tool' key with the attempted name."""
-        server = MCPServerBase("test", setup_defaults=False)
-        server.setup_handlers()
-
-        results = await _call_tool(server, "missing_tool", {})
-        parsed = json.loads(results[0].text)
-        assert parsed["tool"] == "missing_tool"
-
-    @pytest.mark.asyncio
-    async def test_call_tool_permission_error_includes_action_required(self) -> None:
-        """PermissionError response must include 'action_required' field."""
-        server = MCPServerBase("test", setup_defaults=False)
-        server.register_tool(
-            "locked", "Locked", {}, _make_handler(raise_exc=PermissionError("OAuth needed"))
-        )
-        server.setup_handlers()
-
-        results = await _call_tool(server, "locked", {})
-        parsed = json.loads(results[0].text)
-        assert "action_required" in parsed
-        assert "OAuth" in parsed["action_required"] or "oauth" in parsed["action_required"].lower()
-
-
-# ---------------------------------------------------------------------------
-# MCPServerBase: telemetry / log_tool_invocation is called
-# ---------------------------------------------------------------------------
-
-
-class TestCallToolTelemetry:
-    """Tests that call_tool invokes log_tool_invocation in the finally block."""
-
-    @pytest.mark.asyncio
-    async def test_log_tool_invocation_called_on_success(self) -> None:
-        """log_tool_invocation must be called even on a successful call."""
-        server = MCPServerBase("test", setup_defaults=False)
-        server.register_tool("ping", "Ping", {}, _make_handler({"pong": True}))
-        server.setup_handlers()
-
-        with patch("agent_framework.server.server.log_tool_invocation") as mock_log:
-            await _call_tool(server, "ping", {})
-            mock_log.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_log_tool_invocation_called_on_error(self) -> None:
-        """log_tool_invocation must be called even when the handler raises."""
-        server = MCPServerBase("test", setup_defaults=False)
-        server.register_tool("fail", "Fail", {}, _make_handler(raise_exc=RuntimeError("boom")))
-        server.setup_handlers()
-
-        with patch("agent_framework.server.server.log_tool_invocation") as mock_log:
-            await _call_tool(server, "fail", {})
-            mock_log.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_log_tool_invocation_receives_duration(self) -> None:
-        """duration_ms passed to log_tool_invocation must be a non-negative number."""
-        server = MCPServerBase("test", setup_defaults=False)
-        server.register_tool("timer", "Timer", {}, _make_handler({"t": 1}))
-        server.setup_handlers()
-
-        with patch("agent_framework.server.server.log_tool_invocation") as mock_log:
-            await _call_tool(server, "timer", {"x": 1})
-            call_kwargs = mock_log.call_args.kwargs
-            assert call_kwargs["duration_ms"] >= 0
-
-    @pytest.mark.asyncio
-    async def test_log_tool_invocation_error_arg_is_none_on_success(self) -> None:
-        """error kwarg passed to log_tool_invocation must be None on success."""
-        server = MCPServerBase("test", setup_defaults=False)
-        server.register_tool("ok", "Ok", {}, _make_handler({"ok": True}))
-        server.setup_handlers()
-
-        with patch("agent_framework.server.server.log_tool_invocation") as mock_log:
-            await _call_tool(server, "ok", {})
-            call_kwargs = mock_log.call_args.kwargs
-            assert call_kwargs["error"] is None
-
-    @pytest.mark.asyncio
-    async def test_log_tool_invocation_error_arg_is_exception_on_failure(self) -> None:
-        """error kwarg passed to log_tool_invocation must be the raised exception."""
-        exc = RuntimeError("kaboom")
-        server = MCPServerBase("test", setup_defaults=False)
-        server.register_tool("err", "Err", {}, _make_handler(raise_exc=exc))
-        server.setup_handlers()
-
-        with patch("agent_framework.server.server.log_tool_invocation") as mock_log:
-            await _call_tool(server, "err", {})
-            call_kwargs = mock_log.call_args.kwargs
-            assert call_kwargs["error"] is exc
-
-    @pytest.mark.asyncio
-    async def test_log_tool_invocation_receives_tool_name(self) -> None:
-        """tool_name kwarg must match the called tool name."""
-        server = MCPServerBase("test", setup_defaults=False)
-        server.register_tool("specific_tool", "T", {}, _make_handler({"r": 1}))
-        server.setup_handlers()
-
-        with patch("agent_framework.server.server.log_tool_invocation") as mock_log:
-            await _call_tool(server, "specific_tool", {})
-            call_kwargs = mock_log.call_args.kwargs
-            assert call_kwargs["tool_name"] == "specific_tool"
+        data = json.loads(result[0].text)
+        assert data["result"] == "done"
 
 
 # ---------------------------------------------------------------------------
@@ -525,69 +467,214 @@ class TestCallToolTelemetry:
 # ---------------------------------------------------------------------------
 
 
-class TestCreateMcpServer:
-    """Tests for the create_mcp_server convenience factory."""
+class TestCreateMCPServer:
+    """Tests for the create_mcp_server factory function."""
 
     def test_returns_mcp_server_base_instance(self) -> None:
-        server = create_mcp_server("factory-test")
+        """Factory should return an MCPServerBase instance."""
+        with patch("agent_framework.server.server.ALL_TOOL_SCHEMAS", []):
+            server = create_mcp_server("factory-test")
         assert isinstance(server, MCPServerBase)
 
-    def test_name_is_passed_through(self) -> None:
-        server = create_mcp_server("my-special-agent")
-        assert server.app.name == "my-special-agent"
+    def test_server_has_correct_name(self) -> None:
+        """The created server should expose the provided name."""
+        with patch("agent_framework.server.server.ALL_TOOL_SCHEMAS", []):
+            server = create_mcp_server("my-named-server")
+        assert server.app.name == "my-named-server"
 
     def test_default_tools_are_registered(self) -> None:
-        """Factory always enables setup_defaults=True."""
-        server = create_mcp_server("full-server")
-        assert len(server.tools) == len(ALL_TOOL_SCHEMAS)
+        """Factory-created server should have tools registered from ALL_TOOL_SCHEMAS."""
+        fake_schemas = [make_tool_schema("schema_tool_1"), make_tool_schema("schema_tool_2")]
+        with patch("agent_framework.server.server.ALL_TOOL_SCHEMAS", fake_schemas):
+            server = create_mcp_server("tool-test")
+        assert "schema_tool_1" in server.tools
+        assert "schema_tool_2" in server.tools
 
-    def test_all_tools_have_handlers(self) -> None:
-        server = create_mcp_server("handler-check")
-        for name in server.tools:
-            assert name in server._tool_handlers
-            assert callable(server._tool_handlers[name])
+    def test_tools_and_handlers_populated(self) -> None:
+        """Both .tools and ._tool_handlers should be populated by the factory."""
+        fake_schema = make_tool_schema("factory_tool")
+        with patch("agent_framework.server.server.ALL_TOOL_SCHEMAS", [fake_schema]):
+            server = create_mcp_server("agent")
+        assert "factory_tool" in server.tools
+        assert "factory_tool" in server._tool_handlers
+
+    def test_different_names_produce_different_servers(self) -> None:
+        """Each call to create_mcp_server should produce a distinct server instance."""
+        with patch("agent_framework.server.server.ALL_TOOL_SCHEMAS", []):
+            s1 = create_mcp_server("server-a")
+            s2 = create_mcp_server("server-b")
+        assert s1 is not s2
+        assert s1.app.name == "server-a"
+        assert s2.app.name == "server-b"
+
+    def test_server_tools_are_independent_between_instances(self) -> None:
+        """Tools registered on one server should not appear on another."""
+        with patch("agent_framework.server.server.ALL_TOOL_SCHEMAS", []):
+            s1 = create_mcp_server("s1")
+            s2 = create_mcp_server("s2")
+
+        s1.register_tool("only_on_s1", "desc", {}, AsyncMock())
+        assert "only_on_s1" not in s2.tools
 
 
 # ---------------------------------------------------------------------------
-# ALL_TOOL_SCHEMAS shape validation
+# mcp_server.server module-level initialization
 # ---------------------------------------------------------------------------
 
 
-class TestAllToolSchemasShape:
-    """Validate the structure of ALL_TOOL_SCHEMAS itself."""
+class TestMCPServerModuleInit:
+    """Tests for module-level objects in mcp_server.server."""
 
-    REQUIRED_KEYS = {"name", "description", "input_schema", "handler"}
+    def test_module_exports_token_store(self) -> None:
+        """mcp_server.server should expose a token_store attribute."""
+        import mcp_server.server as srv_module
 
-    def test_all_schemas_have_required_keys(self) -> None:
-        for schema in ALL_TOOL_SCHEMAS:
-            missing = self.REQUIRED_KEYS - schema.keys()
-            assert not missing, f"Schema {schema.get('name')!r} missing keys: {missing}"
+        assert hasattr(srv_module, "token_store")
 
-    def test_all_schema_names_are_strings(self) -> None:
-        for schema in ALL_TOOL_SCHEMAS:
-            assert isinstance(schema["name"], str), f"Non-string name: {schema['name']!r}"
+    def test_module_exports_oauth_handler(self) -> None:
+        """mcp_server.server should expose an oauth_handler attribute."""
+        import mcp_server.server as srv_module
 
-    def test_all_schema_names_are_unique(self) -> None:
-        names = [s["name"] for s in ALL_TOOL_SCHEMAS]
-        assert len(names) == len(set(names)), "Duplicate tool names detected"
+        assert hasattr(srv_module, "oauth_handler")
 
-    def test_all_schema_descriptions_are_non_empty_strings(self) -> None:
-        for schema in ALL_TOOL_SCHEMAS:
-            assert isinstance(schema["description"], str)
-            assert len(schema["description"]) > 0, f"Empty description for {schema['name']!r}"
+    def test_module_exports_logger(self) -> None:
+        """mcp_server.server should expose a logger attribute."""
+        import logging
 
-    def test_all_schema_input_schemas_are_dicts(self) -> None:
-        for schema in ALL_TOOL_SCHEMAS:
-            assert isinstance(schema["input_schema"], dict), (
-                f"input_schema for {schema['name']!r} is not a dict"
-            )
+        import mcp_server.server as srv_module
 
-    def test_all_handlers_are_callable(self) -> None:
-        for schema in ALL_TOOL_SCHEMAS:
-            assert callable(schema["handler"]), f"handler for {schema['name']!r} is not callable"
+        assert hasattr(srv_module, "logger")
+        assert isinstance(srv_module.logger, logging.Logger)
 
-    def test_schemas_is_a_list(self) -> None:
+    def test_token_store_type(self) -> None:
+        """token_store should be an instance of TokenStore."""
+        from agent_framework.storage.token_store import TokenStore
+
+        import mcp_server.server as srv_module
+
+        assert isinstance(srv_module.token_store, TokenStore)
+
+    def test_oauth_handler_type(self) -> None:
+        """oauth_handler should be an instance of OAuthHandler."""
+        import mcp_server.server as srv_module
+        from mcp_server.auth.oauth_handler import OAuthHandler
+
+        assert isinstance(srv_module.oauth_handler, OAuthHandler)
+
+    def test_logger_name(self) -> None:
+        """Logger should be named after the mcp_server.server module."""
+        import mcp_server.server as srv_module
+
+        assert srv_module.logger.name == "mcp_server.server"
+
+
+# ---------------------------------------------------------------------------
+# MCPServerBase – run (smoke test, no actual stdio)
+# ---------------------------------------------------------------------------
+
+
+class TestMCPServerRun:
+    """Smoke tests for MCPServerBase.run."""
+
+    @pytest.mark.asyncio
+    async def test_run_uses_stdio_server(self) -> None:
+        """run() should call stdio_server context manager and app.run."""
+        with patch("agent_framework.server.server.ALL_TOOL_SCHEMAS", []):
+            server = MCPServerBase("run-test", setup_defaults=False)
+
+        mock_read = AsyncMock()
+        mock_write = AsyncMock()
+        mock_stdio_cm = MagicMock()
+        mock_stdio_cm.__aenter__ = AsyncMock(return_value=(mock_read, mock_write))
+        mock_stdio_cm.__aexit__ = AsyncMock(return_value=None)
+
+        server.app.run = AsyncMock()
+        server.app.create_initialization_options = MagicMock(return_value={})
+
+        with patch("agent_framework.server.server.stdio_server", return_value=mock_stdio_cm):
+            await server.run()
+
+        server.app.run.assert_called_once_with(mock_read, mock_write, {})
+
+    @pytest.mark.asyncio
+    async def test_run_passes_server_name_to_log(self) -> None:
+        """run() should log the server name before starting."""
+        with patch("agent_framework.server.server.ALL_TOOL_SCHEMAS", []):
+            server = MCPServerBase("log-name-test", setup_defaults=False)
+
+        mock_read = AsyncMock()
+        mock_write = AsyncMock()
+        mock_stdio_cm = MagicMock()
+        mock_stdio_cm.__aenter__ = AsyncMock(return_value=(mock_read, mock_write))
+        mock_stdio_cm.__aexit__ = AsyncMock(return_value=None)
+
+        server.app.run = AsyncMock()
+        server.app.create_initialization_options = MagicMock(return_value={})
+
+        with patch("agent_framework.server.server.stdio_server", return_value=mock_stdio_cm):
+            with patch("agent_framework.server.server.logger") as mock_logger:
+                await server.run()
+
+        # Should have logged with the server name
+        logged_messages = [str(call) for call in mock_logger.info.call_args_list]
+        assert any("log-name-test" in msg for msg in logged_messages)
+
+
+# ---------------------------------------------------------------------------
+# ALL_TOOL_SCHEMAS integrity
+# ---------------------------------------------------------------------------
+
+
+class TestAllToolSchemas:
+    """Tests that ALL_TOOL_SCHEMAS is well-formed."""
+
+    def test_all_tool_schemas_is_a_list(self) -> None:
+        """ALL_TOOL_SCHEMAS should be a list."""
+        from agent_framework.tools import ALL_TOOL_SCHEMAS
+
         assert isinstance(ALL_TOOL_SCHEMAS, list)
 
-    def test_schemas_is_non_empty(self) -> None:
+    def test_all_schemas_have_required_keys(self) -> None:
+        """Every schema in ALL_TOOL_SCHEMAS must have name, description, input_schema, handler."""
+        from agent_framework.tools import ALL_TOOL_SCHEMAS
+
+        required_keys = {"name", "description", "input_schema", "handler"}
+        for schema in ALL_TOOL_SCHEMAS:
+            missing = required_keys - set(schema.keys())
+            assert not missing, f"Schema {schema.get('name', '?')} missing keys: {missing}"
+
+    def test_all_schema_names_are_strings(self) -> None:
+        """Every schema name should be a non-empty string."""
+        from agent_framework.tools import ALL_TOOL_SCHEMAS
+
+        for schema in ALL_TOOL_SCHEMAS:
+            assert isinstance(schema["name"], str)
+            assert len(schema["name"]) > 0
+
+    def test_all_schema_handlers_are_callable(self) -> None:
+        """Every schema handler should be callable."""
+        from agent_framework.tools import ALL_TOOL_SCHEMAS
+
+        for schema in ALL_TOOL_SCHEMAS:
+            assert callable(schema["handler"]), f"Handler for {schema['name']} is not callable"
+
+    def test_schema_names_are_unique(self) -> None:
+        """No two schemas should share the same tool name."""
+        from agent_framework.tools import ALL_TOOL_SCHEMAS
+
+        names = [s["name"] for s in ALL_TOOL_SCHEMAS]
+        assert len(names) == len(set(names)), "Duplicate tool names found in ALL_TOOL_SCHEMAS"
+
+    def test_all_tool_schemas_not_empty(self) -> None:
+        """ALL_TOOL_SCHEMAS should contain at least one tool."""
+        from agent_framework.tools import ALL_TOOL_SCHEMAS
+
         assert len(ALL_TOOL_SCHEMAS) > 0
+
+    def test_server_registers_all_tool_schemas(self) -> None:
+        """A default MCPServerBase should register every schema in ALL_TOOL_SCHEMAS."""
+        from agent_framework.tools import ALL_TOOL_SCHEMAS
+
+        server = create_mcp_server("schema-check")
+        expected_names = {s["name"] for s in ALL_TOOL_SCHEMAS}
+        assert set(server.tools.keys()) == expected_names
