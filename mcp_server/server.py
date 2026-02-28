@@ -9,8 +9,10 @@ All tool schemas are co-located with their implementations in
 
 import asyncio
 import logging
+import os
 
 from agent_framework.server import create_mcp_server
+from agent_framework.telemetry import configure_tool_logger
 
 from .auth import OAuthHandler, TokenStore
 from .config import settings
@@ -26,7 +28,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-
 # Initialize auth components
 token_store = TokenStore(
     storage_path=settings.token_storage_path,
@@ -41,6 +42,10 @@ oauth_handler = OAuthHandler(
 
 if __name__ == "__main__":
     """Entry point for running the MCP server."""
+    # Configure tool invocation logger (only when running as main process)
+    tool_log_path = os.getenv("MCP_TOOL_LOG_PATH", ".data/logs/mcp-invocations.jsonl")
+    configure_tool_logger(tool_log_path)
+
     # Create server with all default tools (auto-registered from ALL_TOOL_SCHEMAS)
     server = create_mcp_server("pr_agent")
 
