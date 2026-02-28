@@ -12,37 +12,10 @@ import logging
 import re
 from typing import Any
 
+from shared.gh import run_gh as _run_gh
+from shared.gh import validate_repo
+
 logger = logging.getLogger(__name__)
-
-_REPO_RE = re.compile(r"^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$")
-
-
-def validate_repo(repo: str) -> str:
-    """Validate ``owner/repo`` format. Raises :class:`ValueError` on mismatch."""
-    if not _REPO_RE.match(repo):
-        raise ValueError(f"Invalid repo format (expected owner/repo): {repo!r}")
-    return repo
-
-
-async def _run_gh(args: list[str], timeout: int = 30) -> tuple[int, str, str]:
-    """Run a ``gh`` CLI command and return (returncode, stdout, stderr)."""
-    proc = await asyncio.create_subprocess_exec(
-        "gh",
-        *args,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    try:
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-    except TimeoutError:
-        proc.kill()
-        logger.warning(f"gh command timed out after {timeout}s: gh {' '.join(args[:3])}")
-        return (1, "", f"timed out after {timeout}s")
-    return (
-        proc.returncode or 0,
-        stdout.decode("utf-8", errors="replace"),
-        stderr.decode("utf-8", errors="replace"),
-    )
 
 
 async def list_open_prs(repo: str, label: str | None = None) -> list[dict[str, Any]]:

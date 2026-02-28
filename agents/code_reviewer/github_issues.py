@@ -5,16 +5,16 @@ that parses the combined review output, checks for duplicate issues via
 ``gh issue list --search``, and creates new issues for novel findings.
 """
 
-import asyncio
 import logging
 import os
 import re
 from pathlib import Path
 from typing import Any
 
-logger = logging.getLogger(__name__)
+from shared.gh import REPO_RE as _REPO_RE
+from shared.gh import run_gh as _run_gh
 
-_REPO_RE = re.compile(r"^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$")
+logger = logging.getLogger(__name__)
 
 # Labels and their colors for code review issues
 _LABELS: dict[str, tuple[str, str]] = {
@@ -25,30 +25,6 @@ _LABELS: dict[str, tuple[str, str]] = {
     "documentation": ("Documentation issue", "0E8A16"),
     "code-quality": ("Code quality or maintainability issue", "E4E669"),
 }
-
-
-async def _run_gh(
-    args: list[str], timeout: int = 30, cwd: str | None = None
-) -> tuple[int, str, str]:
-    """Run a ``gh`` CLI command and return (returncode, stdout, stderr)."""
-    proc = await asyncio.create_subprocess_exec(
-        "gh",
-        *args,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        cwd=cwd,
-    )
-    try:
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-    except TimeoutError:
-        proc.kill()
-        logger.warning("gh command timed out after %ds: gh %s", timeout, " ".join(args[:3]))
-        return (1, "", f"timed out after {timeout}s")
-    return (
-        proc.returncode or 0,
-        stdout.decode("utf-8", errors="replace"),
-        stderr.decode("utf-8", errors="replace"),
-    )
 
 
 async def detect_repo(target_path: str) -> str | None:
