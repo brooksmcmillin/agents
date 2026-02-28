@@ -1,0 +1,229 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Run Claude Code review agents against a directory and create tasks for findings.
+# Uses --allowedTools instead of --dangerously-skip-permissions.
+
+CREDENTIALS_FILE="${HOME}/.claude/.credentials.json"
+NTFY_URL="https://ntfy.brooksmcmillin.com/mcp-alerts"
+AGENTS_DIR="${HOME}/.claude/agents"
+
+# Load NTFY_TOKEN from .env if not already set
+if [[ -z "${NTFY_TOKEN:-}" && -f "${HOME}/build/agents/.env" ]]; then
+  NTFY_TOKEN=$(grep -m1 '^NTFY_TOKEN=' "${HOME}/build/agents/.env" | cut -d= -f2-)
+fi
+AGENTS=(
+  code-optimizer
+  dependency-auditor
+  doc-auditor
+  security-code-reviewer
+  test-coverage-checker
+)
+
+usage() {
+  cat <<'EOF'
+Usage: code-review <directory> [options]
+
+Run the 5 code review agents against a directory and create tasks for findings.
+
+Options:
+  -n, --per-day NUM     Tasks due per day (default: 2)
+  -s, --start DATE      Start date for due dates (default: tomorrow, YYYY-MM-DD)
+  -c, --category NAME   Task category/project name (default: "Code Review")
+  -a, --agents AGENTS   Comma-separated agent names to run (default: all 5)
+  -d, --dry-run         Print the claude command without running it
+  -h, --help            Show this help
+
+Available agents:
+  code-optimizer, dependency-auditor, doc-auditor,
+  security-code-reviewer, test-coverage-checker
+
+Examples:
+  code-review ~/build/agents
+  code-review ~/build/agents -n 3 -s 2026-03-01
+  code-review ~/build/agents -a security-code-reviewer,dependency-auditor
+  code-review ~/build/agents --dry-run
+EOF
+  exit 0
+}
+
+# --- Preflight: verify TaskManager MCP OAuth token ---
+check_mcp_token() {
+  if [[ ! -f "$CREDENTIALS_FILE" ]]; then
+    echo "Error: credentials file not found at $CREDENTIALS_FILE" >&2
+    return 1
+  fi
+
+  local token expires_at now_ms
+  token=$(python3 -c "
+import json, sys
+creds = json.load(open('$CREDENTIALS_FILE'))
+for key, val in creds.get('mcpOAuth', {}).items():
+    if val.get('serverName') == 'taskmanager':
+        print(val.get('accessToken', ''))
+        print(val.get('expiresAt', '0'))
+        sys.exit(0)
+sys.exit(1)
+" 2>/dev/null) || { echo "Error: no taskmanager token in credentials" >&2; return 1; }
+
+  local access_token expires_at
+  access_token=$(echo "$token" | sed -n '1p')
+  expires_at=$(echo "$token" | sed -n '2p')
+  now_ms=$(($(date +%s) * 1000))
+
+  if [[ -z "$access_token" ]]; then
+    echo "Error: taskmanager access token is empty" >&2
+    return 1
+  fi
+
+  # Check expiry (with 5-minute buffer)
+  local buffer_ms=$((5 * 60 * 1000))
+  if (( now_ms + buffer_ms > expires_at )); then
+    echo "Error: taskmanager OAuth token is expired or expiring within 5 minutes" >&2
+    echo "  Expires at: $(date -d @$((expires_at / 1000)) 2>/dev/null || date -r $((expires_at / 1000)))" >&2
+    return 1
+  fi
+
+  # Validate token against introspection endpoint
+  local introspect_result
+  introspect_result=$(curl -sf --max-time 10 \
+    -X POST "https://mcp-auth.brooksmcmillin.com/introspect" \
+    -d "token=${access_token}" 2>/dev/null) || {
+    echo "Warning: could not reach introspection endpoint, trusting local expiry" >&2
+    return 0
+  }
+
+  local active
+  active=$(echo "$introspect_result" | python3 -c "import json,sys; print(json.load(sys.stdin).get('active', False))" 2>/dev/null)
+  if [[ "$active" != "True" ]]; then
+    echo "Error: taskmanager OAuth token is revoked or invalid (introspection: active=false)" >&2
+    return 1
+  fi
+
+  return 0
+}
+
+notify_token_expired() {
+  local msg="$1"
+  local auth_args=()
+  if [[ -n "${NTFY_TOKEN:-}" ]]; then
+    auth_args=(-H "Authorization: Bearer ${NTFY_TOKEN}")
+  fi
+  curl -sf --max-time 10 \
+    "${auth_args[@]}" \
+    -H "Title: Code Review: MCP Token Expired" \
+    -H "Priority: high" \
+    -H "Tags: warning,key" \
+    -d "$msg" \
+    "$NTFY_URL" >/dev/null 2>&1 || true
+  echo "Notification sent to $NTFY_URL" >&2
+}
+
+if ! check_mcp_token; then
+  notify_token_expired "TaskManager MCP OAuth token is expired or invalid. Code review cannot create tasks. Re-authenticate at https://mcp-auth.brooksmcmillin.com/"
+  exit 1
+fi
+
+# Defaults
+PER_DAY=2
+START_DATE=$(date -d "+1 day" +%Y-%m-%d 2>/dev/null || date -v+1d +%Y-%m-%d)
+CATEGORY="Code Review"
+DRY_RUN=false
+SELECTED_AGENTS=()
+
+# Parse args
+[[ $# -eq 0 ]] && usage
+TARGET_DIR="$1"; shift
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -n|--per-day)   PER_DAY="$2"; shift 2 ;;
+    -s|--start)     START_DATE="$2"; shift 2 ;;
+    -c|--category)  CATEGORY="$2"; shift 2 ;;
+    -a|--agents)    IFS=',' read -ra SELECTED_AGENTS <<< "$2"; shift 2 ;;
+    -d|--dry-run)   DRY_RUN=true; shift ;;
+    -h|--help)      usage ;;
+    *)              echo "Unknown option: $1"; usage ;;
+  esac
+done
+
+# Resolve directory
+TARGET_DIR=$(realpath "$TARGET_DIR")
+if [[ ! -d "$TARGET_DIR" ]]; then
+  echo "Error: $TARGET_DIR is not a directory" >&2
+  exit 1
+fi
+
+# Use selected agents or all
+if [[ ${#SELECTED_AGENTS[@]} -gt 0 ]]; then
+  RUN_AGENTS=("${SELECTED_AGENTS[@]}")
+else
+  RUN_AGENTS=("${AGENTS[@]}")
+fi
+
+# Verify agents exist
+for agent in "${RUN_AGENTS[@]}"; do
+  if [[ ! -f "${AGENTS_DIR}/${agent}.md" ]]; then
+    echo "Error: agent '${agent}' not found at ${AGENTS_DIR}/${agent}.md" >&2
+    exit 1
+  fi
+done
+
+AGENT_LIST=$(printf ", %s" "${RUN_AGENTS[@]}")
+AGENT_LIST="${AGENT_LIST:2}"
+
+PROMPT="Run these code review agents on ${TARGET_DIR}: ${AGENT_LIST}.
+
+For each agent, spawn it as a subagent and let it analyze the codebase.
+
+After all agents complete, collect every finding and create tasks in TaskManager:
+- Category: ${CATEGORY}
+- Priority based on severity (high findings = urgent/high, medium = medium, low = low)
+- Schedule due dates: ${PER_DAY} tasks per day starting ${START_DATE}
+- Each task title should identify the agent, file, and issue
+- Each task description should include the finding details and recommended fix
+- Use create_tasks for batch efficiency"
+
+ALLOWED_TOOLS=(
+  "Read"
+  "Glob"
+  "Grep"
+  "Agent"
+  "Bash(radon *)"
+  "Bash(vulture *)"
+  "Bash(jscpd *)"
+  "Bash(pylint *)"
+  "Bash(pip-audit *)"
+  "Bash(safety *)"
+  "Bash(npm audit *)"
+  "Bash(cargo audit *)"
+  "Bash(npx *)"
+  "Bash(wc *)"
+  "Bash(find *)"
+  "Bash(python -m pytest *)"
+  "Bash(uv run *)"
+  "Bash(check-optimizer-tools*)"
+  "mcp__taskmanager__create_task"
+  "mcp__taskmanager__create_tasks"
+  "mcp__taskmanager__create_project"
+  "mcp__taskmanager__get_tasks"
+  "mcp__taskmanager__search_tasks"
+)
+
+# Build --allowedTools argument
+TOOLS_ARG=()
+for tool in "${ALLOWED_TOOLS[@]}"; do
+  TOOLS_ARG+=("$tool")
+done
+
+CMD=(claude -p "$PROMPT" --allowedTools "${TOOLS_ARG[@]}")
+
+if $DRY_RUN; then
+  echo "Would run:"
+  echo ""
+  printf "  %q" "${CMD[@]}"
+  echo ""
+  exit 0
+fi
+
+exec "${CMD[@]}"
