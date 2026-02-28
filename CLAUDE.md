@@ -7,7 +7,7 @@ This file provides guidance to Claude Code when working with this repository.
 Multi-agent system built with Claude (Anthropic SDK) and Model Context Protocol (MCP).
 
 **Architecture:**
-1. **Agents** (`agents/`) - Individual agent implementations (chatbot, pr_agent, security_researcher, business_advisor, task_manager, code_reviewer, email_intake, notifier, orchestrator, red_team, events, code_analysis)
+1. **Agents** (`agents/`) - Individual agent implementations (chatbot, pr_agent, security_researcher, business_advisor, task_manager, email_intake, notifier, orchestrator, red_team, events, code_analysis)
 2. **API Server** (`api/`) - FastAPI REST server for HTTP access to agents
 3. **Web UI** (`webui/`) - React web interface for agents
 4. **MCP Server** (`mcp_server/`) - MCP server config and OAuth infrastructure
