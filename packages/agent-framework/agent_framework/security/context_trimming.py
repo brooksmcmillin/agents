@@ -36,6 +36,13 @@ logger = logging.getLogger(__name__)
 # (e.g. "permission_denied", "ssrf_block", "prompt_injection").
 SECURITY_EVENT_KEY = "_security_event"
 
+# Metadata key for general-purpose message pinning.  Agents can tag tool_result
+# blocks with this key to mark them as important and ensure they survive context
+# trimming.  The value is a short reason string (e.g. "critical_error_pattern",
+# "root_cause_analysis").  Unlike security events, pinned messages are
+# summarized with their reason text preserved (no content redaction).
+PINNED_EVENT_KEY = "_pinned"
+
 
 class SecurityClassification(Enum):
     """Classification levels for conversation messages."""
@@ -156,6 +163,28 @@ def _has_security_event_metadata(message: dict[str, Any]) -> str | None:
     return None
 
 
+def _has_pinned_metadata(message: dict[str, Any]) -> str | None:
+    """Check if any block in the message carries a general-purpose pin marker.
+
+    Agents can tag tool_result blocks with ``_pinned`` to ensure the message
+    survives context trimming.
+
+    Args:
+        message: An Anthropic API message dict.
+
+    Returns:
+        The pin-reason string if present, otherwise None.
+    """
+    content = message.get("content", [])
+    if not isinstance(content, list):
+        return None
+
+    for block in content:
+        if isinstance(block, dict) and PINNED_EVENT_KEY in block:
+            return str(block[PINNED_EVENT_KEY])
+    return None
+
+
 def _is_error_tool_result(message: dict[str, Any]) -> bool:
     """Check if a message contains any tool_result with is_error=True.
 
@@ -240,6 +269,17 @@ def classify_message(message: dict[str, Any]) -> ClassifiedMessage:
             reasons=reasons,
         )
 
+    # General-purpose pin: agents can mark messages as important
+    pin_reason = _has_pinned_metadata(message)
+    if pin_reason:
+        reasons.append(f"pinned: {pin_reason}")
+        return ClassifiedMessage(
+            index=0,
+            message=message,
+            classification=SecurityClassification.CRITICAL,
+            reasons=reasons,
+        )
+
     # Fallback path: pattern matching on text content
     text = _extract_text_content(message)
     is_error = _is_error_tool_result(message)
@@ -296,29 +336,45 @@ def classify_message(message: dict[str, Any]) -> ClassifiedMessage:
 
 
 def _build_security_summary(pinned_messages: list[ClassifiedMessage]) -> str:
-    """Build a compact summary of pinned security events.
+    """Build a compact summary of pinned security events and pinned findings.
 
     When there are too many pinned messages to keep, this creates a summary
-    that preserves the essential security context *without* re-injecting
-    attacker-controlled content.  Only the event type and classification
-    reasons are included — raw message text is redacted.
+    that preserves the essential context.  Security events have their content
+    redacted (to prevent re-injecting attacker-controlled content), while
+    general-purpose pinned findings preserve their reason strings.
 
     Args:
         pinned_messages: List of classified messages marked as CRITICAL.
 
     Returns:
-        A summary string of security events.
+        A summary string of security events and pinned findings.
     """
-    events: list[str] = []
+    security_events: list[str] = []
+    pinned_findings: list[str] = []
+
     for cm in pinned_messages:
         reason_tags = ", ".join(cm.reasons)
-        events.append(f"Blocked event: {reason_tags} (content redacted for safety)")
+        is_pinned_finding = any(r.startswith("pinned:") for r in cm.reasons)
+        if is_pinned_finding:
+            pinned_findings.append(f"Pinned finding: {reason_tags}")
+        else:
+            security_events.append(f"Blocked event: {reason_tags} (content redacted for safety)")
 
-    return (
-        "[SECURITY CONTEXT - Previous security events in this session]\n"
-        + "\n".join(f"- {e}" for e in events)
-        + "\n[END SECURITY CONTEXT]"
-    )
+    parts: list[str] = []
+    if security_events:
+        parts.append(
+            "[SECURITY CONTEXT - Previous security events in this session]\n"
+            + "\n".join(f"- {e}" for e in security_events)
+            + "\n[END SECURITY CONTEXT]"
+        )
+    if pinned_findings:
+        parts.append(
+            "[PINNED CONTEXT - Important findings from this session]\n"
+            + "\n".join(f"- {e}" for e in pinned_findings)
+            + "\n[END PINNED CONTEXT]"
+        )
+
+    return "\n\n".join(parts) if parts else ""
 
 
 def _build_tool_use_pairs(messages: list[dict[str, Any]]) -> dict[int, int]:

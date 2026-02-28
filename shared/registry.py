@@ -71,6 +71,7 @@ def build_agent_registry() -> dict[str, AgentEntry]:
     from agents.chatbot.main import ChatbotAgent
     from agents.code_analysis.main import CodeAnalysisAgent
     from agents.events.main import EventsAgent
+    from agents.log_analysis.main import LogAnalysisAgent
     from agents.pr_agent.main import PRAgent
     from agents.red_team.main import RedTeamAgent
     from agents.security_researcher.main import SecurityResearcherAgent
@@ -102,6 +103,11 @@ def build_agent_registry() -> dict[str, AgentEntry]:
             EventsAgent,
             None,
             "Local events discovery with preference learning",
+        ),
+        "log-analysis": (
+            LogAnalysisAgent,
+            None,
+            "Log analysis agent with automatic pinning of critical findings",
         ),
         "pr": (
             PRAgent,
