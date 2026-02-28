@@ -434,6 +434,7 @@ class TestSetupHandlersCallTool:
         data = json.loads(result[0].text)
         assert data["error"] == "validation_error"
         assert "bad param value" in data["message"]
+        assert data["tool"] == "validate_tool"
 
     @pytest.mark.asyncio
     async def test_tool_invocation_logging_is_called_on_success(self) -> None:
@@ -641,8 +642,10 @@ class TestMCPServerRun:
             with patch("agent_framework.server.server.logger") as mock_logger:
                 await server.run()
 
-        # Should have logged with the server name
-        logged_messages = [str(call) for call in mock_logger.info.call_args_list]
+        # Should have logged with the server name - check actual message strings
+        logged_messages = [
+            call.args[0] if call.args else "" for call in mock_logger.info.call_args_list
+        ]
         assert any("log-name-test" in msg for msg in logged_messages)
 
 
