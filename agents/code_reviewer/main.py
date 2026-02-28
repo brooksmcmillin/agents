@@ -135,8 +135,31 @@ async def run_review(folder_path: str, model: str = "opus") -> str | None:
 
     Returns the combined review output, or None if all agents failed.
     """
-    custom_env = os.environ.copy()
-    custom_env.pop("ANTHROPIC_API_KEY", None)
+    # Allowlist: only pass environment variables the subprocess actually needs.
+    # This prevents leaking secrets (API tokens, DB creds, etc.) to child processes.
+    _ALLOWED_ENV_NAMES = {
+        "PATH",
+        "HOME",
+        "USER",
+        "LOGNAME",
+        "SHELL",
+        "TERM",
+        "TMPDIR",
+        "TEMP",
+        "TMP",
+        "EDITOR",
+        "VISUAL",
+    }
+    _ALLOWED_ENV_PREFIXES = (
+        "LANG",
+        "LC_",
+        "XDG_",
+    )
+    custom_env = {
+        k: v
+        for k, v in os.environ.items()
+        if k in _ALLOWED_ENV_NAMES or k.startswith(_ALLOWED_ENV_PREFIXES)
+    }
 
     logger.info(
         "Starting code review of %s (%d agents in parallel)...", folder_path, len(REVIEW_AGENTS)
