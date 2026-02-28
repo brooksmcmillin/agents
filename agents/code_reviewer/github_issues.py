@@ -41,7 +41,16 @@ async def detect_repo(target_path: str) -> str | None:
 
 
 async def _ensure_labels(repo: str) -> None:
-    """Create code-review labels if they don't already exist."""
+    """Create code-review labels on the repository if they don't already exist.
+
+    Iterates all entries in ``_LABELS`` and runs ``gh label create`` for each.
+    Non-zero exit codes are intentionally ignored because ``gh`` returns an
+    error when the label already exists — this is the expected path on all
+    runs after the first.
+
+    Args:
+        repo: GitHub repository in ``owner/name`` format.
+    """
     for name, (description, color) in _LABELS.items():
         await _run_gh(
             [
