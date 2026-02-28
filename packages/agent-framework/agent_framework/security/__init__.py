@@ -6,6 +6,7 @@ secure LLM-to-LLM output handling, and context-aware trimming.
 """
 
 from .context_trimming import (
+    PINNED_EVENT_KEY,
     SECURITY_EVENT_KEY,
     ClassifiedMessage,
     SecurityClassification,
@@ -24,6 +25,7 @@ from .pii import mask_phone_in_text, mask_phone_number
 from .ssrf import SSRFTransport, SSRFValidator
 
 __all__ = [
+    "PINNED_EVENT_KEY",
     "SECURITY_EVENT_KEY",
     "ClassifiedMessage",
     "InputValidationResult",
