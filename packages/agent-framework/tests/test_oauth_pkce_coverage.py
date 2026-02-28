@@ -12,13 +12,18 @@ This module covers the remaining gaps in OAuth PKCE flow testing:
 """
 
 import asyncio
+import hashlib
 import json
 import os
+import shutil
+import socket
+import time
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+from cryptography.fernet import Fernet
 
 from agent_framework.oauth.oauth_config import OAuthConfig, discover_oauth_config
 from agent_framework.oauth.oauth_flow import OAuthFlowHandler
@@ -45,6 +50,13 @@ def make_oauth_config(
         code_challenge_methods_supported=["S256"],
         token_endpoint_auth_methods_supported=["none", "client_secret_post"],
     )
+
+
+def get_free_port() -> int:
+    """Find a free TCP port by temporarily binding to port 0."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
 
 
 # ---------------------------------------------------------------------------
@@ -143,6 +155,9 @@ class TestDiscoverOAuthConfigNormalization:
 
             config = await discover_oauth_config("https://example.com/")
 
+            # Verify the discovery request used the normalized (stripped) URL
+            first_call_url = mock_client.get.call_args_list[0][0][0]
+            assert first_call_url == "https://example.com/.well-known/oauth-protected-resource"
             assert config.resource_url == "https://example.com"
             assert config.authorization_endpoint == "https://auth.example.com/authorize"
 
@@ -158,6 +173,26 @@ class TestDiscoverOAuthConfigNormalization:
 
             config = await discover_oauth_config("https://example.com/mcp")
 
+            # Verify the /mcp suffix was stripped before building discovery URL
+            first_call_url = mock_client.get.call_args_list[0][0][0]
+            assert first_call_url == "https://example.com/.well-known/oauth-protected-resource"
+            assert config.resource_url == "https://example.com"
+
+    @pytest.mark.asyncio
+    async def test_normalizes_url_ending_with_mcp_and_trailing_slash(
+        self, resource_metadata: dict, auth_metadata: dict
+    ) -> None:
+        """URLs ending with '/mcp/' (trailing slash) strip that suffix."""
+        with patch("httpx.AsyncClient") as mock_class:
+            mock_client = self._make_mock_client(resource_metadata, auth_metadata)
+            mock_class.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_class.return_value.__aexit__ = AsyncMock(return_value=None)
+
+            config = await discover_oauth_config("https://example.com/mcp/")
+
+            # Verify the /mcp/ suffix was stripped before building discovery URL
+            first_call_url = mock_client.get.call_args_list[0][0][0]
+            assert first_call_url == "https://example.com/.well-known/oauth-protected-resource"
             assert config.resource_url == "https://example.com"
 
     @pytest.mark.asyncio
@@ -354,8 +389,6 @@ class TestTokenStorageEncryptionPaths:
         """require_encryption=True raises RuntimeError if Fernet() constructor fails."""
         # Write a valid-format key file first so _load_or_generate_key succeeds
         key_file = tmp_path / ".encryption.key"
-        from cryptography.fernet import Fernet
-
         key_file.write_text(Fernet.generate_key().decode())
         key_file.chmod(0o600)
 
@@ -368,8 +401,6 @@ class TestTokenStorageEncryptionPaths:
 
     def test_encryption_key_file_exists_race_uses_existing(self, tmp_path: Path) -> None:
         """If key file appears between exists() check and O_EXCL open, read it."""
-        from cryptography.fernet import Fernet
-
         real_key = Fernet.generate_key().decode()
 
         original_open = os.open
@@ -418,7 +449,7 @@ class TestTokenStorageEncryptionPaths:
 
         with patch("os.open", side_effect=patched_open):
             with patch("os.fdopen", side_effect=OSError("fdopen failed")):
-                with pytest.raises((IOError, Exception)):
+                with pytest.raises(OSError):
                     storage.save_token("https://example.com", token)
 
     def test_load_token_decryption_failure_returns_none(self, tmp_path: Path) -> None:
@@ -428,15 +459,12 @@ class TestTokenStorageEncryptionPaths:
         token = TokenSet(access_token="secret_token", token_type="Bearer")
         storage1.save_token("https://example.com", token)
 
-        # Create new storage with a DIFFERENT key by removing old key
-
+        # Create new storage with a DIFFERENT key
         new_key_storage = tmp_path / "different_dir"
         new_key_storage.mkdir()
         storage2 = TokenStorage(storage_dir=new_key_storage)
 
         # Copy the encrypted token file to the new storage directory
-        import shutil
-
         token_files = list(tmp_path.glob("*.json"))
         assert len(token_files) == 1
         shutil.copy(token_files[0], new_key_storage / token_files[0].name)
@@ -445,8 +473,8 @@ class TestTokenStorageEncryptionPaths:
         result = storage2.load_token("https://example.com")
         assert result is None
 
-    def test_load_token_corrupted_no_server_url_returns_none(self, tmp_path: Path) -> None:
-        """load_token returns None when token data has wrong server_url."""
+    def test_load_token_url_mismatch_returns_none(self, tmp_path: Path) -> None:
+        """load_token returns None when stored server_url doesn't match lookup key."""
         storage = TokenStorage(storage_dir=tmp_path)
 
         # Create a valid token file for one URL
@@ -477,14 +505,11 @@ class TestTokenStorageEncryptionPaths:
         """load_token returns None when token file contains invalid JSON."""
         storage = TokenStorage(storage_dir=tmp_path)
 
-        # Write a corrupt (non-JSON, non-encrypted) file directly
-        import hashlib
-
         url = "https://example.com"
         url_hash = hashlib.sha256(url.encode()).hexdigest()[:16]
         token_file = tmp_path / f"{url_hash}.json"
 
-        # Disable cipher so we can write raw bytes
+        # Disable cipher so we can write raw bytes that look like plaintext but are invalid JSON
         storage.cipher = None
         token_file.write_bytes(b"not valid json content {{{")
 
@@ -523,12 +548,13 @@ class TestTokenStorageEncryptionPaths:
 
 
 class TestOAuthFlowHandlerCallbackServer:
-    """Tests for OAuthFlowHandler._run_callback_server."""
+    """Tests for OAuthFlowHandler._run_callback_server using ephemeral ports."""
 
     @pytest.fixture
     def flow_handler(self) -> OAuthFlowHandler:
         config = make_oauth_config()
-        handler = OAuthFlowHandler(oauth_config=config, redirect_port=18889)
+        port = get_free_port()
+        handler = OAuthFlowHandler(oauth_config=config, redirect_port=port)
         handler.client_id = "test_client"
         return handler
 
@@ -588,21 +614,20 @@ class TestOAuthFlowHandlerCallbackServer:
     async def test_run_callback_server_returns_error_on_state_mismatch(
         self, flow_handler: OAuthFlowHandler
     ) -> None:
-        """_run_callback_server sets error on CSRF state mismatch."""
+        """_run_callback_server sets error immediately on CSRF state mismatch.
+
+        Once auth_result["error"] is set, the polling loop exits and runner.cleanup()
+        is called. Only one request is needed — the server stops after the mismatch.
+        """
         expected_state = "correct_state"
 
         async def simulate_wrong_state(port: int) -> None:
             await asyncio.sleep(0.1)
             async with httpx.AsyncClient() as client:
-                # First send with wrong state to trigger CSRF detection
+                # Send with wrong state — this sets auth_result["error"] and unblocks the server
                 await client.get(
                     f"http://localhost:{port}/callback",
                     params={"code": "code", "state": "wrong_state"},
-                )
-                # Then send the correct callback to unblock the server
-                await client.get(
-                    f"http://localhost:{port}/callback",
-                    params={"code": "real_code", "state": expected_state},
                 )
 
         server_task = asyncio.create_task(
@@ -611,7 +636,7 @@ class TestOAuthFlowHandlerCallbackServer:
         await simulate_wrong_state(flow_handler.redirect_port)
         code, error = await server_task
 
-        # Should have stopped on the state mismatch error
+        # Should have detected CSRF and returned error immediately
         assert error == "state_mismatch"
         assert code is None
 
@@ -628,7 +653,8 @@ class TestOAuthFlowHandlerAuthorize:
     async def test_authorize_exchanges_code_for_token(self) -> None:
         """authorize() calls _run_callback_server and _exchange_code."""
         config = make_oauth_config()
-        handler = OAuthFlowHandler(oauth_config=config, redirect_port=18890)
+        port = get_free_port()
+        handler = OAuthFlowHandler(oauth_config=config, redirect_port=port)
         handler.client_id = "existing_client"  # Skip registration
 
         mock_token = TokenSet(
@@ -661,7 +687,8 @@ class TestOAuthFlowHandlerAuthorize:
     async def test_authorize_raises_when_callback_error(self) -> None:
         """authorize() raises ValueError when callback returns an error."""
         config = make_oauth_config()
-        handler = OAuthFlowHandler(oauth_config=config, redirect_port=18891)
+        port = get_free_port()
+        handler = OAuthFlowHandler(oauth_config=config, redirect_port=port)
         handler.client_id = "existing_client"
 
         with patch.object(
@@ -677,7 +704,8 @@ class TestOAuthFlowHandlerAuthorize:
     async def test_authorize_raises_when_no_code_and_no_error(self) -> None:
         """authorize() raises ValueError when no code and no error received."""
         config = make_oauth_config()
-        handler = OAuthFlowHandler(oauth_config=config, redirect_port=18892)
+        port = get_free_port()
+        handler = OAuthFlowHandler(oauth_config=config, redirect_port=port)
         handler.client_id = "existing_client"
 
         with patch.object(
@@ -700,8 +728,6 @@ class TestTokenSetEdgeCases:
 
     def test_is_expired_with_zero_expires_in(self) -> None:
         """Token with expires_in=0 and issued_at set is immediately expired."""
-        import time
-
         token = TokenSet(
             access_token="token",
             expires_in=0,
@@ -711,8 +737,6 @@ class TestTokenSetEdgeCases:
 
     def test_is_expired_with_large_expires_in(self) -> None:
         """Token with very large expires_in is not expired."""
-        import time
-
         token = TokenSet(
             access_token="token",
             expires_in=999_999_999,
@@ -738,8 +762,6 @@ class TestTokenSetEdgeCases:
 
     def test_round_trip_serialization_with_all_fields(self) -> None:
         """TokenSet can be serialized and deserialized with all fields set."""
-        import time
-
         original = TokenSet(
             access_token="access123",
             token_type="Bearer",
