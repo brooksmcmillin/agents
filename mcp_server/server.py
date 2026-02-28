@@ -28,10 +28,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Configure tool invocation logger
-tool_log_path = os.getenv("MCP_TOOL_LOG_PATH", "/var/log/mcp-tools/invocations.jsonl")
-configure_tool_logger(tool_log_path)
-
 # Initialize auth components
 token_store = TokenStore(
     storage_path=settings.token_storage_path,
@@ -46,6 +42,10 @@ oauth_handler = OAuthHandler(
 
 if __name__ == "__main__":
     """Entry point for running the MCP server."""
+    # Configure tool invocation logger (only when running as main process)
+    tool_log_path = os.getenv("MCP_TOOL_LOG_PATH", ".data/logs/mcp-invocations.jsonl")
+    configure_tool_logger(tool_log_path)
+
     # Create server with all default tools (auto-registered from ALL_TOOL_SCHEMAS)
     server = create_mcp_server("pr_agent")
 

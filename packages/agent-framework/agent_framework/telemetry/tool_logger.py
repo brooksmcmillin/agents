@@ -16,15 +16,23 @@ from typing import Any
 _tool_logger: logging.Logger | None = None
 
 
+_ALLOWED_LOG_DIRS = ("/var/log/", ".data/")
+
+
 def configure_tool_logger(log_path: str) -> None:
     """Set up the tool invocation logger with a rotating file handler.
 
     Args:
         log_path: Path to the JSONL log file (parent dirs created automatically).
+              Must resolve to within one of the allowed base directories.
     """
     global _tool_logger
 
-    Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+    resolved = Path(log_path).resolve()
+    if not any(str(resolved).startswith(str(Path(d).resolve())) for d in _ALLOWED_LOG_DIRS):
+        raise ValueError(f"Tool log path must be within {_ALLOWED_LOG_DIRS}, got: {resolved}")
+
+    resolved.parent.mkdir(parents=True, exist_ok=True)
 
     _tool_logger = logging.getLogger("mcp.tool_invocations")
     _tool_logger.setLevel(logging.INFO)
@@ -37,6 +45,7 @@ def configure_tool_logger(log_path: str) -> None:
         log_path,
         maxBytes=50 * 1024 * 1024,  # 50 MB
         backupCount=5,
+        encoding="utf-8",
     )
     handler.setFormatter(logging.Formatter("%(message)s"))
     _tool_logger.addHandler(handler)
@@ -68,7 +77,7 @@ def log_tool_invocation(
         error_type = type(error).__name__
     elif isinstance(result, dict) and "error" in result:
         success = False
-        error_type = result.get("error", "unknown")
+        error_type = "tool_error_response"
 
     record = {
         "id": str(uuid.uuid4()),

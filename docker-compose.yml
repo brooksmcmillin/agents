@@ -96,6 +96,7 @@ services:
     volumes:
       - ./infra/promtail/promtail-config.yaml:/etc/promtail/config.yaml:ro
       - agent_logs:/var/log/agents:ro
+      - mcp_tool_logs:/var/log/mcp-tools:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
     command: -config.file=/etc/promtail/config.yaml
     networks:
