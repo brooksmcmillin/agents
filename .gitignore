@@ -49,6 +49,7 @@ htmlcov/
 coverage.xml
 coverage.json
 coverage_new.json
+coverage_fresh.json
 root_coverage.json
 coverage/
 *.cover
