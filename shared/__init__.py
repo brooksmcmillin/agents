@@ -46,6 +46,7 @@ from .constants import (
     WEB_RESEARCH_TOOLS,
 )
 from .env_utils import check_env_vars, env_file_exists
+from .gh import REPO_RE, run_gh, validate_repo
 from .json_parsing import strip_and_parse_json, strip_markdown_fences
 from .logging_config import setup_logging
 from .registry import GITHUB_MCP_AGENTS, build_agent_registry, github_mcp_config
@@ -71,6 +72,7 @@ __all__ = [
     "MEMORY_TOOLS",
     "NETWORK_ADMIN_TOOLS",
     "RAG_TOOLS",
+    "REPO_RE",
     "SMS_TOOLS",
     "SSRFValidator",
     "WEB_RESEARCH_TOOLS",
@@ -85,8 +87,10 @@ __all__ = [
     "parse_priority",
     "parse_task_result",
     "run_agent",
+    "run_gh",
     "setup_logging",
     "strip_and_parse_json",
     "strip_markdown_fences",
+    "validate_repo",
 ]
 __version__ = "0.1.0"
