@@ -159,7 +159,6 @@ Run directly — these are not in the agent registry and don't use `bin/run-agen
 
 | Service | Invocation | Description | Docs |
 |---------|-----------|-------------|------|
-| **Code Reviewer** | `uv run python -m agents.code_reviewer.main <path>` | Batch review with 5 parallel agents, email reports | [docs](agents/code_reviewer/README.md) |
 | **Email Intake** | `uv run python -m agents.email_intake.main` | Monitors inbox, routes tasks to agents | [docs](agents/email_intake/README.md) |
 | **Notifier** | `uv run python -m agents.notifier.main` | Slack notifications about open tasks | [docs](agents/notifier/README.md) |
 | **Orchestrator** | `uv run python -m agents.orchestrator.main "task"` | Task decomposition and Claude Code workers | [docs](agents/orchestrator/README.md) |
@@ -277,7 +276,6 @@ agents/                    # Agent implementations
 ├── code_analysis/         # Repository analysis (interactive)
 ├── events/                # Local events discovery (interactive)
 ├── red_team/              # Penetration testing (interactive)
-├── code_reviewer/         # Batch code review (standalone)
 ├── email_intake/          # Email inbox monitor (standalone)
 ├── notifier/              # Slack notifications (standalone)
 ├── orchestrator/          # Task decomposition + workers (standalone)
