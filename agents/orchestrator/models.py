@@ -13,6 +13,8 @@ from datetime import UTC, datetime
 from enum import Enum, IntEnum
 from typing import Any
 
+from shared.constants import KNOWN_MODELS, MODEL_ALIASES, resolve_model
+
 
 def _utcnow() -> datetime:
     """Return timezone-aware UTC datetime."""
@@ -27,27 +29,8 @@ _SAFE_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$")
 # slashes.  Used for branch names, branch prefixes, and base branch values.
 _SAFE_GIT_REF_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_/-]{0,200}$")
 
-
-# Known model short names and full IDs accepted by the orchestrator.
-# This is not exhaustive but catches typos early with a clear error.
-KNOWN_MODELS = frozenset(
-    {
-        "sonnet",
-        "haiku",
-        "opus",
-        "claude-sonnet-4-6",
-        "claude-haiku-4-5-20251001",
-        "claude-opus-4-6",
-    }
-)
-
-
-# Short name -> full Anthropic model ID mapping
-MODEL_ALIASES: dict[str, str] = {
-    "haiku": "claude-haiku-4-5-20251001",
-    "sonnet": "claude-sonnet-4-6",
-    "opus": "claude-opus-4-6",
-}
+# Re-export for callers that import from this module directly.
+__all__ = ["KNOWN_MODELS", "MODEL_ALIASES", "resolve_model"]
 
 
 def validate_model_name(model: str) -> str:
@@ -65,16 +48,6 @@ def validate_model_name(model: str) -> str:
     if model not in KNOWN_MODELS:
         raise ValueError(f"Unknown model: {model!r}. Known models: {sorted(KNOWN_MODELS)}")
     return model
-
-
-def resolve_model(model: str) -> str:
-    """Resolve a short model name to a full Anthropic API model ID.
-
-    Validates the model name, then maps short names (haiku, sonnet, opus)
-    to their full IDs. Full IDs pass through unchanged.
-    """
-    validate_model_name(model)
-    return MODEL_ALIASES.get(model, model)
 
 
 def validate_git_ref(ref: str, label: str = "git ref") -> str:

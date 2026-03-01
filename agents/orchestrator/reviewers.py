@@ -9,13 +9,12 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
-from anthropic import AsyncAnthropic
+from shared.anthropic_client import get_anthropic_client
 
 from .models import (
     OrchestratorConfig,
@@ -192,7 +191,7 @@ async def _run_review(
 
     model_id = resolve_model(model)
 
-    client = AsyncAnthropic(api_key=api_key or os.getenv("ANTHROPIC_API_KEY"))
+    client = get_anthropic_client(api_key)
     try:
         response = await client.messages.create(
             model=model_id,

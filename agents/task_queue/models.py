@@ -10,25 +10,15 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
 
+from shared.constants import MODEL_ALIASES, resolve_model
+
 
 def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
-# Short name -> full Anthropic model ID mapping
-MODEL_ALIASES: dict[str, str] = {
-    "haiku": "claude-haiku-4-5-20251001",
-    "sonnet": "claude-sonnet-4-6",
-    "opus": "claude-opus-4-6",
-}
-
-
-def resolve_model(model: str) -> str:
-    """Resolve a short model name to a full Anthropic model ID.
-
-    Passes through full model IDs unchanged.
-    """
-    return MODEL_ALIASES.get(model, model)
+# Re-export for callers that import from this module directly.
+__all__ = ["MODEL_ALIASES", "resolve_model"]
 
 
 class TriageVerdict(str, Enum):
