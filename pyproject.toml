@@ -24,6 +24,7 @@ dependencies = [
     "slowapi>=0.1.9",
     "markdown>=3.10.1",
     "pypdf>=6.7.4",
+    "playwright>=1.40.0",
 ]
 
 [tool.uv]

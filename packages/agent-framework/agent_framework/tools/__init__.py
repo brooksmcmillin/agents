@@ -94,6 +94,15 @@ from .twilio_sms_clarification import (
     get_sms_phone_pool_status,
     send_sms_clarification,
 )
+from .browser_testing import TOOL_SCHEMAS as _browser_testing_schemas
+from .browser_testing import (
+    browser_accessibility_audit,
+    browser_check_links,
+    browser_console_errors,
+    browser_crawl_site,
+    browser_performance_audit,
+    browser_screenshot,
+)
 from .web_analyzer import TOOL_SCHEMAS as _web_analyzer_schemas
 from .web_analyzer import analyze_website
 from .web_reader import TOOL_SCHEMAS as _web_reader_schemas
@@ -102,6 +111,7 @@ from .web_reader import fetch_web_content
 ALL_TOOL_SCHEMAS: list[dict] = [
     *_web_reader_schemas,
     *_web_analyzer_schemas,
+    *_browser_testing_schemas,
     *_memory_schemas,
     *_slack_schemas,
     *_twilio_sms_schemas,
@@ -183,6 +193,13 @@ __all__ = [
     "list_directory",
     "glob_files",
     "grep_files",
+    # Browser testing tools
+    "browser_screenshot",
+    "browser_accessibility_audit",
+    "browser_performance_audit",
+    "browser_console_errors",
+    "browser_check_links",
+    "browser_crawl_site",
     # Network admin tools
     "network_discover_hosts",
     "network_scan_ports",
