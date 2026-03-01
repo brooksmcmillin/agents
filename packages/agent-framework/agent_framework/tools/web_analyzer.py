@@ -14,6 +14,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from ..security import SSRFValidator
+from ..utils.tool_decorators import handle_tool_errors
 
 logger = logging.getLogger(__name__)
 
@@ -680,6 +681,7 @@ _ANALYSIS_BUILDERS = {
 }
 
 
+@handle_tool_errors(operation="analyze website")
 async def analyze_website(
     url: str,
     analysis_type: Literal["tone", "seo", "engagement"],
@@ -699,27 +701,18 @@ async def analyze_website(
     if builder is None:
         raise ValueError(f"Unsupported analysis type: {analysis_type}")
 
-    try:
-        html_content = await _validate_and_fetch(url)
+    html_content = await _validate_and_fetch(url)
 
-        soup = BeautifulSoup(html_content, "lxml")
-        text = _extract_text_content(soup)
-        if not text.strip():
-            raise ValueError("No text content found on the page")
+    soup = BeautifulSoup(html_content, "lxml")
+    text = _extract_text_content(soup)
+    if not text.strip():
+        raise ValueError("No text content found on the page")
 
-        readability = _calculate_readability(text)
-        result = builder(url, soup, text, readability)
+    readability = _calculate_readability(text)
+    result = builder(url, soup, text, readability)
 
-        logger.info(f"Successfully analyzed {url}")
-        return result
-
-    except httpx.HTTPError as e:
-        logger.error(f"Failed to fetch URL {url}: {e}")
-        raise ValueError(f"Failed to fetch URL: {e}")
-
-    except Exception as e:
-        logger.error(f"Analysis failed for {url}: {e}")
-        raise
+    logger.info(f"Successfully analyzed {url}")
+    return result
 
 
 # ---------------------------------------------------------------------------

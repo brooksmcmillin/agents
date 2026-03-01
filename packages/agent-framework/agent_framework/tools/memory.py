@@ -28,6 +28,7 @@ from typing import Any, Protocol, runtime_checkable
 from ..storage.database_memory_store import DatabaseMemoryStore
 from ..storage.embedding import EmbeddingClient
 from ..storage.memory_store import DEFAULT_AGENT_NAME, Memory, MemoryStore
+from ..utils.tool_decorators import handle_tool_errors
 
 logger = logging.getLogger(__name__)
 
@@ -360,6 +361,7 @@ async def configure_memory_store(
         logger.info(f"Configured file memory backend at {path} for agent '{validated_name}'")
 
 
+@handle_tool_errors(operation="save memory")
 async def save_memory(
     key: str,
     value: str,
@@ -406,32 +408,25 @@ async def save_memory(
 
     logger.info(f"Saving memory for agent '{agent_name}': {key}")
 
-    try:
-        store = await get_active_memory_store(agent_name)
-        memory = await store.save_memory(
-            key=key,
-            value=value,
-            category=category,
-            tags=tags,
-            importance=importance,
-        )
+    store = await get_active_memory_store(agent_name)
+    memory = await store.save_memory(
+        key=key,
+        value=value,
+        category=category,
+        tags=tags,
+        importance=importance,
+    )
 
-        return {
-            "status": "success",
-            "action": "updated" if memory.created_at != memory.updated_at else "created",
-            "agent_name": agent_name,
-            "memory": _memory_to_dict(memory),
-            "message": f"Successfully saved memory: {key}",
-        }
-
-    except Exception as e:
-        logger.error(f"Failed to save memory {key} for agent '{agent_name}': {e}")
-        return {
-            "status": "error",
-            "message": f"Failed to save memory: {e}",
-        }
+    return {
+        "status": "success",
+        "action": "updated" if memory.created_at != memory.updated_at else "created",
+        "agent_name": agent_name,
+        "memory": _memory_to_dict(memory),
+        "message": f"Successfully saved memory: {key}",
+    }
 
 
+@handle_tool_errors(operation="get memories")
 async def get_memories(
     category: str | None = None,
     tags: list[str] | None = None,
@@ -460,34 +455,26 @@ async def get_memories(
         f"(category={category}, tags={tags}, min_importance={min_importance})"
     )
 
-    try:
-        store = await get_active_memory_store(agent_name)
-        memories = await store.get_all_memories(
-            category=category,
-            tags=tags,
-            min_importance=min_importance,
-        )
+    store = await get_active_memory_store(agent_name)
+    memories = await store.get_all_memories(
+        category=category,
+        tags=tags,
+        min_importance=min_importance,
+    )
 
-        # Limit results
-        memories = memories[:limit]
+    # Limit results
+    memories = memories[:limit]
 
-        return {
-            "status": "success",
-            "agent_name": agent_name,
-            "count": len(memories),
-            "memories": [_memory_to_dict(m) for m in memories],
-            "message": f"Found {len(memories)} memories",
-        }
-
-    except Exception as e:
-        logger.error(f"Failed to get memories for agent '{agent_name}': {e}")
-        return {
-            "status": "error",
-            "message": f"Failed to retrieve memories: {e}",
-            "memories": [],
-        }
+    return {
+        "status": "success",
+        "agent_name": agent_name,
+        "count": len(memories),
+        "memories": [_memory_to_dict(m) for m in memories],
+        "message": f"Found {len(memories)} memories",
+    }
 
 
+@handle_tool_errors(operation="search memories")
 async def search_memories(
     query: str,
     limit: int = 10,
@@ -509,31 +496,23 @@ async def search_memories(
     """
     logger.info(f"Searching memories for agent '{agent_name}': {query}")
 
-    try:
-        store = await get_active_memory_store(agent_name)
-        memories = await store.search_memories(query)
+    store = await get_active_memory_store(agent_name)
+    memories = await store.search_memories(query)
 
-        # Limit results
-        memories = memories[:limit]
+    # Limit results
+    memories = memories[:limit]
 
-        return {
-            "status": "success",
-            "agent_name": agent_name,
-            "query": query,
-            "count": len(memories),
-            "memories": [_memory_to_dict(m) for m in memories],
-            "message": f"Found {len(memories)} memories matching '{query}'",
-        }
-
-    except Exception as e:
-        logger.error(f"Failed to search memories for agent '{agent_name}': {e}")
-        return {
-            "status": "error",
-            "message": f"Failed to search memories: {e}",
-            "memories": [],
-        }
+    return {
+        "status": "success",
+        "agent_name": agent_name,
+        "query": query,
+        "count": len(memories),
+        "memories": [_memory_to_dict(m) for m in memories],
+        "message": f"Found {len(memories)} memories matching '{query}'",
+    }
 
 
+@handle_tool_errors(operation="delete memory")
 async def delete_memory(
     key: str,
     agent_name: str = DEFAULT_AGENT_NAME,
@@ -550,31 +529,24 @@ async def delete_memory(
     """
     logger.info(f"Deleting memory for agent '{agent_name}': {key}")
 
-    try:
-        store = await get_active_memory_store(agent_name)
-        deleted = await store.delete_memory(key)
+    store = await get_active_memory_store(agent_name)
+    deleted = await store.delete_memory(key)
 
-        if deleted:
-            return {
-                "status": "success",
-                "agent_name": agent_name,
-                "message": f"Successfully deleted memory: {key}",
-            }
-        else:
-            return {
-                "status": "not_found",
-                "agent_name": agent_name,
-                "message": f"Memory not found: {key}",
-            }
-
-    except Exception as e:
-        logger.error(f"Failed to delete memory {key} for agent '{agent_name}': {e}")
+    if deleted:
         return {
-            "status": "error",
-            "message": f"Failed to delete memory: {e}",
+            "status": "success",
+            "agent_name": agent_name,
+            "message": f"Successfully deleted memory: {key}",
+        }
+    else:
+        return {
+            "status": "not_found",
+            "agent_name": agent_name,
+            "message": f"Memory not found: {key}",
         }
 
 
+@handle_tool_errors(operation="get memory stats")
 async def get_memory_stats(
     agent_name: str = DEFAULT_AGENT_NAME,
 ) -> dict[str, Any]:
@@ -587,24 +559,17 @@ async def get_memory_stats(
     Returns:
         Statistics including total count, categories, and date range
     """
-    try:
-        store = await get_active_memory_store(agent_name)
-        stats = await store.get_stats()
+    store = await get_active_memory_store(agent_name)
+    stats = await store.get_stats()
 
-        return {
-            "status": "success",
-            "backend": _get_backend(),
-            **stats,
-        }
-
-    except Exception as e:
-        logger.error(f"Failed to get memory stats for agent '{agent_name}': {e}")
-        return {
-            "status": "error",
-            "message": f"Failed to get memory stats: {e}",
-        }
+    return {
+        "status": "success",
+        "backend": _get_backend(),
+        **stats,
+    }
 
 
+@handle_tool_errors(operation="recall memories")
 async def recall_memories(
     query: str,
     limit: int = 10,
@@ -632,38 +597,29 @@ async def recall_memories(
     """
     logger.info(f"Recalling memories for agent '{agent_name}': {query}")
 
-    try:
-        store = await get_active_memory_store(agent_name)
-        results = await store.recall_memories(
-            query=query,
-            limit=limit,
-            min_score=min_score,
-            category=category,
-        )
+    store = await get_active_memory_store(agent_name)
+    results = await store.recall_memories(
+        query=query,
+        limit=limit,
+        min_score=min_score,
+        category=category,
+    )
 
-        memories_out = []
-        for memory, score in results:
-            d = _memory_to_dict(memory)
-            d["score"] = round(score, 4)
-            memories_out.append(d)
+    memories_out = []
+    for memory, score in results:
+        d = _memory_to_dict(memory)
+        d["score"] = round(score, 4)
+        memories_out.append(d)
 
-        return {
-            "status": "success",
-            "agent_name": agent_name,
-            "query": query,
-            "method": "semantic" if store.has_embeddings else "keyword",
-            "count": len(memories_out),
-            "memories": memories_out,
-            "message": f"Found {len(memories_out)} memories matching '{query}'",
-        }
-
-    except Exception as e:
-        logger.error(f"Failed to recall memories for agent '{agent_name}': {e}")
-        return {
-            "status": "error",
-            "message": f"Failed to recall memories: {e}",
-            "memories": [],
-        }
+    return {
+        "status": "success",
+        "agent_name": agent_name,
+        "query": query,
+        "method": "semantic" if store.has_embeddings else "keyword",
+        "count": len(memories_out),
+        "memories": memories_out,
+        "message": f"Found {len(memories_out)} memories matching '{query}'",
+    }
 
 
 def _memory_to_dict(memory: Memory) -> dict[str, Any]:

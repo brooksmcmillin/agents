@@ -9,6 +9,8 @@ import random  # nosec B311 - mock data only
 from datetime import UTC, datetime
 from typing import Any, Literal
 
+from ..utils.tool_decorators import handle_tool_errors
+
 logger = logging.getLogger(__name__)
 
 
@@ -53,6 +55,7 @@ TRENDING_TOPICS = {
 }
 
 
+@handle_tool_errors(operation="suggest content topics")
 async def suggest_content_topics(
     content_type: Literal["blog", "twitter", "linkedin"],
     count: int = 5,

@@ -9,9 +9,12 @@ import random  # nosec B311 - mock data only
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
+from ..utils.tool_decorators import handle_tool_errors
+
 logger = logging.getLogger(__name__)
 
 
+@handle_tool_errors(operation="get social media stats")
 async def get_social_media_stats(
     platform: Literal["twitter", "linkedin"],
     timeframe: Literal["7d", "30d", "90d"],

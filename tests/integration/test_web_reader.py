@@ -16,26 +16,30 @@ class TestURLValidation:
     @pytest.mark.asyncio
     async def test_invalid_url_no_protocol(self):
         """Test that URLs without protocol are rejected."""
-        with pytest.raises(ValueError, match="URL not allowed"):
-            await fetch_web_content("example.com/page")
+        result = await fetch_web_content("example.com/page")
+        assert result["status"] == "error"
+        assert "URL not allowed" in result["message"]
 
     @pytest.mark.asyncio
     async def test_invalid_url_file_protocol(self):
         """Test that file:// URLs are rejected (prevent local file access)."""
-        with pytest.raises(ValueError, match="URL not allowed"):
-            await fetch_web_content("file:///etc/passwd")
+        result = await fetch_web_content("file:///etc/passwd")
+        assert result["status"] == "error"
+        assert "URL not allowed" in result["message"]
 
     @pytest.mark.asyncio
     async def test_invalid_url_javascript_protocol(self):
         """Test that javascript: URLs are rejected."""
-        with pytest.raises(ValueError, match="URL not allowed"):
-            await fetch_web_content("javascript:alert(1)")
+        result = await fetch_web_content("javascript:alert(1)")
+        assert result["status"] == "error"
+        assert "URL not allowed" in result["message"]
 
     @pytest.mark.asyncio
     async def test_invalid_url_data_protocol(self):
         """Test that data: URLs are rejected."""
-        with pytest.raises(ValueError, match="URL not allowed"):
-            await fetch_web_content("data:text/html,<script>alert(1)</script>")
+        result = await fetch_web_content("data:text/html,<script>alert(1)</script>")
+        assert result["status"] == "error"
+        assert "URL not allowed" in result["message"]
 
     @pytest.mark.asyncio
     async def test_valid_https_url(self):
@@ -367,8 +371,9 @@ class TestErrorHandling:
                 )
                 mock_client_class.return_value.__aenter__.return_value = mock_instance
 
-                with pytest.raises(ValueError, match="Failed to fetch URL"):
-                    await fetch_web_content("https://example.com/nonexistent")
+                result = await fetch_web_content("https://example.com/nonexistent")
+                assert result["status"] == "error"
+                assert "Failed to fetch URL" in result["message"]
 
     @pytest.mark.asyncio
     async def test_http_500_error(self):
@@ -391,8 +396,9 @@ class TestErrorHandling:
                 )
                 mock_client_class.return_value.__aenter__.return_value = mock_instance
 
-                with pytest.raises(ValueError, match="Failed to fetch URL"):
-                    await fetch_web_content("https://example.com")
+                result = await fetch_web_content("https://example.com")
+                assert result["status"] == "error"
+                assert "Failed to fetch URL" in result["message"]
 
     @pytest.mark.asyncio
     async def test_connection_error(self):
@@ -407,8 +413,9 @@ class TestErrorHandling:
                 mock_instance.get = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
                 mock_client_class.return_value.__aenter__.return_value = mock_instance
 
-                with pytest.raises(ValueError, match="Failed to fetch URL"):
-                    await fetch_web_content("https://example.com")
+                result = await fetch_web_content("https://example.com")
+                assert result["status"] == "error"
+                assert "Failed to fetch URL" in result["message"]
 
     @pytest.mark.asyncio
     async def test_timeout_error(self):
@@ -423,8 +430,9 @@ class TestErrorHandling:
                 mock_instance.get = AsyncMock(side_effect=httpx.TimeoutException("Timeout"))
                 mock_client_class.return_value.__aenter__.return_value = mock_instance
 
-                with pytest.raises(ValueError, match="Failed to fetch URL"):
-                    await fetch_web_content("https://example.com")
+                result = await fetch_web_content("https://example.com")
+                assert result["status"] == "error"
+                assert "Failed to fetch URL" in result["message"]
 
     @pytest.mark.asyncio
     async def test_empty_content_raises_error(self):
@@ -492,28 +500,30 @@ class TestSSRFProtection:
     @pytest.mark.asyncio
     async def test_rejects_file_protocol(self):
         """Test that file:// protocol is blocked."""
-        with pytest.raises(ValueError, match="URL not allowed"):
-            await fetch_web_content("file:///etc/passwd")
+        result = await fetch_web_content("file:///etc/passwd")
+        assert result["status"] == "error"
+        assert "URL not allowed" in result["message"]
 
     @pytest.mark.asyncio
     async def test_rejects_ftp_protocol(self):
         """Test that ftp:// protocol is blocked."""
-        with pytest.raises(ValueError, match="URL not allowed"):
-            await fetch_web_content("ftp://example.com/file")
+        result = await fetch_web_content("ftp://example.com/file")
+        assert result["status"] == "error"
+        assert "URL not allowed" in result["message"]
 
     @pytest.mark.asyncio
     async def test_localhost_blocked(self):
         """Test that localhost URLs are blocked (SSRF protection)."""
-        # SSRF protection should block localhost access
-        with pytest.raises(ValueError, match="URL not allowed"):
-            await fetch_web_content("http://localhost/admin")
+        result = await fetch_web_content("http://localhost/admin")
+        assert result["status"] == "error"
+        assert "URL not allowed" in result["message"]
 
     @pytest.mark.asyncio
     async def test_internal_ip_blocked(self):
         """Test that internal IPs are blocked (SSRF protection)."""
-        # SSRF protection should block private IP addresses
-        with pytest.raises(ValueError, match="URL not allowed"):
-            await fetch_web_content("http://192.168.1.1/admin")
+        result = await fetch_web_content("http://192.168.1.1/admin")
+        assert result["status"] == "error"
+        assert "URL not allowed" in result["message"]
 
 
 class TestCharacterCount:

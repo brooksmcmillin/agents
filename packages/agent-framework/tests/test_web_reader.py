@@ -49,15 +49,17 @@ class TestFetchWebContent:
 
     @pytest.mark.asyncio
     async def test_fetch_web_content_invalid_url(self):
-        """Test fetch_web_content raises error for invalid URL."""
-        with pytest.raises(ValueError, match="URL not allowed"):
-            await fetch_web_content("not-a-valid-url")
+        """Test fetch_web_content returns error for invalid URL."""
+        result = await fetch_web_content("not-a-valid-url")
+        assert result["status"] == "error"
+        assert "URL not allowed" in result["message"]
 
     @pytest.mark.asyncio
     async def test_fetch_web_content_ftp_url(self):
-        """Test fetch_web_content raises error for non-http URLs."""
-        with pytest.raises(ValueError, match="URL not allowed.*Invalid scheme"):
-            await fetch_web_content("ftp://example.com/file")
+        """Test fetch_web_content returns error for non-http URLs."""
+        result = await fetch_web_content("ftp://example.com/file")
+        assert result["status"] == "error"
+        assert "URL not allowed" in result["message"]
 
     @pytest.mark.asyncio
     async def test_fetch_web_content_removes_unwanted_elements(self):
@@ -223,10 +225,12 @@ class TestFetchWebContent:
                 mock_client = AsyncMock()
                 mock_client_class.return_value.__aenter__.return_value = mock_client
                 mock_client_class.return_value.__aexit__.return_value = None
-                mock_client.get = AsyncMock(side_effect=httpx.HTTPError("Connection failed"))
+                mock_client.get = AsyncMock(side_effect=httpx.RequestError("Connection failed"))
 
-                with pytest.raises(ValueError, match="Failed to fetch URL"):
-                    await fetch_web_content("https://example.com")
+                result = await fetch_web_content("https://example.com")
+
+        assert result["status"] == "error"
+        assert "Connection failed" in result["message"]
 
     @pytest.mark.asyncio
     async def test_fetch_web_content_no_body(self):
@@ -244,5 +248,7 @@ class TestFetchWebContent:
             mock_client_class.return_value.__aexit__.return_value = None
             mock_client.get = AsyncMock(return_value=mock_response)
 
-            with pytest.raises(ValueError, match="Could not extract content"):
-                await fetch_web_content("https://example.com")
+            result = await fetch_web_content("https://example.com")
+
+        assert result["status"] == "error"
+        assert "Could not extract content" in result["message"]

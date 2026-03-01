@@ -10,10 +10,12 @@ from typing import Any
 import httpx
 
 from ..core.config import settings
+from ..utils.tool_decorators import handle_tool_errors
 
 logger = logging.getLogger(__name__)
 
 
+@handle_tool_errors(operation="send Slack message")
 async def send_slack_message(
     text: str,
     webhook_url: str | None = None,
@@ -42,11 +44,6 @@ async def send_slack_message(
             - success: Boolean indicating if message was sent successfully
             - message: Success or error message
             - webhook_url: The webhook URL used (sanitized for logging)
-
-    Raises:
-        ValueError: If webhook URL is not provided and not set in environment
-        ValueError: If webhook URL is invalid
-        httpx.HTTPError: If Slack API returns an error
     """
     logger.info("Sending message to Slack webhook")
 
@@ -85,38 +82,31 @@ async def send_slack_message(
     if channel:
         payload["channel"] = channel
 
-    try:
-        # Send POST request to Slack webhook
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(
-                webhook_url,
-                json=payload,
-            )
-            response.raise_for_status()
+    # Send POST request to Slack webhook
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.post(
+            webhook_url,
+            json=payload,
+        )
+        response.raise_for_status()
 
-        # Slack webhooks return "ok" on success
-        if response.text == "ok":
-            logger.info("Successfully sent message to Slack")
-            return {
-                "success": True,
-                "message": "Message sent successfully to Slack",
-                "webhook_url": webhook_url[:50] + "...",  # Sanitized for logging
-            }
-        else:
-            logger.warning(f"Unexpected response from Slack: {response.text}")
-            return {
-                "success": False,
-                "message": f"Unexpected response from Slack: {response.text}",
-                "webhook_url": webhook_url[:50] + "...",
-            }
-
-    except httpx.HTTPError as e:
-        logger.error(f"Failed to send message to Slack: {e}")
-        raise ValueError(f"Failed to send message to Slack: {e}")
-
-    except Exception as e:
-        logger.error(f"Error sending Slack message: {e}")
-        raise
+    # Slack webhooks return "ok" on success
+    if response.text == "ok":
+        logger.info("Successfully sent message to Slack")
+        return {
+            "status": "success",
+            "success": True,
+            "message": "Message sent successfully to Slack",
+            "webhook_url": webhook_url[:50] + "...",  # Sanitized for logging
+        }
+    else:
+        logger.warning(f"Unexpected response from Slack: {response.text}")
+        return {
+            "status": "success",
+            "success": False,
+            "message": f"Unexpected response from Slack: {response.text}",
+            "webhook_url": webhook_url[:50] + "...",
+        }
 
 
 # ---------------------------------------------------------------------------

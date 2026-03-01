@@ -502,24 +502,34 @@ class TestSSRFIntegrationWithWebTools:
         """Test that web_analyzer rejects localhost URLs."""
         from agent_framework.tools import analyze_website
 
-        with pytest.raises(ValueError, match="(localhost|security)"):
-            await analyze_website("http://localhost/admin", "tone")
+        result = await analyze_website("http://localhost/admin", "tone")
+        assert result["status"] == "error"
+        assert any(
+            word in result["message"].lower() for word in ["localhost", "security", "not allowed"]
+        )
 
     @pytest.mark.asyncio
     async def test_web_analyzer_blocks_private_ip(self):
         """Test that web_analyzer rejects private IP addresses."""
         from agent_framework.tools import analyze_website
 
-        with pytest.raises(ValueError, match="(private|security)"):
-            await analyze_website("http://192.168.1.1/router", "seo")
+        result = await analyze_website("http://192.168.1.1/router", "seo")
+        assert result["status"] == "error"
+        assert any(
+            word in result["message"].lower() for word in ["private", "security", "not allowed"]
+        )
 
     @pytest.mark.asyncio
     async def test_web_reader_blocks_metadata_endpoint(self):
         """Test that web_reader rejects cloud metadata endpoints."""
         from agent_framework.tools import fetch_web_content
 
-        with pytest.raises(ValueError, match="(metadata|private|URL not allowed)"):
-            await fetch_web_content("http://169.254.169.254/latest/meta-data/")
+        result = await fetch_web_content("http://169.254.169.254/latest/meta-data/")
+        assert result["status"] == "error"
+        assert any(
+            word in result["message"].lower()
+            for word in ["metadata", "private", "not allowed", "url not allowed"]
+        )
 
     @pytest.mark.asyncio
     async def test_web_tools_allow_public_urls(self):

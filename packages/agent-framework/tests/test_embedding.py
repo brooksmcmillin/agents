@@ -140,7 +140,7 @@ class TestRecallMemoriesTool:
             result = await recall_memories(query="anything", agent_name="test")
 
         assert result["status"] == "error"
-        assert "memories" in result
+        assert "DB not configured" in result["message"]
 
 
 class TestRecallMemoriesToolSchema:

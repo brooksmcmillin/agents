@@ -369,26 +369,26 @@ class TestAnalyzeWebsiteIntegration:
     @pytest.mark.asyncio
     async def test_blocks_localhost_access(self):
         """Test that localhost access is blocked via SSRF protection."""
-        with pytest.raises(ValueError, match="security|localhost"):
-            await analyze_website("http://localhost/admin", "seo")
+        result = await analyze_website("http://localhost/admin", "seo")
+        assert result["status"] == "error"
 
     @pytest.mark.asyncio
     async def test_blocks_private_ip_access(self):
         """Test that private IP access is blocked."""
-        with pytest.raises(ValueError, match="security|private"):
-            await analyze_website("http://192.168.1.1/router", "seo")
+        result = await analyze_website("http://192.168.1.1/router", "seo")
+        assert result["status"] == "error"
 
     @pytest.mark.asyncio
     async def test_blocks_metadata_endpoint(self):
         """Test that cloud metadata endpoint is blocked."""
-        with pytest.raises(ValueError, match="security|metadata"):
-            await analyze_website("http://169.254.169.254/latest/meta-data/", "seo")
+        result = await analyze_website("http://169.254.169.254/latest/meta-data/", "seo")
+        assert result["status"] == "error"
 
     @pytest.mark.asyncio
     async def test_blocks_invalid_scheme(self):
         """Test that invalid URL schemes are blocked."""
-        with pytest.raises(ValueError, match="Invalid URL"):
-            await analyze_website("file:///etc/passwd", "seo")
+        result = await analyze_website("file:///etc/passwd", "seo")
+        assert result["status"] == "error"
 
     @pytest.mark.asyncio
     @patch(
@@ -403,8 +403,8 @@ class TestAnalyzeWebsiteIntegration:
 
         mock_get.side_effect = httpx.HTTPError("Connection failed")
 
-        with pytest.raises(ValueError):  # Should raise ValueError from analyze_website
-            await analyze_website("http://example.com/", "seo")
+        result = await analyze_website("http://example.com/", "seo")
+        assert result["status"] == "error"
 
     @pytest.mark.asyncio
     @patch(
@@ -419,8 +419,8 @@ class TestAnalyzeWebsiteIntegration:
 
         mock_get.side_effect = httpx.TimeoutException("Request timeout")
 
-        with pytest.raises(ValueError):
-            await analyze_website("http://example.com/", "seo")
+        result = await analyze_website("http://example.com/", "seo")
+        assert result["status"] == "error"
 
     @pytest.mark.asyncio
     @patch(
@@ -456,9 +456,10 @@ class TestAnalyzeWebsiteIntegration:
         mock_response.url = "http://example.com/"
         mock_get.return_value = mock_response
 
-        # Empty content should raise an error
-        with pytest.raises(ValueError, match="No text content"):
-            await analyze_website("http://example.com/", "seo")
+        # Empty content should return an error
+        result = await analyze_website("http://example.com/", "seo")
+        assert result["status"] == "error"
+        assert "No text content" in result["message"]
 
     @pytest.mark.asyncio
     @patch(

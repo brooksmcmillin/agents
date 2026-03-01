@@ -210,7 +210,7 @@ class TestAddDocument:
             result = await add_document(content="Test content")
 
         assert result["status"] == "error"
-        assert "Failed to add document" in result["message"]
+        assert "Database error" in result["message"]
 
 
 class TestSearchDocuments:
@@ -286,7 +286,6 @@ class TestSearchDocuments:
 
         assert result["status"] == "error"
         assert "Query cannot be empty" in result["message"]
-        assert result["results"] == []
 
     @pytest.mark.asyncio
     async def test_search_documents_error_handling(self):
@@ -298,8 +297,7 @@ class TestSearchDocuments:
             result = await search_documents(query="test")
 
         assert result["status"] == "error"
-        assert "Failed to search" in result["message"]
-        assert result["results"] == []
+        assert "Unexpected error" in result["message"]
 
 
 class TestGetDocument:
@@ -349,7 +347,7 @@ class TestGetDocument:
             result = await get_document(document_id="doc-123")
 
         assert result["status"] == "error"
-        assert "Failed to get document" in result["message"]
+        assert "Database error" in result["message"]
 
 
 class TestDeleteDocument:
@@ -389,7 +387,7 @@ class TestDeleteDocument:
             result = await delete_document(document_id="doc-123")
 
         assert result["status"] == "error"
-        assert "Failed to delete document" in result["message"]
+        assert "Delete failed" in result["message"]
 
 
 class TestListDocuments:
@@ -455,8 +453,7 @@ class TestListDocuments:
             result = await list_documents()
 
         assert result["status"] == "error"
-        assert "Failed to list documents" in result["message"]
-        assert result["documents"] == []
+        assert "Query error" in result["message"]
 
 
 class TestGetRagStats:
@@ -501,7 +498,7 @@ class TestGetRagStats:
             result = await get_rag_stats()
 
         assert result["status"] == "error"
-        assert "Failed to get stats" in result["message"]
+        assert "Stats error" in result["message"]
 
 
 class TestPDFExtraction:
