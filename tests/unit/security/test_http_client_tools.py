@@ -507,7 +507,7 @@ class TestHttpRequestTool:
             )
 
         # Verify json kwarg was passed to _safe_request
-        call_kwargs = mock_safe.call_args[1]
+        call_kwargs = mock_safe.call_args.kwargs
         assert call_kwargs.get("json") == {"key": "value"}
 
     @pytest.mark.asyncio
@@ -565,7 +565,7 @@ class TestHttpRequestTool:
                 form_body={"field": "value"},
             )
 
-        call_kwargs = mock_safe.call_args[1]
+        call_kwargs = mock_safe.call_args.kwargs
         assert call_kwargs.get("data") == {"field": "value"}
 
     @pytest.mark.asyncio
@@ -582,7 +582,7 @@ class TestHttpRequestTool:
                 raw_body="raw content",
             )
 
-        call_kwargs = mock_safe.call_args[1]
+        call_kwargs = mock_safe.call_args.kwargs
         assert call_kwargs.get("content") == "raw content"
 
 
@@ -683,7 +683,7 @@ class TestHttpSessionLoginTool:
                 content_type="form",
             )
 
-        call_kwargs = mock_safe.call_args[1]
+        call_kwargs = mock_safe.call_args.kwargs
         assert "data" in call_kwargs
         assert "json" not in call_kwargs
 
@@ -703,13 +703,16 @@ class TestHttpSessionLoginTool:
                 credentials={"username": "user", "password": "pass"},
             )
 
-        call_kwargs = mock_safe.call_args[1]
+        call_kwargs = mock_safe.call_args.kwargs
         assert "json" in call_kwargs
         assert "data" not in call_kwargs
 
 
 class TestHttpUploadFileTool:
     """Tests for the http_upload_file MCP tool function."""
+
+    def setup_method(self) -> None:
+        _sessions.clear()
 
     @pytest.mark.asyncio
     async def test_http_upload_file_blocked_when_no_allowlist(
@@ -827,3 +830,140 @@ class TestHttpUploadFileTool:
                 file_content_base64=content_b64,
                 filename="big.bin",
             )
+
+    @pytest.mark.asyncio
+    async def test_http_upload_file_strips_null_bytes_from_filename(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """http_upload_file strips null bytes from filename before validation."""
+        monkeypatch.setenv("REDTEAM_ALLOWED_TARGETS", "http://example.com/app")
+        content_b64 = base64.b64encode(b"data").decode()
+        # A filename that is only null bytes should become empty and fail the empty check
+        with pytest.raises(ValueError, match="Filename cannot be empty"):
+            await http_upload_file(
+                "test_agent",
+                "http://example.com/app/upload",
+                file_content_base64=content_b64,
+                filename="\x00",
+            )
+
+
+# ---------------------------------------------------------------------------
+# Additional security edge case tests
+# ---------------------------------------------------------------------------
+
+
+class TestCheckTargetAllowedUrlEncodedTraversal:
+    """URL-encoded path traversal edge cases.
+
+    Note: _check_target_allowed uses posixpath.normpath which is NOT percent-aware.
+    These tests document the current behavior — including the known gap where
+    %2e%2e (URL-encoded dots) is not decoded before normpath is applied.
+    This is documented here to make the behavior explicit and to flag it for
+    future hardening.
+    """
+
+    def test_check_target_allowed_blocks_literal_dot_dot_traversal(self) -> None:
+        """Literal ../.. traversal is blocked after posixpath.normpath normalizes it."""
+        with patch.dict(os.environ, {"REDTEAM_ALLOWED_TARGETS": "http://example.com/api"}):
+            with pytest.raises(ValueError, match="not in REDTEAM_ALLOWED_TARGETS"):
+                _check_target_allowed("http://example.com/api/../admin")
+
+    def test_check_target_allowed_url_encoded_traversal_documents_current_behavior(
+        self,
+    ) -> None:
+        """Documents that %2e%2e is NOT decoded before normpath — check passes for encoded dots.
+
+        This test exists to make explicit the known behavior gap: posixpath.normpath
+        does not decode percent-encoded characters, so '/api/%2e%2e/admin' normalizes
+        to '/api/%2e%2e/admin' (not '/admin'). The allowlist check therefore allows
+        the request if the path starts with '/api/'.
+
+        This is a documentation test for a known security consideration. The production
+        code should be hardened by URL-decoding paths before normpath if encoded traversal
+        is a concern.
+        """
+        with patch.dict(os.environ, {"REDTEAM_ALLOWED_TARGETS": "http://example.com/api"}):
+            # The encoded %2e%2e is NOT treated as '..', so the path starts with /api/
+            # and the check passes. This documents the current behavior, not an ideal.
+            _check_target_allowed("http://example.com/api/%2e%2e/admin")  # currently allowed
+
+
+class TestSafeRequestAdditionalCoverage:
+    """Additional _safe_request tests for edge cases raised in code review."""
+
+    @pytest.mark.asyncio
+    async def test_safe_request_too_many_redirects_raises(self) -> None:
+        """Exceeding _MAX_REDIRECTS raises httpx.TooManyRedirects."""
+        from agent_framework.tools.http_client import _MAX_REDIRECTS
+
+        loop_resp = _make_response(
+            302,
+            "http://example.com/app/loop",
+            headers={"location": "http://example.com/app/loop"},
+        )
+
+        client = AsyncMock(spec=httpx.AsyncClient)
+        client.request = AsyncMock(return_value=loop_resp)
+
+        with patch(_ALLOWLIST_PATCH, side_effect=_allow_all_targets):
+            with pytest.raises(httpx.TooManyRedirects, match=f"Exceeded {_MAX_REDIRECTS}"):
+                await _safe_request(client, "GET", "http://example.com/app/loop")
+
+        # Verify the client was called exactly _MAX_REDIRECTS times
+        assert client.request.call_count == _MAX_REDIRECTS
+
+    @pytest.mark.asyncio
+    async def test_safe_request_follow_redirects_false_returns_redirect_directly(self) -> None:
+        """When follow_redirects=False, a redirect response is returned without following."""
+        redirect_resp = _make_response(
+            302,
+            "http://example.com/app/old",
+            headers={"location": "http://example.com/app/new"},
+        )
+
+        client = AsyncMock(spec=httpx.AsyncClient)
+        client.request = AsyncMock(return_value=redirect_resp)
+
+        resp = await _safe_request(
+            client, "GET", "http://example.com/app/old", follow_redirects=False
+        )
+
+        assert resp.status_code == 302
+        # Only one request made — the redirect is NOT followed
+        client.request.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_safe_request_post_303_converts_to_get_and_strips_body(self) -> None:
+        """POST → 303 → converts method to GET and strips the request body.
+
+        This is security-relevant: a POST with credentials that receives a 303 redirect
+        should not re-submit the body to the redirect target.
+        """
+        redirect_resp = _make_response(
+            303,
+            "http://example.com/app/submit",
+            headers={"location": "http://example.com/app/result"},
+        )
+        final_resp = _make_response(200, "http://example.com/app/result", content=b"ok")
+
+        client = AsyncMock(spec=httpx.AsyncClient)
+        client.request = AsyncMock(side_effect=[redirect_resp, final_resp])
+
+        with patch(_ALLOWLIST_PATCH, side_effect=_allow_all_targets):
+            resp = await _safe_request(
+                client,
+                "POST",
+                "http://example.com/app/submit",
+                json={"username": "admin", "password": "s3cret"},
+            )
+
+        assert resp.status_code == 200
+        second_call = client.request.call_args_list[1]
+        # Method must be GET after 303
+        assert second_call.args[0] == "GET"
+        # Body kwargs must be stripped
+        second_kwargs = second_call.kwargs
+        assert "json" not in second_kwargs
+        assert "content" not in second_kwargs
+        assert "data" not in second_kwargs
