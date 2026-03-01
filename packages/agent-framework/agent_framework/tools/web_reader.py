@@ -12,7 +12,7 @@ import httpx
 from bs4 import BeautifulSoup
 from markdownify import markdownify as md
 
-from ..security import SSRFValidator
+from ..security import SSRFTransport, SSRFValidator
 
 logger = logging.getLogger(__name__)
 
@@ -53,8 +53,15 @@ async def fetch_web_content(url: str, max_length: int = 50000) -> dict[str, Any]
     logger.info(f"Fetching web content from: {url}")
 
     try:
-        # Fetch the webpage (redirects already validated, use final URL directly)
-        async with httpx.AsyncClient(timeout=15.0, follow_redirects=False) as client:
+        # Fetch the webpage using SSRFTransport to prevent DNS rebinding (TOCTOU).
+        # Even though redirects were pre-validated, a second DNS resolution happens
+        # at TCP connect time. SSRFTransport re-validates the resolved IP at that
+        # moment, closing the TOCTOU gap (CWE-367).
+        async with httpx.AsyncClient(
+            transport=SSRFTransport(),
+            timeout=15.0,
+            follow_redirects=False,
+        ) as client:
             response = await client.get(final_url)
             response.raise_for_status()
             html_content = response.text
