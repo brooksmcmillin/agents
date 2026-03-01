@@ -69,6 +69,12 @@ _ALLOWED_ENV_KEYS: set[str] = {
 
 # Default tools to allow when not using --dangerously-skip-permissions.
 # These are the standard Claude Code tools needed for non-interactive -p mode.
+#
+# NOTE: Including Bash means child processes can still run arbitrary shell
+# commands. The primary security boundary is the env-var allowlist above,
+# not this tool list. The tool restriction is defense-in-depth (blocks
+# future Claude Code tools not in this list). Callers needing stronger
+# isolation should remove Bash and require skip_permissions=True.
 _DEFAULT_ALLOWED_TOOLS = [
     "Bash",
     "Read",
@@ -76,7 +82,6 @@ _DEFAULT_ALLOWED_TOOLS = [
     "Edit",
     "Glob",
     "Grep",
-    "Agent",
     "WebFetch",
     "WebSearch",
     "NotebookEdit",
@@ -209,9 +214,11 @@ async def run_claude_code(
         model: Claude model to use - "sonnet", "haiku", or "opus" (default: "sonnet")
         working_dir_base: Base directory for workspaces (optional, uses env var or default)
         custom_instructions: Optional custom instructions to prepend to command
-        env: Optional environment variables to pass to the subprocess
+        env: Optional environment variables to pass to the subprocess.
+            WARNING: Caller-provided env vars bypass the _ALLOWED_ENV_KEYS
+            allowlist and are passed directly to the subprocess.
         skip_permissions: When True, pass --dangerously-skip-permissions (internal only,
-            not exposed via MCP schema). When False (default), use --allowlist-tools
+            not exposed via MCP schema). When False (default), use --allowedTools
             with a safe default set.
 
     Returns:
@@ -328,8 +335,9 @@ async def run_claude_code(
         # Build subprocess environment from allowlist to prevent credential
         # leakage. Only safe system/git vars are inherited; everything else
         # (DB creds, API tokens, etc.) is stripped.
+        # Note: CLAUDECODE is intentionally NOT in _ALLOWED_ENV_KEYS so it
+        # is always excluded, allowing nested Claude Code sessions.
         subprocess_env = {k: v for k, v in os.environ.items() if k in _ALLOWED_ENV_KEYS}
-        subprocess_env.pop("CLAUDECODE", None)
 
         # Resolve API key: prefer dedicated worker key, fall back to main key
         worker_api_key = os.environ.get("CLAUDE_CODE_WORKER_API_KEY")
