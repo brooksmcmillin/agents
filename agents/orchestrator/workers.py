@@ -294,6 +294,7 @@ async def dispatch_worker(
         timeout=config.worker_timeout,
         max_turns=config.worker_max_turns,
         model=config.worker_model,
+        skip_permissions=True,
     )
 
     success = result.get("success", False)
@@ -387,6 +388,7 @@ async def push_and_create_pr(
         timeout=120,
         max_turns=5,
         model=config.worker_model,
+        skip_permissions=True,
     )
 
     output = result.get("output", "")

@@ -44,6 +44,44 @@ _llm_sanitizer = LLMOutputSanitizer(
 
 _SSH_GIT_URL_RE = re.compile(r"^git@[a-zA-Z0-9._-]+:")
 
+# Environment variables allowed through to child Claude Code processes.
+# Everything else is stripped to prevent credential leakage.
+_ALLOWED_ENV_KEYS: set[str] = {
+    "PATH",
+    "HOME",
+    "USER",
+    "SHELL",
+    "LANG",
+    "TERM",
+    "LC_ALL",
+    "TMPDIR",
+    "XDG_CONFIG_HOME",
+    "EDITOR",
+    "GIT_AUTHOR_NAME",
+    "GIT_AUTHOR_EMAIL",
+    "GIT_COMMITTER_NAME",
+    "GIT_COMMITTER_EMAIL",
+    "SSH_AUTH_SOCK",
+    "GPG_TTY",
+    "GITHUB_TOKEN",
+    "GH_TOKEN",
+}
+
+# Default tools to allow when not using --dangerously-skip-permissions.
+# These are the standard Claude Code tools needed for non-interactive -p mode.
+_DEFAULT_ALLOWED_TOOLS = [
+    "Bash",
+    "Read",
+    "Write",
+    "Edit",
+    "Glob",
+    "Grep",
+    "Agent",
+    "WebFetch",
+    "WebSearch",
+    "NotebookEdit",
+]
+
 
 def validate_git_url(url: str) -> None:
     """Validate a git URL is safe to clone.
@@ -141,6 +179,7 @@ async def run_claude_code(
     custom_instructions: str | None = None,
     env: dict[str, str] | None = None,
     *,
+    skip_permissions: bool = False,  # Internal only - not exposed to LLMs
     _sanitize_output: bool = True,  # Internal only - not exposed to LLMs
 ) -> dict[str, Any]:
     """Run headless Claude Code in a workspace folder.
@@ -171,6 +210,9 @@ async def run_claude_code(
         working_dir_base: Base directory for workspaces (optional, uses env var or default)
         custom_instructions: Optional custom instructions to prepend to command
         env: Optional environment variables to pass to the subprocess
+        skip_permissions: When True, pass --dangerously-skip-permissions (internal only,
+            not exposed via MCP schema). When False (default), use --allowlist-tools
+            with a safe default set.
 
     Returns:
         Dict with:
@@ -263,10 +305,19 @@ async def run_claude_code(
             "claude",
             "-p",
             full_command,  # Pass prompt directly as argument
-            "--dangerously-skip-permissions",
             "--max-turns",
             str(max_turns),
         ]
+
+        if skip_permissions:
+            logger.warning(
+                "Running Claude Code with --dangerously-skip-permissions in %s",
+                workspace_path,
+            )
+            claude_cmd.append("--dangerously-skip-permissions")
+        else:
+            for tool in _DEFAULT_ALLOWED_TOOLS:
+                claude_cmd.extend(["--allowedTools", tool])
 
         # Always pass --model explicitly to avoid inheriting the user's
         # default (which may differ from the intended worker model).
@@ -274,11 +325,27 @@ async def run_claude_code(
 
         logger.info(f"Running Claude Code in {workspace_path} with command: {command[:100]}...")
 
-        # Build subprocess environment: start from caller-provided env or
-        # inherit the current process env, then strip CLAUDECODE to allow
-        # nested Claude Code sessions (the parent session sets this var).
-        subprocess_env = dict(env if env is not None else os.environ)
+        # Build subprocess environment from allowlist to prevent credential
+        # leakage. Only safe system/git vars are inherited; everything else
+        # (DB creds, API tokens, etc.) is stripped.
+        subprocess_env = {k: v for k, v in os.environ.items() if k in _ALLOWED_ENV_KEYS}
         subprocess_env.pop("CLAUDECODE", None)
+
+        # Resolve API key: prefer dedicated worker key, fall back to main key
+        worker_api_key = os.environ.get("CLAUDE_CODE_WORKER_API_KEY")
+        if worker_api_key:
+            subprocess_env["ANTHROPIC_API_KEY"] = worker_api_key
+        else:
+            main_key = os.environ.get("ANTHROPIC_API_KEY")
+            if main_key:
+                logger.warning(
+                    "CLAUDE_CODE_WORKER_API_KEY not set, falling back to ANTHROPIC_API_KEY"
+                )
+                subprocess_env["ANTHROPIC_API_KEY"] = main_key
+
+        # Caller-provided env overrides take precedence
+        if env is not None:
+            subprocess_env.update(env)
 
         # Run claude and wait for completion
         process = await asyncio.create_subprocess_exec(
