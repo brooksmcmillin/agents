@@ -178,40 +178,50 @@ class TestWebToolsSSRFIntegration:
         """Test that fetch_web_content tool blocks localhost access."""
         from agent_framework.tools.web_reader import fetch_web_content
 
-        with pytest.raises(ValueError, match="not allowed"):
-            await fetch_web_content("http://localhost/admin")
+        result = await fetch_web_content("http://localhost/admin")
+        assert result["status"] == "error"
+        assert "not allowed" in result["message"]
 
     @pytest.mark.asyncio
     async def test_fetch_web_content_blocks_private_ip(self):
         """Test that fetch_web_content tool blocks private IP access."""
         from agent_framework.tools.web_reader import fetch_web_content
 
-        with pytest.raises(ValueError, match="not allowed"):
-            await fetch_web_content("http://192.168.1.1/router")
+        result = await fetch_web_content("http://192.168.1.1/router")
+        assert result["status"] == "error"
+        assert "not allowed" in result["message"]
 
     @pytest.mark.asyncio
     async def test_fetch_web_content_blocks_metadata_endpoint(self):
         """Test that fetch_web_content tool blocks cloud metadata access."""
         from agent_framework.tools.web_reader import fetch_web_content
 
-        with pytest.raises(ValueError, match="not allowed"):
-            await fetch_web_content("http://169.254.169.254/latest/meta-data/")
+        result = await fetch_web_content("http://169.254.169.254/latest/meta-data/")
+        assert result["status"] == "error"
+        assert "not allowed" in result["message"]
 
     @pytest.mark.asyncio
     async def test_analyze_website_uses_ssrf_protection(self):
         """Test that analyze_website tool uses SSRF protection."""
         from agent_framework.tools.web_analyzer import analyze_website
 
-        with pytest.raises(ValueError, match="security|localhost"):
-            await analyze_website("http://localhost/admin", "seo")
+        result = await analyze_website("http://localhost/admin", "seo")
+        assert result["status"] == "error"
+        assert any(
+            word in result["message"].lower() for word in ["security", "localhost", "not allowed"]
+        )
 
     @pytest.mark.asyncio
     async def test_analyze_website_blocks_private_ip(self):
         """Test that analyze_website tool blocks private IPs."""
         from agent_framework.tools.web_analyzer import analyze_website
 
-        with pytest.raises(ValueError, match="security|private|192.168"):
-            await analyze_website("http://192.168.1.1/", "seo")
+        result = await analyze_website("http://192.168.1.1/", "seo")
+        assert result["status"] == "error"
+        assert any(
+            word in result["message"].lower()
+            for word in ["security", "private", "not allowed", "192.168"]
+        )
 
 
 class TestSSRFAttackScenarios:

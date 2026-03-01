@@ -18,6 +18,7 @@ from pypdf import PdfReader
 
 from ..core.config import settings
 from ..storage.rag_store import RAGStore
+from ..utils.tool_decorators import handle_tool_errors
 
 logger = logging.getLogger(__name__)
 
@@ -158,6 +159,7 @@ def get_rag_store() -> RAGStore:
     return _rag_store
 
 
+@handle_tool_errors(operation="add document to RAG store")
 async def add_document(
     content: str | None = None,
     metadata: dict[str, Any] | None = None,
@@ -198,62 +200,49 @@ async def add_document(
     """
     logger.info(f"Adding document to RAG store (id={document_id}, file={file_path})")
 
-    try:
-        # Handle file extraction if file_path is provided
-        if file_path:
-            extracted_text, auto_metadata = extract_text_from_file(file_path)
-            content = extracted_text
+    # Handle file extraction if file_path is provided
+    if file_path:
+        extracted_text, auto_metadata = extract_text_from_file(file_path)
+        content = extracted_text
 
-            # Merge auto-generated metadata with user-provided metadata
-            # User-provided metadata takes precedence
-            final_metadata = {**auto_metadata, **(metadata or {})}
-            metadata = final_metadata
+        # Merge auto-generated metadata with user-provided metadata
+        # User-provided metadata takes precedence
+        final_metadata = {**auto_metadata, **(metadata or {})}
+        metadata = final_metadata
 
-            logger.info(f"Extracted {len(content)} characters from {auto_metadata['filename']}")
+        logger.info(f"Extracted {len(content)} characters from {auto_metadata['filename']}")
 
-        # Validate that we have content
-        if not content:
-            raise ValueError(
-                "Either 'content' or 'file_path' must be provided. Supported file types: PDF"
-            )
-
-        store = get_rag_store()
-        document = await store.add_document(
-            content=content,
-            metadata=metadata,
-            document_id=document_id,
+    # Validate that we have content
+    if not content:
+        raise ValueError(
+            "Either 'content' or 'file_path' must be provided. Supported file types: PDF"
         )
 
-        return {
-            "status": "success",
-            "action": "updated" if document.created_at != document.updated_at else "created",
-            "document": {
-                "id": document.id,
-                "content_preview": document.content[:200] + "..."
-                if len(document.content) > 200
-                else document.content,
-                "content_length": len(document.content),
-                "metadata": document.metadata,
-                "created_at": document.created_at.isoformat(),
-                "updated_at": document.updated_at.isoformat(),
-            },
-            "message": f"Successfully added document: {document.id}",
-        }
+    store = get_rag_store()
+    document = await store.add_document(
+        content=content,
+        metadata=metadata,
+        document_id=document_id,
+    )
 
-    except ValueError as e:
-        logger.error(f"Validation error adding document: {e}")
-        return {
-            "status": "error",
-            "message": str(e),
-        }
-    except Exception as e:
-        logger.error(f"Failed to add document: {e}")
-        return {
-            "status": "error",
-            "message": f"Failed to add document: {e}",
-        }
+    return {
+        "status": "success",
+        "action": "updated" if document.created_at != document.updated_at else "created",
+        "document": {
+            "id": document.id,
+            "content_preview": document.content[:200] + "..."
+            if len(document.content) > 200
+            else document.content,
+            "content_length": len(document.content),
+            "metadata": document.metadata,
+            "created_at": document.created_at.isoformat(),
+            "updated_at": document.updated_at.isoformat(),
+        },
+        "message": f"Successfully added document: {document.id}",
+    }
 
 
+@handle_tool_errors(operation="search RAG documents")
 async def search_documents(
     query: str,
     top_k: int = 5,
@@ -282,48 +271,33 @@ async def search_documents(
     """
     logger.info(f"Searching RAG store for: {query[:50]}...")
 
-    try:
-        store = get_rag_store()
-        results = await store.search(
-            query=query,
-            top_k=top_k,
-            min_score=min_score,
-            metadata_filter=metadata_filter,
-        )
+    store = get_rag_store()
+    results = await store.search(
+        query=query,
+        top_k=top_k,
+        min_score=min_score,
+        metadata_filter=metadata_filter,
+    )
 
-        return {
-            "status": "success",
-            "query": query,
-            "count": len(results),
-            "results": [
-                {
-                    "id": r.document.id,
-                    "content": r.document.content,
-                    "metadata": r.document.metadata,
-                    "score": round(r.score, 4),
-                    "created_at": r.document.created_at.isoformat(),
-                }
-                for r in results
-            ],
-            "message": f"Found {len(results)} documents matching query",
-        }
-
-    except ValueError as e:
-        logger.error(f"Validation error searching: {e}")
-        return {
-            "status": "error",
-            "message": str(e),
-            "results": [],
-        }
-    except Exception as e:
-        logger.error(f"Failed to search documents: {e}")
-        return {
-            "status": "error",
-            "message": f"Failed to search: {e}",
-            "results": [],
-        }
+    return {
+        "status": "success",
+        "query": query,
+        "count": len(results),
+        "results": [
+            {
+                "id": r.document.id,
+                "content": r.document.content,
+                "metadata": r.document.metadata,
+                "score": round(r.score, 4),
+                "created_at": r.document.created_at.isoformat(),
+            }
+            for r in results
+        ],
+        "message": f"Found {len(results)} documents matching query",
+    }
 
 
+@handle_tool_errors(operation="get RAG document")
 async def get_document(document_id: str) -> dict[str, Any]:
     """
     Retrieve a specific document from the RAG knowledge base by ID.
@@ -338,36 +312,29 @@ async def get_document(document_id: str) -> dict[str, Any]:
     """
     logger.info(f"Getting document: {document_id}")
 
-    try:
-        store = get_rag_store()
-        document = await store.get_document(document_id)
+    store = get_rag_store()
+    document = await store.get_document(document_id)
 
-        if document is None:
-            return {
-                "status": "not_found",
-                "message": f"Document not found: {document_id}",
-            }
-
+    if document is None:
         return {
-            "status": "success",
-            "document": {
-                "id": document.id,
-                "content": document.content,
-                "metadata": document.metadata,
-                "created_at": document.created_at.isoformat(),
-                "updated_at": document.updated_at.isoformat(),
-            },
-            "message": f"Retrieved document: {document_id}",
+            "status": "not_found",
+            "message": f"Document not found: {document_id}",
         }
 
-    except Exception as e:
-        logger.error(f"Failed to get document {document_id}: {e}")
-        return {
-            "status": "error",
-            "message": f"Failed to get document: {e}",
-        }
+    return {
+        "status": "success",
+        "document": {
+            "id": document.id,
+            "content": document.content,
+            "metadata": document.metadata,
+            "created_at": document.created_at.isoformat(),
+            "updated_at": document.updated_at.isoformat(),
+        },
+        "message": f"Retrieved document: {document_id}",
+    }
 
 
+@handle_tool_errors(operation="delete RAG document")
 async def delete_document(document_id: str) -> dict[str, Any]:
     """
     Delete a document from the RAG knowledge base.
@@ -382,29 +349,22 @@ async def delete_document(document_id: str) -> dict[str, Any]:
     """
     logger.info(f"Deleting document: {document_id}")
 
-    try:
-        store = get_rag_store()
-        deleted = await store.delete_document(document_id)
+    store = get_rag_store()
+    deleted = await store.delete_document(document_id)
 
-        if deleted:
-            return {
-                "status": "success",
-                "message": f"Successfully deleted document: {document_id}",
-            }
-        else:
-            return {
-                "status": "not_found",
-                "message": f"Document not found: {document_id}",
-            }
-
-    except Exception as e:
-        logger.error(f"Failed to delete document {document_id}: {e}")
+    if deleted:
         return {
-            "status": "error",
-            "message": f"Failed to delete document: {e}",
+            "status": "success",
+            "message": f"Successfully deleted document: {document_id}",
+        }
+    else:
+        return {
+            "status": "not_found",
+            "message": f"Document not found: {document_id}",
         }
 
 
+@handle_tool_errors(operation="list RAG documents")
 async def list_documents(
     limit: int = 20,
     offset: int = 0,
@@ -425,45 +385,37 @@ async def list_documents(
     """
     logger.info(f"Listing documents (limit={limit}, offset={offset})")
 
-    try:
-        # Enforce max limit
-        limit = min(limit, 100)
+    # Enforce max limit
+    limit = min(limit, 100)
 
-        store = get_rag_store()
-        documents = await store.list_documents(
-            limit=limit,
-            offset=offset,
-            metadata_filter=metadata_filter,
-        )
+    store = get_rag_store()
+    documents = await store.list_documents(
+        limit=limit,
+        offset=offset,
+        metadata_filter=metadata_filter,
+    )
 
-        return {
-            "status": "success",
-            "count": len(documents),
-            "offset": offset,
-            "documents": [
-                {
-                    "id": doc.id,
-                    "content_preview": doc.content[:200] + "..."
-                    if len(doc.content) > 200
-                    else doc.content,
-                    "content_length": len(doc.content),
-                    "metadata": doc.metadata,
-                    "created_at": doc.created_at.isoformat(),
-                }
-                for doc in documents
-            ],
-            "message": f"Retrieved {len(documents)} documents",
-        }
-
-    except Exception as e:
-        logger.error(f"Failed to list documents: {e}")
-        return {
-            "status": "error",
-            "message": f"Failed to list documents: {e}",
-            "documents": [],
-        }
+    return {
+        "status": "success",
+        "count": len(documents),
+        "offset": offset,
+        "documents": [
+            {
+                "id": doc.id,
+                "content_preview": doc.content[:200] + "..."
+                if len(doc.content) > 200
+                else doc.content,
+                "content_length": len(doc.content),
+                "metadata": doc.metadata,
+                "created_at": doc.created_at.isoformat(),
+            }
+            for doc in documents
+        ],
+        "message": f"Retrieved {len(documents)} documents",
+    }
 
 
+@handle_tool_errors(operation="get RAG stats")
 async def get_rag_stats() -> dict[str, Any]:
     """
     Get statistics about the RAG knowledge base.
@@ -475,22 +427,14 @@ async def get_rag_stats() -> dict[str, Any]:
     """
     logger.info("Getting RAG store statistics")
 
-    try:
-        store = get_rag_store()
-        stats = await store.get_stats()
+    store = get_rag_store()
+    stats = await store.get_stats()
 
-        return {
-            "status": "success",
-            "stats": stats,
-            "message": f"RAG store contains {stats['total_documents']} documents",
-        }
-
-    except Exception as e:
-        logger.error(f"Failed to get RAG stats: {e}")
-        return {
-            "status": "error",
-            "message": f"Failed to get stats: {e}",
-        }
+    return {
+        "status": "success",
+        "stats": stats,
+        "message": f"RAG store contains {stats['total_documents']} documents",
+    }
 
 
 # ---------------------------------------------------------------------------

@@ -110,31 +110,37 @@ class TestSendSlackMessage:
 
     @pytest.mark.asyncio
     async def test_send_slack_message_no_webhook_url(self, monkeypatch):
-        """Test send_slack_message raises error when no webhook URL."""
+        """Test send_slack_message returns error when no webhook URL."""
         # Ensure no default webhook URL is set
         with patch("agent_framework.tools.slack.settings") as mock_settings:
             mock_settings.slack_webhook_url = None
 
-            with pytest.raises(ValueError, match="webhook_url is required"):
-                await send_slack_message(text="Test message")
+            result = await send_slack_message(text="Test message")
+
+        assert result["status"] == "error"
+        assert "webhook_url is required" in result["message"]
 
     @pytest.mark.asyncio
     async def test_send_slack_message_invalid_webhook_url(self):
-        """Test send_slack_message raises error for invalid webhook URL."""
-        with pytest.raises(ValueError, match="Invalid Slack webhook URL"):
-            await send_slack_message(
-                text="Test message",
-                webhook_url="https://example.com/webhook",
-            )
+        """Test send_slack_message returns error for invalid webhook URL."""
+        result = await send_slack_message(
+            text="Test message",
+            webhook_url="https://example.com/webhook",
+        )
+
+        assert result["status"] == "error"
+        assert "Invalid Slack webhook URL" in result["message"]
 
     @pytest.mark.asyncio
     async def test_send_slack_message_empty_text(self):
-        """Test send_slack_message raises error for empty text."""
-        with pytest.raises(ValueError, match="text is required"):
-            await send_slack_message(
-                text="",
-                webhook_url="https://hooks.slack.com/services/test",
-            )
+        """Test send_slack_message returns error for empty text."""
+        result = await send_slack_message(
+            text="",
+            webhook_url="https://hooks.slack.com/services/test",
+        )
+
+        assert result["status"] == "error"
+        assert "text is required" in result["message"]
 
     @pytest.mark.asyncio
     async def test_send_slack_message_unexpected_response(self):
@@ -166,13 +172,15 @@ class TestSendSlackMessage:
             mock_client = AsyncMock()
             mock_client_class.return_value.__aenter__.return_value = mock_client
             mock_client_class.return_value.__aexit__.return_value = None
-            mock_client.post = AsyncMock(side_effect=httpx.HTTPError("Connection failed"))
+            mock_client.post = AsyncMock(side_effect=httpx.RequestError("Connection failed"))
 
-            with pytest.raises(ValueError, match="Failed to send message"):
-                await send_slack_message(
-                    text="Test",
-                    webhook_url="https://hooks.slack.com/services/test",
-                )
+            result = await send_slack_message(
+                text="Test",
+                webhook_url="https://hooks.slack.com/services/test",
+            )
+
+        assert result["status"] == "error"
+        assert "Connection failed" in result["message"]
 
     @pytest.mark.asyncio
     async def test_send_slack_message_uses_env_webhook(self, monkeypatch):

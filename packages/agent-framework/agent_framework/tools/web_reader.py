@@ -13,10 +13,12 @@ from bs4 import BeautifulSoup
 from markdownify import markdownify as md
 
 from ..security import SSRFTransport, SSRFValidator
+from ..utils.tool_decorators import handle_tool_errors
 
 logger = logging.getLogger(__name__)
 
 
+@handle_tool_errors(operation="fetch web content")
 async def fetch_web_content(url: str, max_length: int = 50000) -> dict[str, Any]:
     """
     Fetch web content and convert to LLM-readable markdown format.

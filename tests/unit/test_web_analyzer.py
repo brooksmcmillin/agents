@@ -933,28 +933,31 @@ class TestAnalyzeWebsite:
 
     @pytest.mark.asyncio
     async def test_invalid_analysis_type_raises(self):
-        """Unsupported analysis_type should raise ValueError."""
-        with pytest.raises(ValueError, match="Unsupported analysis type"):
-            await analyze_website("https://example.com", "invalid")  # type: ignore[arg-type]
+        """Unsupported analysis_type should return an error dict."""
+        result = await analyze_website("https://example.com", "invalid")  # type: ignore[arg-type]
+        assert result["status"] == "error"
+        assert "Unsupported analysis type" in result["message"]
 
     @pytest.mark.asyncio
     async def test_empty_page_raises_value_error(self):
-        """Page with no extractable text content should raise ValueError."""
+        """Page with no extractable text content should return an error dict."""
         empty_html = "<html><body></body></html>"
-        with pytest.raises(ValueError, match="No text content"):
-            await self._call("tone", html=empty_html)
+        result = await self._call("tone", html=empty_html)
+        assert result["status"] == "error"
+        assert "No text content" in result["message"]
 
     @pytest.mark.asyncio
     async def test_http_error_wrapped_as_value_error(self):
-        """httpx.HTTPError during fetch should be re-raised as ValueError."""
+        """httpx.HTTPError during fetch should return an error dict."""
 
         with patch(
             "agent_framework.tools.web_analyzer._validate_and_fetch",
             new_callable=AsyncMock,
             side_effect=ValueError("Failed to fetch URL: connection error"),
         ):
-            with pytest.raises(ValueError, match="Failed to fetch URL"):
-                await analyze_website("https://example.com", "tone")
+            result = await analyze_website("https://example.com", "tone")
+            assert result["status"] == "error"
+            assert "Failed to fetch URL" in result["message"]
 
     @pytest.mark.asyncio
     async def test_result_contains_analyzed_at_timestamp(self):

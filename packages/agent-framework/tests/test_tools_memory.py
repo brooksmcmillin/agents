@@ -148,7 +148,7 @@ class TestSaveMemory:
             result = await save_memory(key="test", value="value")
 
         assert result["status"] == "error"
-        assert "Failed to save memory" in result["message"]
+        assert "Storage error" in result["message"]
 
     @pytest.mark.asyncio
     async def test_save_memory_key_too_long(self):
@@ -307,8 +307,7 @@ class TestGetMemories:
             result = await get_memories()
 
         assert result["status"] == "error"
-        assert "Failed to retrieve memories" in result["message"]
-        assert result["memories"] == []
+        assert "Query error" in result["message"]
 
 
 class TestSearchMemories:
@@ -393,7 +392,7 @@ class TestSearchMemories:
             result = await search_memories(query="test")
 
         assert result["status"] == "error"
-        assert "Failed to search memories" in result["message"]
+        assert "Search error" in result["message"]
 
 
 class TestAgentNameValidation:
