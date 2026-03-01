@@ -5,6 +5,7 @@ token refresh. It supports both service-to-service auth and user-delegated auth.
 """
 
 import logging
+import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlencode
@@ -15,6 +16,9 @@ from .token_store import TokenData, TokenStore
 
 logger = logging.getLogger(__name__)
 
+# How long (in seconds) a pending state is valid before it expires.
+_STATE_TTL_SECONDS = 600
+
 
 class OAuthHandler:
     """
@@ -24,6 +28,13 @@ class OAuthHandler:
     - Authorization Code flow (user-delegated auth)
     - Client Credentials flow (service-to-service auth)
     - Automatic token refresh using refresh tokens
+
+    CSRF protection:
+    - get_authorization_url() always generates a cryptographically random state
+      token and stores it with a timestamp.
+    - exchange_code_for_token() requires the caller to pass back the returned
+      state value, which is then validated with secrets.compare_digest before
+      the code exchange is attempted.
     """
 
     # OAuth endpoints for different platforms (mocked for now)
@@ -57,52 +68,93 @@ class OAuthHandler:
         self.token_store = token_store
         self.client_id = client_id
         self.client_secret = client_secret
+        # Maps state token -> issued_at timestamp (UTC)
+        self._pending_states: dict[str, datetime] = {}
 
     def get_authorization_url(
         self,
         platform: str,
         redirect_uri: str,
-        state: str | None = None,
-    ) -> str:
+    ) -> tuple[str, str]:
         """
         Generate OAuth authorization URL for user consent.
 
         This is step 1 of the Authorization Code flow. The user should be
-        redirected to this URL to grant permissions.
+        redirected to this URL to grant permissions. A cryptographically random
+        state token is always generated and stored internally so that it can be
+        validated in exchange_code_for_token().
 
         Args:
             platform: Platform name (e.g., "twitter", "linkedin")
             redirect_uri: Callback URL after authorization
-            state: Optional state parameter for CSRF protection
 
         Returns:
-            Authorization URL
+            A (url, state) tuple. The caller must pass ``state`` back to
+            exchange_code_for_token() when the OAuth provider redirects back.
         """
         if platform not in self.PLATFORM_CONFIGS:
             raise ValueError(f"Unsupported platform: {platform}")
 
         config = self.PLATFORM_CONFIGS[platform]
 
+        # Always generate a fresh, cryptographically random state token.
+        state = secrets.token_urlsafe(32)
+        self._pending_states[state] = datetime.now(UTC)
+
         params = {
             "client_id": self.client_id,
             "redirect_uri": redirect_uri,
             "response_type": "code",
             "scope": " ".join(config["scopes"]),
+            "state": state,
         }
-
-        if state:
-            params["state"] = state
 
         url = f"{config['authorize_url']}?{urlencode(params)}"
         logger.info(f"Generated authorization URL for {platform}")
 
-        return url
+        return url, state
+
+    def _validate_state(self, state: str) -> bool:
+        """
+        Validate an OAuth callback state token using a timing-safe comparison.
+
+        Removes expired pending states before checking. Returns True and
+        consumes the state (prevents replay) if valid.
+
+        Args:
+            state: State token returned by the OAuth provider in the callback.
+
+        Returns:
+            True if the state is valid and not expired, False otherwise.
+        """
+        now = datetime.now(UTC)
+        ttl = timedelta(seconds=_STATE_TTL_SECONDS)
+
+        # Purge expired pending states.
+        expired_keys = [k for k, ts in self._pending_states.items() if now - ts > ttl]
+        for k in expired_keys:
+            del self._pending_states[k]
+
+        # Timing-safe lookup: iterate all remaining states so we don't leak
+        # information about which keys exist via a timing side-channel.
+        matched_key: str | None = None
+        for pending_state in self._pending_states:
+            if secrets.compare_digest(pending_state, state):
+                matched_key = pending_state
+                break
+
+        if matched_key is not None:
+            del self._pending_states[matched_key]
+            return True
+
+        return False
 
     async def exchange_code_for_token(
         self,
         platform: str,
         code: str,
         redirect_uri: str,
+        state: str,
         user_id: str = "default",
     ) -> TokenData | None:
         """
@@ -110,16 +162,29 @@ class OAuthHandler:
 
         This is step 2 of the Authorization Code flow, called after the user
         grants permissions and is redirected back with an authorization code.
+        The ``state`` parameter returned by the OAuth provider MUST match the
+        one generated by get_authorization_url(); if it does not, the exchange
+        is rejected to prevent CSRF / authorization code injection attacks.
 
         Args:
             platform: Platform name
             code: Authorization code from callback
             redirect_uri: Same redirect URI used in authorization
+            state: State token returned by the OAuth provider in the callback.
+                   Must match the value returned by get_authorization_url().
             user_id: User identifier for token storage
 
         Returns:
             TokenData if successful, None otherwise
         """
+        if not self._validate_state(state):
+            logger.error(
+                "OAuth state validation failed for %s:%s – possible CSRF attack",
+                platform,
+                user_id,
+            )
+            return None
+
         if platform not in self.PLATFORM_CONFIGS:
             logger.error(f"Unsupported platform: {platform}")
             return None
