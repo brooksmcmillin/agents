@@ -856,9 +856,14 @@ class TestHttpUploadFileTool:
 class TestCheckTargetAllowedUrlEncodedTraversal:
     """URL-encoded path traversal edge cases.
 
-    _check_target_allowed URL-decodes paths before calling posixpath.normpath,
-    so percent-encoded dots (%2e%2e) are treated as literal dots and normalized
-    away, blocking encoded traversal attempts.
+    _check_target_allowed URL-decodes paths (via urllib.parse.unquote) before
+    calling posixpath.normpath, so percent-encoded dots (%2e%2e) are treated as
+    literal dots and normalized away, blocking encoded traversal attempts.
+
+    Known limitation: Double-encoded input (%252e%252e → %2e%2e after one
+    unquote call) is NOT further decoded. RFC 3986 does not permit double
+    percent-decoding, and most modern HTTP servers do not double-decode either,
+    so this is an acceptable boundary for this implementation.
     """
 
     def test_check_target_allowed_blocks_literal_dot_dot_traversal(self) -> None:
@@ -883,6 +888,21 @@ class TestCheckTargetAllowedUrlEncodedTraversal:
         with patch.dict(os.environ, {"REDTEAM_ALLOWED_TARGETS": "http://example.com/api"}):
             with pytest.raises(ValueError, match="not in REDTEAM_ALLOWED_TARGETS"):
                 _check_target_allowed("http://example.com/api/%2E%2E/admin")
+
+    def test_check_target_allowed_double_encoded_traversal_documents_known_behavior(
+        self,
+    ) -> None:
+        """Documents known behavior: double-encoded %252e%252e is not blocked.
+
+        A single unquote() decodes %252e → %2e (not '.'), so posixpath.normpath
+        does not normalize it. RFC 3986 does not permit double-decoding and most
+        HTTP servers (nginx, uvicorn) do not double-decode, making this an accepted
+        boundary. This test documents the behavior explicitly.
+        """
+        with patch.dict(os.environ, {"REDTEAM_ALLOWED_TARGETS": "http://example.com/api"}):
+            # Double-encoded %252e%252e is NOT further decoded — check passes.
+            # This is accepted/documented behavior for this implementation.
+            _check_target_allowed("http://example.com/api/%252e%252e/admin")  # currently allowed
 
 
 class TestSafeRequestAdditionalCoverage:
@@ -931,14 +951,14 @@ class TestSafeRequestAdditionalCoverage:
 
     @pytest.mark.asyncio
     async def test_safe_request_post_303_converts_to_get_and_strips_body(self) -> None:
-        """POST → 303 → converts method to GET and strips the request body.
+        """POST → 303 → converts method to GET and strips the request body including files.
 
-        This is security-relevant: a POST with credentials that receives a 303 redirect
-        should not re-submit the body to the redirect target.
+        This is security-relevant: a POST with credentials or file upload that receives
+        a 303 redirect should not re-submit the body or files to the redirect target.
         """
         redirect_resp = _make_response(
             303,
-            "http://example.com/app/submit",
+            "http://example.com/app/upload",
             headers={"location": "http://example.com/app/result"},
         )
         final_resp = _make_response(200, "http://example.com/app/result", content=b"ok")
@@ -950,19 +970,23 @@ class TestSafeRequestAdditionalCoverage:
             resp = await _safe_request(
                 client,
                 "POST",
-                "http://example.com/app/submit",
+                "http://example.com/app/upload",
                 json={"username": "admin", "password": "s3cret"},
+                content=b"raw-content",
+                data={"field": "val"},
+                files={"file": ("secret.txt", b"file-data")},
             )
 
         assert resp.status_code == 200
         second_call = client.request.call_args_list[1]
         # Method must be GET after 303
         assert second_call.args[0] == "GET"
-        # Body kwargs must be stripped
+        # All body kwargs must be stripped to prevent data leakage
         second_kwargs = second_call.kwargs
         assert "json" not in second_kwargs
         assert "content" not in second_kwargs
         assert "data" not in second_kwargs
+        assert "files" not in second_kwargs
 
     @pytest.mark.asyncio
     async def test_safe_request_post_301_converts_to_get_and_strips_body(self) -> None:
