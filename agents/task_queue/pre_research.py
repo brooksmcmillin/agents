@@ -7,11 +7,10 @@ into concise, actionable notes.
 from __future__ import annotations
 
 import logging
-import os
 from collections.abc import Callable, Coroutine
 from typing import Any
 
-from anthropic import AsyncAnthropic
+from shared.anthropic_client import get_anthropic_client
 
 from .models import resolve_model
 from .prompts import PRE_RESEARCH_SYSTEM_PROMPT
@@ -105,7 +104,7 @@ async def _summarize_research(
     Returns:
         Summarized research notes.
     """
-    client = AsyncAnthropic(api_key=api_key or os.getenv("ANTHROPIC_API_KEY"))
+    client = get_anthropic_client(api_key)
     try:
         user_message = (
             f"Task: {task_title}\n"

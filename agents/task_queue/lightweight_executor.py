@@ -9,13 +9,14 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from typing import Any
 
 from anthropic import AsyncAnthropic
 from anthropic.types import MessageParam, TextBlock, ToolParam, ToolResultBlockParam, ToolUseBlock
+
+from shared.anthropic_client import get_anthropic_client
 
 from .models import resolve_model
 
@@ -182,7 +183,7 @@ async def execute_lightweight(
 
     messages: list[MessageParam] = [{"role": "user", "content": user_message}]
 
-    client = AsyncAnthropic(api_key=api_key or os.getenv("ANTHROPIC_API_KEY"))
+    client = get_anthropic_client(api_key)
     turns_used = 0
     last_text = ""
 

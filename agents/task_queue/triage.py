@@ -7,10 +7,8 @@ research-only, or not actionable.
 from __future__ import annotations
 
 import logging
-import os
 
-from anthropic import AsyncAnthropic
-
+from shared.anthropic_client import get_anthropic_client
 from shared.json_parsing import strip_and_parse_json
 
 from .models import TriageResult, TriageVerdict, resolve_model
@@ -38,7 +36,7 @@ async def triage_task(
     Returns:
         TriageResult with verdict, confidence, and classification details.
     """
-    client = AsyncAnthropic(api_key=api_key or os.getenv("ANTHROPIC_API_KEY"))
+    client = get_anthropic_client(api_key)
     try:
         user_message = _build_triage_user_message(task, available_tools, accumulated_context)
 
@@ -90,7 +88,7 @@ async def detect_dependencies(
     if len(tasks) < 2:
         return []
 
-    client = AsyncAnthropic(api_key=api_key or os.getenv("ANTHROPIC_API_KEY"))
+    client = get_anthropic_client(api_key)
     try:
         task_descriptions = []
         for t in tasks:

@@ -8,10 +8,9 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from typing import Any
 
-from anthropic import AsyncAnthropic
+from shared.anthropic_client import get_anthropic_client
 
 from .models import AutonomyTier, Task, resolve_model
 from .prompts import PLANNER_SYSTEM_PROMPT
@@ -49,7 +48,7 @@ async def plan_task(
     """
     model_id = resolve_model(model)
 
-    client = AsyncAnthropic(api_key=api_key or os.getenv("ANTHROPIC_API_KEY"))
+    client = get_anthropic_client(api_key)
     try:
         system_prompt = PLANNER_SYSTEM_PROMPT.format(max_subtasks=max_subtasks)
 

@@ -22,6 +22,7 @@ from agent_framework.security import SSRFValidator
 
 from .agent_factory import create_simple_agent
 from .agent_runner import run_agent
+from .anthropic_client import get_anthropic_client
 from .auth_utils import get_valid_token_for_mcp
 from .batch_agent import BatchAgent
 from .constants import (
@@ -39,11 +40,14 @@ from .constants import (
     FASTMAIL_TOOLS,
     FILESYSTEM_TOOLS,
     HTTP_CLIENT_TOOLS,
+    KNOWN_MODELS,
     MEMORY_TOOLS,
+    MODEL_ALIASES,
     NETWORK_ADMIN_TOOLS,
     RAG_TOOLS,
     SMS_TOOLS,
     WEB_RESEARCH_TOOLS,
+    resolve_model,
 )
 from .env_utils import check_env_vars, env_file_exists
 from .gh import REPO_RE, run_gh, validate_repo
@@ -69,7 +73,9 @@ __all__ = [
     "FILESYSTEM_TOOLS",
     "GITHUB_MCP_AGENTS",
     "HTTP_CLIENT_TOOLS",
+    "KNOWN_MODELS",
     "MEMORY_TOOLS",
+    "MODEL_ALIASES",
     "NETWORK_ADMIN_TOOLS",
     "RAG_TOOLS",
     "REPO_RE",
@@ -81,11 +87,13 @@ __all__ = [
     "create_simple_agent",
     "env_file_exists",
     "format_priority_emoji",
+    "get_anthropic_client",
     "get_valid_token_for_mcp",
     "github_mcp_config",
     "parse_json_result",
     "parse_priority",
     "parse_task_result",
+    "resolve_model",
     "run_agent",
     "run_gh",
     "setup_logging",

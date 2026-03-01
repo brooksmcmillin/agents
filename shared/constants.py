@@ -117,3 +117,35 @@ NETWORK_ADMIN_TOOLS = [
     "network_check_default_credentials",
     "network_generate_report",
 ]
+
+# ---------------------------------------------------------------------------
+# Model aliases
+#
+# Canonical mapping of short model names to full Anthropic model IDs.
+# Use resolve_model() to convert short names before calling the API.
+# ---------------------------------------------------------------------------
+
+# Short name -> full Anthropic model ID mapping
+MODEL_ALIASES: dict[str, str] = {
+    "haiku": "claude-haiku-4-5-20251001",
+    "sonnet": "claude-sonnet-4-6",
+    "opus": "claude-opus-4-6",
+}
+
+# All recognized model identifiers (short names + full IDs)
+KNOWN_MODELS: frozenset[str] = frozenset(set(MODEL_ALIASES.keys()) | set(MODEL_ALIASES.values()))
+
+
+def resolve_model(model: str) -> str:
+    """Resolve a short model name to a full Anthropic API model ID.
+
+    Passes through full model IDs unchanged. Short names (haiku, sonnet, opus)
+    are mapped to their canonical full IDs.
+
+    Args:
+        model: Short model name (e.g. "haiku") or full model ID.
+
+    Returns:
+        Full Anthropic model ID string.
+    """
+    return MODEL_ALIASES.get(model, model)
