@@ -19,7 +19,7 @@ import os
 import posixpath
 import time
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 import httpx
 
@@ -151,9 +151,11 @@ def _check_target_allowed(url: str) -> None:
         if parsed.port != prefix_parsed.port:
             continue
         # Path must start with allowed prefix path (default '/')
-        # Normalize to prevent traversal bypass (e.g. /api/../admin)
-        prefix_path = posixpath.normpath(prefix_parsed.path or "/")
-        request_path = posixpath.normpath(parsed.path or "/")
+        # Normalize to prevent traversal bypass (e.g. /api/../admin or /api/%2e%2e/admin).
+        # URL-decode paths before normpath so percent-encoded dots (%2e%2e) are
+        # treated as literal dots and normalized away.
+        prefix_path = posixpath.normpath(unquote(prefix_parsed.path or "/"))
+        request_path = posixpath.normpath(unquote(parsed.path or "/"))
         # Exact match or proper sub-path (boundary check prevents
         # /api/v1 matching /api/v1admin)
         if request_path == prefix_path or request_path.startswith(prefix_path + "/"):
