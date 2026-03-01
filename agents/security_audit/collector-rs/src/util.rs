@@ -1,0 +1,33 @@
+use std::fs;
+use std::process::Command;
+
+/// Run a command and return its stdout, or an empty string on failure.
+pub fn run_cmd(program: &str, args: &[&str]) -> String {
+    Command::new(program)
+        .args(args)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        .unwrap_or_default()
+}
+
+/// Read a file to string, returning None on any error.
+pub fn read_file_string(path: &str) -> Option<String> {
+    fs::read_to_string(path).ok()
+}
+
+/// Get the system hostname.
+pub fn hostname() -> String {
+    read_file_string("/etc/hostname")
+        .map(|s| s.trim().to_string())
+        .or_else(|| {
+            let out = run_cmd("hostname", &[]);
+            if out.is_empty() {
+                None
+            } else {
+                Some(out.trim().to_string())
+            }
+        })
+        .unwrap_or_else(|| "unknown".to_string())
+}

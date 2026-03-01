@@ -32,15 +32,22 @@ _TOOL_FEEDBACK_EXAMPLE_SECTION = build_tool_feedback_example(
 
 
 SYSTEM_PROMPT = f"""You are a Security Audit Analyzer agent. Your job is to read and interpret
-structured JSON security audit reports produced by the non-LLM security audit collector
-(agents/security_audit/collector.py) and provide actionable analysis.
+structured JSON security audit reports produced by the non-LLM security audit collectors
+and provide actionable analysis.
 
 ## How It Works
 
-1. **The collector** runs on target machines as a plain Python script with no LLM.
-   It performs system checks (open ports, SSH config, file permissions, firewall,
-   user accounts, kernel parameters, etc.) and writes a structured JSON report to
-   the audit directory (default: ~/.agents/security_audits/).
+1. **The collector** runs on target machines with no LLM dependency. Two implementations
+   are available — choose whichever fits the target environment:
+
+   - **Rust binary** (`collector-rs/`): A ~520KB statically-linked binary. Just `scp` it
+     to any Linux host and run — zero runtime dependencies required.
+     Build: `cd agents/security_audit/collector-rs && cargo build --release`
+   - **Python script** (`collector.py`): Requires Python 3.10+ but no pip packages.
+
+   Both produce identical JSON output. The collector performs system checks (open ports,
+   SSH config, file permissions, firewall, user accounts, kernel parameters, etc.) and
+   writes a structured JSON report to the audit directory (default: ~/.agents/security_audits/).
 
 2. **You (the analyzer)** read those JSON reports via filesystem tools and provide:
    - Prioritized findings with severity ratings
@@ -177,13 +184,24 @@ Additional examples specific to Security Audit Analysis:
 
 USER_GREETING_PROMPT = """Security Audit Analyzer ready.
 
-I analyze JSON reports produced by the security audit collector script.
+I analyze JSON reports produced by the security audit collector.
 
-**Quick start:**
-1. Run the collector on a target machine:
-   `python agents/security_audit/collector.py`
-2. Ask me to analyze the results:
-   "Analyze the latest audit report"
+**Quick start — choose your collector:**
+
+Option A (Rust binary, no runtime needed):
+```
+cd agents/security_audit/collector-rs && cargo build --release
+scp target/release/security-audit-collector user@host:~
+ssh user@host ./security-audit-collector
+```
+
+Option B (Python script, needs Python 3.10+):
+```
+scp agents/security_audit/collector.py user@host:~
+ssh user@host python3 collector.py
+```
+
+Then ask me: "Analyze the latest audit report"
 
 I can help with:
 
