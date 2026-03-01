@@ -1,11 +1,14 @@
 import { useEffect } from 'react';
 import { AppLayout } from './components/AppLayout';
+import { LoginPage } from './components/LoginPage';
 import { useDarkMode } from './hooks/useDarkMode';
 import { useConversationStore } from './store/conversationStore';
+import { useAuthStore } from './store/authStore';
 
 function App() {
   useDarkMode(); // Initialize dark mode
   const { error, clearError } = useConversationStore();
+  const { isAuthenticated } = useAuthStore();
 
   // Show error toast if there's an error
   useEffect(() => {
@@ -16,6 +19,10 @@ function App() {
       return () => clearTimeout(timer);
     }
   }, [error, clearError]);
+
+  if (!isAuthenticated) {
+    return <LoginPage />;
+  }
 
   return (
     <>

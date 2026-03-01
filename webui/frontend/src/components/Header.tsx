@@ -1,6 +1,7 @@
-import { SunIcon, MoonIcon, ChatBubbleLeftRightIcon, CommandLineIcon } from '@heroicons/react/24/outline';
+import { SunIcon, MoonIcon, ChatBubbleLeftRightIcon, CommandLineIcon, ArrowRightStartOnRectangleIcon } from '@heroicons/react/24/outline';
 import { useDarkMode } from '@/hooks/useDarkMode';
 import { useAppStore, type AppView } from '@/store/appStore';
+import { useAuthStore } from '@/store/authStore';
 
 interface NavTabProps {
   view: AppView;
@@ -31,6 +32,7 @@ function NavTab({ label, icon, isActive, onClick }: NavTabProps) {
 export function Header() {
   const { darkMode, toggleDarkMode } = useDarkMode();
   const { currentView, setCurrentView } = useAppStore();
+  const { logout } = useAuthStore();
 
   return (
     <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3">
@@ -64,17 +66,27 @@ export function Header() {
           </nav>
         </div>
 
-        <button
-          onClick={toggleDarkMode}
-          className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-          aria-label="Toggle dark mode"
-        >
-          {darkMode ? (
-            <SunIcon className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-          ) : (
-            <MoonIcon className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-          )}
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={toggleDarkMode}
+            className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            aria-label="Toggle dark mode"
+          >
+            {darkMode ? (
+              <SunIcon className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+            ) : (
+              <MoonIcon className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+            )}
+          </button>
+          <button
+            onClick={logout}
+            className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            aria-label="Sign out"
+            title="Sign out"
+          >
+            <ArrowRightStartOnRectangleIcon className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+          </button>
+        </div>
       </div>
     </header>
   );

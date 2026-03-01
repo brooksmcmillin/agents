@@ -669,6 +669,38 @@ class TestClaudeCodeRestSessionToken:
         assert response.status_code == 403
 
 
+class TestDisableAuthProductionSafety:
+    """Tests for DISABLE_AUTH + ENV=production safety check."""
+
+    def test_disable_auth_blocked_in_production(self):
+        """DISABLE_AUTH=true with ENV=production raises RuntimeError at startup."""
+        with (
+            patch.dict(
+                os.environ,
+                {"DISABLE_AUTH": "true", "ENV": "production", "API_KEY": ""},
+                clear=False,
+            ),
+            patch("api.server._api_key", None),
+        ):
+            import asyncio
+
+            from api.server import lifespan
+
+            async def _run() -> None:
+                async with lifespan(app):
+                    pass  # pragma: no cover
+
+            with pytest.raises(RuntimeError, match="not allowed when ENV=production"):
+                asyncio.run(_run())
+
+    def test_disable_auth_allowed_in_development(self, client):
+        """DISABLE_AUTH=true without ENV=production works normally."""
+        # The test suite itself runs with DISABLE_AUTH=true and no ENV=production,
+        # so if we got this far the server started successfully.
+        response = client.get("/health")
+        assert response.status_code == 200
+
+
 @pytest.mark.asyncio
 async def test_conversation_persistence_workflow():
     """Integration test for full conversation workflow."""

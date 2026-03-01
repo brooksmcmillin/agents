@@ -90,6 +90,8 @@ export interface ClaudeCodeSession {
   state: ClaudeCodeSessionState;
   created_at: string;
   last_activity: string;
+  /** Per-session token for WebSocket auth. Only present on creation response. */
+  session_token?: string;
 }
 
 export type ClaudeCodeSessionState =

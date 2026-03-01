@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { apiClient } from '@/api/client';
+import { getStoredApiKey } from '@/store/authStore';
 import type {
   ClaudeCodeWorkspace,
   ClaudeCodeSession,
@@ -47,7 +48,7 @@ interface ClaudeCodeState {
 
   startSession: (workspace: string, initialPrompt?: string) => Promise<void>;
   endSession: () => Promise<void>;
-  connectWebSocket: (sessionId: string) => void;
+  connectWebSocket: (sessionId: string, sessionToken?: string) => void;
   disconnectWebSocket: () => void;
 
   sendInput: (text: string) => void;
@@ -142,8 +143,8 @@ export const useClaudeCodeStore = create<ClaudeCodeState>((set, get) => ({
         isConnecting: false,
       });
 
-      // Connect WebSocket
-      get().connectWebSocket(session.session_id);
+      // Connect WebSocket (pass session_token for auth)
+      get().connectWebSocket(session.session_id, session.session_token);
 
       // Add system message
       const { outputLineCounter } = get();
@@ -187,7 +188,7 @@ export const useClaudeCodeStore = create<ClaudeCodeState>((set, get) => ({
     });
   },
 
-  connectWebSocket: (sessionId: string) => {
+  connectWebSocket: (sessionId: string, sessionToken?: string) => {
     const { disconnectWebSocket } = get();
     disconnectWebSocket();
 
@@ -195,7 +196,16 @@ export const useClaudeCodeStore = create<ClaudeCodeState>((set, get) => ({
     const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
-      // State tracked via sessionState; no logging needed
+      // Send auth message as required by the server
+      const authMsg: Record<string, string> = { type: 'auth' };
+      const apiKey = getStoredApiKey();
+      if (apiKey) {
+        authMsg.api_key = apiKey;
+      }
+      if (sessionToken) {
+        authMsg.session_token = sessionToken;
+      }
+      ws.send(JSON.stringify(authMsg));
     };
 
     ws.onmessage = (event) => {
