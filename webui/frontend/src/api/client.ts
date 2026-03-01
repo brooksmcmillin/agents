@@ -1,4 +1,5 @@
 import { API_BASE_URL } from '@/utils/constants';
+import { getStoredApiKey } from '@/store/authStore';
 import type {
   AgentInfo,
   Conversation,
@@ -22,6 +23,14 @@ class ApiClient {
     this.baseUrl = baseUrl;
   }
 
+  private getAuthHeaders(): Record<string, string> {
+    const apiKey = getStoredApiKey();
+    if (apiKey) {
+      return { Authorization: `Bearer ${apiKey}` };
+    }
+    return {};
+  }
+
   private async request<T>(
     endpoint: string,
     options?: RequestInit
@@ -31,11 +40,19 @@ class ApiClient {
       ...options,
       headers: {
         'Content-Type': 'application/json',
+        ...this.getAuthHeaders(),
         ...options?.headers,
       },
     });
 
     if (!response.ok) {
+      // Auto-logout on 401 so the login page is shown
+      if (response.status === 401) {
+        sessionStorage.removeItem('agents_api_key');
+        // Reload so the auth store re-initializes from empty sessionStorage
+        window.location.reload();
+      }
+
       let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
       try {
         const errorData: ApiError = await response.json();

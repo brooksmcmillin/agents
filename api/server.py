@@ -238,8 +238,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     else:
         logger.info("Conversation persistence disabled (no DATABASE_URL)")
 
+    # Block DISABLE_AUTH in production to prevent accidental public exposure
+    _disable_auth = os.getenv("DISABLE_AUTH", "").lower() in ("true", "1", "yes")
+    _env = os.getenv("ENV", "").lower()
+    if _disable_auth and _env == "production":
+        raise RuntimeError(
+            "DISABLE_AUTH=true is not allowed when ENV=production. "
+            "Set API_KEY to enable authentication in production."
+        )
+
     if not _api_key:
-        _disable_auth = os.getenv("DISABLE_AUTH", "").lower() in ("true", "1", "yes")
         if _disable_auth:
             logger.warning(
                 "SECURITY: Authentication disabled via DISABLE_AUTH=true. "
