@@ -693,8 +693,8 @@ class TestRunClaudeCode:
                 assert call_kwargs.get("stdin") == asyncio.subprocess.DEVNULL
 
     @pytest.mark.asyncio
-    async def test_run_uses_dangerously_skip_permissions(self, tmp_path):
-        """Test that run_claude_code uses --dangerously-skip-permissions flag."""
+    async def test_run_default_uses_allowlist_tools(self, tmp_path):
+        """Test that run_claude_code uses --allowedTools by default, not --dangerously-skip-permissions."""
         workspace_dir = tmp_path / "workspaces"
         workspace_dir.mkdir()
         project_dir = workspace_dir / "project"
@@ -718,4 +718,159 @@ class TestRunClaudeCode:
                 )
 
                 call_args = mock_exec.call_args[0]
+                assert "--dangerously-skip-permissions" not in call_args
+                assert "--allowedTools" in call_args
+
+    @pytest.mark.asyncio
+    async def test_run_skip_permissions_passes_flag(self, tmp_path):
+        """Test that skip_permissions=True passes --dangerously-skip-permissions."""
+        workspace_dir = tmp_path / "workspaces"
+        workspace_dir.mkdir()
+        project_dir = workspace_dir / "project"
+        project_dir.mkdir()
+
+        with patch(
+            "agent_framework.tools.claude_code.shutil.which", return_value="/usr/bin/claude"
+        ):
+            with patch(
+                "agent_framework.tools.claude_code.asyncio.create_subprocess_exec"
+            ) as mock_exec:
+                mock_process = AsyncMock()
+                mock_process.communicate = AsyncMock(return_value=(b"Done", b""))
+                mock_process.returncode = 0
+                mock_exec.return_value = mock_process
+
+                await run_claude_code(
+                    folder_name="project",
+                    command="Do something",
+                    working_dir_base=str(workspace_dir),
+                    skip_permissions=True,
+                )
+
+                call_args = mock_exec.call_args[0]
                 assert "--dangerously-skip-permissions" in call_args
+                assert "--allowedTools" not in call_args
+
+    @pytest.mark.asyncio
+    async def test_run_env_vars_filtered(self, tmp_path):
+        """Test that sensitive env vars are not passed to subprocess."""
+        workspace_dir = tmp_path / "workspaces"
+        workspace_dir.mkdir()
+        project_dir = workspace_dir / "project"
+        project_dir.mkdir()
+
+        fake_env = {
+            "PATH": "/usr/bin",
+            "HOME": "/home/user",
+            "DATABASE_URL": "postgres://secret",
+            "TWILIO_AUTH_TOKEN": "twilio-secret",
+            "FASTMAIL_PASSWORD": "fm-secret",
+            "ANTHROPIC_API_KEY": "sk-ant-test",
+            "CLAUDECODE": "1",
+        }
+
+        with patch(
+            "agent_framework.tools.claude_code.shutil.which", return_value="/usr/bin/claude"
+        ):
+            with patch(
+                "agent_framework.tools.claude_code.asyncio.create_subprocess_exec"
+            ) as mock_exec:
+                with patch.dict("os.environ", fake_env, clear=True):
+                    mock_process = AsyncMock()
+                    mock_process.communicate = AsyncMock(return_value=(b"Done", b""))
+                    mock_process.returncode = 0
+                    mock_exec.return_value = mock_process
+
+                    await run_claude_code(
+                        folder_name="project",
+                        command="Do something",
+                        working_dir_base=str(workspace_dir),
+                    )
+
+                    call_kwargs = mock_exec.call_args[1]
+                    subprocess_env = call_kwargs["env"]
+
+                    # Allowed vars should be present
+                    assert subprocess_env["PATH"] == "/usr/bin"
+                    assert subprocess_env["HOME"] == "/home/user"
+
+                    # Sensitive vars should be stripped
+                    assert "DATABASE_URL" not in subprocess_env
+                    assert "TWILIO_AUTH_TOKEN" not in subprocess_env
+                    assert "FASTMAIL_PASSWORD" not in subprocess_env
+                    assert "CLAUDECODE" not in subprocess_env
+
+    @pytest.mark.asyncio
+    async def test_run_uses_worker_api_key(self, tmp_path):
+        """Test that CLAUDE_CODE_WORKER_API_KEY is used when set."""
+        workspace_dir = tmp_path / "workspaces"
+        workspace_dir.mkdir()
+        project_dir = workspace_dir / "project"
+        project_dir.mkdir()
+
+        fake_env = {
+            "PATH": "/usr/bin",
+            "HOME": "/home/user",
+            "ANTHROPIC_API_KEY": "sk-ant-main",
+            "CLAUDE_CODE_WORKER_API_KEY": "sk-ant-worker",
+        }
+
+        with patch(
+            "agent_framework.tools.claude_code.shutil.which", return_value="/usr/bin/claude"
+        ):
+            with patch(
+                "agent_framework.tools.claude_code.asyncio.create_subprocess_exec"
+            ) as mock_exec:
+                with patch.dict("os.environ", fake_env, clear=True):
+                    mock_process = AsyncMock()
+                    mock_process.communicate = AsyncMock(return_value=(b"Done", b""))
+                    mock_process.returncode = 0
+                    mock_exec.return_value = mock_process
+
+                    await run_claude_code(
+                        folder_name="project",
+                        command="Do something",
+                        working_dir_base=str(workspace_dir),
+                    )
+
+                    call_kwargs = mock_exec.call_args[1]
+                    subprocess_env = call_kwargs["env"]
+
+                    assert subprocess_env["ANTHROPIC_API_KEY"] == "sk-ant-worker"
+
+    @pytest.mark.asyncio
+    async def test_run_falls_back_to_anthropic_api_key(self, tmp_path):
+        """Test fallback to ANTHROPIC_API_KEY when worker key not set."""
+        workspace_dir = tmp_path / "workspaces"
+        workspace_dir.mkdir()
+        project_dir = workspace_dir / "project"
+        project_dir.mkdir()
+
+        fake_env = {
+            "PATH": "/usr/bin",
+            "HOME": "/home/user",
+            "ANTHROPIC_API_KEY": "sk-ant-main",
+        }
+
+        with patch(
+            "agent_framework.tools.claude_code.shutil.which", return_value="/usr/bin/claude"
+        ):
+            with patch(
+                "agent_framework.tools.claude_code.asyncio.create_subprocess_exec"
+            ) as mock_exec:
+                with patch.dict("os.environ", fake_env, clear=True):
+                    mock_process = AsyncMock()
+                    mock_process.communicate = AsyncMock(return_value=(b"Done", b""))
+                    mock_process.returncode = 0
+                    mock_exec.return_value = mock_process
+
+                    await run_claude_code(
+                        folder_name="project",
+                        command="Do something",
+                        working_dir_base=str(workspace_dir),
+                    )
+
+                    call_kwargs = mock_exec.call_args[1]
+                    subprocess_env = call_kwargs["env"]
+
+                    assert subprocess_env["ANTHROPIC_API_KEY"] == "sk-ant-main"
