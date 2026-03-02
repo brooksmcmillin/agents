@@ -33,6 +33,26 @@ class TestValidationErrors:
         response = client.post("/agents/chatbot/message", json={})
         assert response.status_code == 422
 
+    def test_send_message_empty_string(self, client: TestClient):
+        """Empty string message should return 422."""
+        response = client.post("/agents/chatbot/message", json={"message": ""})
+        assert response.status_code == 422
+
+    def test_send_message_whitespace_only(self, client: TestClient):
+        """Whitespace-only message should return 422 (caller bug, not valid content)."""
+        response = client.post("/agents/chatbot/message", json={"message": "   "})
+        assert response.status_code == 422
+        error = response.json()
+        assert (
+            "whitespace" in error["detail"][0]["msg"].lower()
+            or "empty" in error["detail"][0]["msg"].lower()
+        )
+
+    def test_send_message_newlines_only(self, client: TestClient):
+        """Newline-only message should return 422."""
+        response = client.post("/agents/chatbot/message", json={"message": "\n\n\t"})
+        assert response.status_code == 422
+
     def test_create_session_missing_agent(self, client: TestClient):
         """Missing required 'agent' field should return 422."""
         response = client.post("/sessions", json={})
