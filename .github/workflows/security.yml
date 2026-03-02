@@ -25,5 +25,6 @@ jobs:
     uses: brooksmcmillin/workflows/.github/workflows/python-security.yml@main
     with:
       package-name: agents
+      allowed-licenses: 'MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, Python-2.0, Unicode-3.0'
     secrets:
       GH_PAT: ${{ secrets.GH_PAT }}
