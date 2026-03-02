@@ -4,10 +4,26 @@ from pydantic import BaseModel, Field
 
 
 class MessageRequest(BaseModel):
-    """Request body for sending a message to an agent."""
+    """Request body for sending a message to an agent.
+
+    ⚠️ SECURITY: Message Content is Untrusted Input
+
+    The message field contains user-supplied input that should be treated
+    as potentially adversarial. This message will be processed by agents
+    and may be stored in conversation history without sanitization.
+
+    Agents receiving this message should be aware that it may contain:
+    - Prompt injection attempts
+    - Jailbreak payloads
+    - Instructions designed to manipulate LLM behavior
+    - Attempts to expose sensitive information
+    """
 
     message: str = Field(
-        ..., min_length=1, max_length=32_000, description="The user message to send to the agent"
+        ...,
+        min_length=1,
+        max_length=32_000,
+        description="The user message to send to the agent (untrusted input)",
     )
 
 
