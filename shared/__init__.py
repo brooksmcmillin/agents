@@ -26,6 +26,7 @@ from .anthropic_client import get_anthropic_client
 from .auth_utils import get_valid_token_for_mcp
 from .batch_agent import BatchAgent
 from .constants import (
+    BROWSER_TESTING_TOOLS,
     CLAUDE_CODE_TOOLS,
     COMMUNICATION_TOOLS,
     CONTENT_TOOLS,
@@ -58,6 +59,7 @@ from .task_utils import format_priority_emoji, parse_json_result, parse_priority
 
 __all__ = [
     "BatchAgent",
+    "BROWSER_TESTING_TOOLS",
     "CLAUDE_CODE_TOOLS",
     "COMMUNICATION_TOOLS",
     "CONTENT_TOOLS",

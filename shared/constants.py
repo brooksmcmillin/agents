@@ -104,6 +104,15 @@ WEB_RESEARCH_TOOLS = [
     "analyze_website",
 ]
 
+BROWSER_TESTING_TOOLS = [
+    "browser_screenshot",
+    "browser_accessibility_audit",
+    "browser_performance_audit",
+    "browser_console_errors",
+    "browser_check_links",
+    "browser_crawl_site",
+]
+
 NETWORK_ADMIN_TOOLS = [
     "network_discover_hosts",
     "network_scan_ports",

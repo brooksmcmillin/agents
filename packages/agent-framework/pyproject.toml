@@ -119,6 +119,11 @@ skips = ["B106", "B608"]
 [tool.bandit.assert_used]
 skips = ["**/test_*.py", "**/tests/**"]
 
+[project.optional-dependencies]
+browser = [
+    "playwright>=1.40.0",
+]
+
 [dependency-groups]
 dev = [
     "deptry>=0.24.0",

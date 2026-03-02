@@ -5,6 +5,15 @@
 # ``input_schema``, and ``handler`` keys.  Importing them here gives server
 # code a single ``ALL_TOOL_SCHEMAS`` to iterate instead of manually
 # registering each tool inline.
+from .browser_testing import TOOL_SCHEMAS as _browser_testing_schemas
+from .browser_testing import (
+    browser_accessibility_audit,
+    browser_check_links,
+    browser_console_errors,
+    browser_crawl_site,
+    browser_performance_audit,
+    browser_screenshot,
+)
 from .claude_code import TOOL_SCHEMAS as _claude_code_schemas
 from .claude_code import (
     create_claude_code_workspace,
@@ -102,6 +111,7 @@ from .web_reader import fetch_web_content
 ALL_TOOL_SCHEMAS: list[dict] = [
     *_web_reader_schemas,
     *_web_analyzer_schemas,
+    *_browser_testing_schemas,
     *_memory_schemas,
     *_slack_schemas,
     *_twilio_sms_schemas,
@@ -183,6 +193,13 @@ __all__ = [
     "list_directory",
     "glob_files",
     "grep_files",
+    # Browser testing tools
+    "browser_screenshot",
+    "browser_accessibility_audit",
+    "browser_performance_audit",
+    "browser_console_errors",
+    "browser_check_links",
+    "browser_crawl_site",
     # Network admin tools
     "network_discover_hosts",
     "network_scan_ports",

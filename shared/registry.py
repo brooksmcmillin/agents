@@ -77,6 +77,7 @@ def build_agent_registry() -> dict[str, AgentEntry]:
     from agents.security_researcher.main import SecurityResearcherAgent
     from agents.system_admin.main import SystemAdminAgent
     from agents.task_manager.main import TaskManagerAgent
+    from agents.website_tester.main import WebsiteTesterAgent
 
     mcp_task_config: dict[str, Any] = {
         "mcp_urls": [os.getenv(ENV_MCP_SERVER_URL, DEFAULT_MCP_SERVER_URL)],
@@ -138,5 +139,10 @@ def build_agent_registry() -> dict[str, AgentEntry]:
             SystemAdminAgent,
             None,
             "Network and system security assessment agent",
+        ),
+        "website-tester": (
+            WebsiteTesterAgent,
+            None,
+            "Automated website testing with headless Playwright browser",
         ),
     }

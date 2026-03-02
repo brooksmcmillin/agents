@@ -48,6 +48,9 @@ agent-framework = { path = "packages/agent-framework", editable = true }
 chasm = { path = "packages/chasm", editable = true }
 
 [dependency-groups]
+browser = [
+    "agent-framework[browser]",
+]
 dev = [
     "pre-commit>=4.5.1",
     "pyright>=1.1.408",
