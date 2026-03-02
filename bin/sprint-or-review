@@ -415,9 +415,21 @@ ALLOWED_TOOLS=(
   "Grep"
   "Agent"
 
-  # Sprint: git and gh
-  "Bash(git *)"
-  "Bash(gh *)"
+  # Sprint: git (scoped to specific subcommands)
+  "Bash(git add *)"
+  "Bash(git commit *)"
+  "Bash(git push *)"
+  "Bash(git checkout *)"
+  "Bash(git branch *)"
+  "Bash(git worktree *)"
+  "Bash(git status*)"
+  "Bash(git log *)"
+  "Bash(git diff *)"
+  "Bash(git fetch *)"
+
+  # Sprint: gh (scoped to PR operations and CI checks)
+  "Bash(gh pr *)"
+  "Bash(gh run *)"
 
   # Sprint: build and test
   "Bash(make *)"
@@ -615,15 +627,21 @@ _WIKI_PROMPT_END_
   )
 
   WIKI_EXIT=0
-  claude -p "$WIKI_PROMPT" --model claude-haiku-4-5-20251001 --allowedTools "${WIKI_TOOLS[@]}" >/dev/null 2>&1 || WIKI_EXIT=$?
+  WIKI_ERR=$(mktemp "${TMPDIR:-/tmp}/${SCRIPT_NAME}-wiki-err.XXXXXX")
+  claude -p "$WIKI_PROMPT" --model claude-haiku-4-5-20251001 --allowedTools "${WIKI_TOOLS[@]}" >/dev/null 2>"$WIKI_ERR" || WIKI_EXIT=$?
 
   if [[ $WIKI_EXIT -ne 0 ]]; then
     send_alert "$SCRIPT_NAME: Wiki Page Failed [$HOSTNAME]" \
       "Failed to create wiki page '${WIKI_ROOT_SLUG}/${WIKI_CAT_SLUG}/${WIKI_DATE_SLUG}' for category '${CATEGORY}' on $HOSTNAME. Sprint/review ran but results were not logged to wiki."
     echo "$(date -Iseconds) Warning: wiki page creation failed (exit $WIKI_EXIT)" >&2
+    if [[ -s "$WIKI_ERR" ]]; then
+      echo "$(date -Iseconds) Wiki stderr (last 20 lines):" >&2
+      tail -20 "$WIKI_ERR" >&2
+    fi
   else
     echo "$(date -Iseconds) Wiki page created: ${WIKI_ROOT_SLUG}/${WIKI_CAT_SLUG}/${WIKI_DATE_SLUG}"
   fi
+  rm -f "$WIKI_ERR"
 fi
 
 if [[ $EXIT_CODE -ne 0 ]]; then

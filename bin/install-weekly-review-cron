@@ -177,11 +177,12 @@ chmod 600 "$LOG_FILE"
 CRON_LINE="$MINUTE $HOUR * * $DOW set -a; . \"$ENV_FILE\"; set +a; export PATH=\"\$HOME/.local/bin:\$PATH\"; \"$REVIEW_SCRIPT\" \"$TARGET_DIR\" -c \"$CATEGORY\" >> \"$LOG_FILE\" 2>&1"
 
 # --- Install ---
-COMMENT="# weekly-pr-review: $CATEGORY ($TARGET_DIR) ${DOW_NAME}s at $TIME"
+ACTUAL_TIME=$(printf '%02d:%02d' "$HOUR" "$MINUTE")
+COMMENT="# weekly-pr-review: $CATEGORY ($TARGET_DIR) ${DOW_NAME}s at $ACTUAL_TIME"
 (crontab -l 2>/dev/null || true; echo ""; echo "$COMMENT"; echo "$CRON_LINE") | crontab -
 
 echo "Cron job installed:"
-echo "  Schedule: ${DOW_NAME}s at $TIME"
+echo "  Schedule: ${DOW_NAME}s at $ACTUAL_TIME"
 echo "  Directory: $TARGET_DIR"
 echo "  Category: $CATEGORY"
 echo "  Log file: $LOG_FILE"
