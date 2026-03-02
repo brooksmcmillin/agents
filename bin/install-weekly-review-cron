@@ -111,9 +111,9 @@ fi
 HOUR="${TIME%%:*}"
 MINUTE="${TIME##*:}"
 
-# --- Validate category (reject shell-special characters) ---
-if [[ "$CATEGORY" =~ [\"\$\`\\%] ]]; then
-  echo "Error: category name must not contain double quotes, dollar signs, backticks, backslashes, or percent signs" >&2
+# --- Validate category (reject shell-special characters and control chars) ---
+if [[ "$CATEGORY" =~ [\"\$\`\\%] ]] || [[ "$CATEGORY" == *$'\n'* ]] || [[ "$CATEGORY" == *$'\r'* ]]; then
+  echo "Error: category name must not contain double quotes, dollar signs, backticks, backslashes, percent signs, or newlines" >&2
   exit 1
 fi
 
