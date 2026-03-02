@@ -37,19 +37,14 @@ DEFAULT_MCP_RELAY_URL = "https://mcp-relay.brooksmcmillin.com/mcp"
 RESERVED_RELAY_SENDER_NAMES: frozenset[str] = frozenset(
     {
         "system",
-        "System",
-        "SYSTEM",
         "admin",
-        "Admin",
-        "ADMIN",
         "root",
-        "Root",
-        "ROOT",
         "relay",
-        "Relay",
-        "RELAY",
     }
 )
+# Comparison in validate_relay_sender() is case-insensitive (casefold).
+# This frozenset stores lowercase canonical names only; do not add explicit
+# case variants — they are unnecessary with casefold comparison.
 
 # Service identifiers
 SERVICE_NAME_SLACK_ADAPTER = "slack-adapter"
@@ -208,27 +203,41 @@ def validate_relay_sender(sender: str) -> str:
     The sender field is UNTRUSTED and ADVISORY ONLY. Use it only for
     informational display, not for authorization.
 
+    Comparison is case-insensitive and strips leading/trailing whitespace so
+    that variants like ``"SYSTEM"``, ``"sYsTeM"``, or ``" system "`` are all
+    rejected alongside the canonical lowercase form.
+
     Args:
         sender: The proposed sender name (e.g. an agent's class name).
 
     Returns:
-        The sender string if it is not a reserved name.
+        The sender string (unchanged, including original casing) if it passes
+        validation.
 
     Raises:
-        ValueError: If the sender matches a reserved name in
-            RESERVED_RELAY_SENDER_NAMES.
+        ValueError: If ``sender`` is empty/whitespace-only, or if its stripped
+            casefolded form matches any entry in ``RESERVED_RELAY_SENDER_NAMES``.
 
     Example:
         # Safe — returns the name unchanged
         validate_relay_sender("ChatbotAgent")
 
-        # Raises ValueError — "system" is reserved
+        # All raise ValueError — "system" is reserved regardless of casing
         validate_relay_sender("system")
+        validate_relay_sender("SYSTEM")
+        validate_relay_sender("sYsTeM")
+        validate_relay_sender(" system ")
     """
-    if sender in RESERVED_RELAY_SENDER_NAMES:
+    stripped = sender.strip()
+    if not stripped:
+        raise ValueError(
+            "Relay sender must not be empty or whitespace-only. "
+            "Use your agent's canonical class name (e.g. 'ChatbotAgent')."
+        )
+    if stripped.casefold() in {n.casefold() for n in RESERVED_RELAY_SENDER_NAMES}:
         raise ValueError(
             f"Relay sender '{sender}' is a reserved name and must not be used by agents. "
-            f"Reserved names: {sorted(RESERVED_RELAY_SENDER_NAMES)}. "
+            f"Reserved base names: {sorted(RESERVED_RELAY_SENDER_NAMES)}. "
             "Use your agent's own canonical class name instead (e.g. 'ChatbotAgent'). "
             "Note: the sender field is advisory-only and cannot be authenticated by the "
             "relay server — do not use it for authorization decisions."
