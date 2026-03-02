@@ -46,9 +46,11 @@ from .constants import (
     MODEL_ALIASES,
     NETWORK_ADMIN_TOOLS,
     RAG_TOOLS,
+    RESERVED_RELAY_SENDER_NAMES,
     SMS_TOOLS,
     WEB_RESEARCH_TOOLS,
     resolve_model,
+    validate_relay_sender,
 )
 from .env_utils import check_env_vars, env_file_exists
 from .gh import REPO_RE, run_gh, validate_repo
@@ -81,6 +83,7 @@ __all__ = [
     "NETWORK_ADMIN_TOOLS",
     "RAG_TOOLS",
     "REPO_RE",
+    "RESERVED_RELAY_SENDER_NAMES",
     "SMS_TOOLS",
     "SSRFValidator",
     "WEB_RESEARCH_TOOLS",
@@ -101,6 +104,7 @@ __all__ = [
     "setup_logging",
     "strip_and_parse_json",
     "strip_markdown_fences",
+    "validate_relay_sender",
     "validate_repo",
 ]
 __version__ = "0.1.0"
