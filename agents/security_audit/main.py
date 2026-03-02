@@ -22,12 +22,7 @@ SecurityAuditAgent = create_simple_agent(
     name="SecurityAuditAgent",
     system_prompt=SYSTEM_PROMPT,
     greeting=USER_GREETING_PROMPT,
-    allowed_tools=(
-        FILESYSTEM_TOOLS
-        + MEMORY_TOOLS
-        + COMMUNICATION_TOOLS
-        + ["fetch_web_content"]
-    ),
+    allowed_tools=(FILESYSTEM_TOOLS + MEMORY_TOOLS + COMMUNICATION_TOOLS + ["fetch_web_content"]),
 )
 
 if __name__ == "__main__":
