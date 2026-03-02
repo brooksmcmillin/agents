@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+#
+# install-sprint-cron - Install a daily cron job for sprint-or-review.
+#
+# Idempotent per directory: safe to run multiple times. Will not create a
+# duplicate entry if a cron job already exists for the same target directory.
+#
+# Usage:
+#   install-sprint-cron <directory> <category> <HH:MM>
+#
+# Examples:
+#   install-sprint-cron ~/build/agents "Code Quality" 02:30
+#   install-sprint-cron ~/build/taskmanager "Task Manager" 03:00
+#
+# To list installed jobs:
+#   crontab -l | grep sprint-or-review
+#
+# To remove a job:
+#   crontab -l | grep -v '<directory>' | crontab -
+#
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SPRINT_SCRIPT="$SCRIPT_DIR/sprint-or-review"
+ENV_FILE="$(dirname "$SCRIPT_DIR")/.env"
+LOG_DIR="$HOME/.local/log"
+
+usage() {
+  cat <<'EOF'
+Usage: install-sprint-cron <directory> <category> <HH:MM>
+
+Install a daily cron job that runs sprint-or-review on the given directory.
+
+Arguments:
+  directory   Path to the git repository to sprint/review
+  category    TaskManager category/project name (quote if it has spaces)
+  HH:MM       Time to run daily in 24-hour format (e.g., 02:30, 15:00)
+
+Options:
+  -h, --help  Show this help
+
+Only one cron job is allowed per directory. Re-running with the same
+directory will report the existing job and exit without changes.
+
+Examples:
+  install-sprint-cron ~/build/agents "Code Quality" 02:30
+  install-sprint-cron ~/build/taskmanager "Task Manager" 03:00
+EOF
+  exit 0
+}
+
+# --- Parse args ---
+[[ $# -eq 0 ]] && usage
+[[ "$1" == "-h" || "$1" == "--help" ]] && usage
+
+if [[ $# -lt 3 ]]; then
+  echo "Error: expected 3 arguments: <directory> <category> <HH:MM>" >&2
+  echo "Run with --help for usage." >&2
+  exit 1
+fi
+
+TARGET_DIR="$1"
+CATEGORY="$2"
+TIME="$3"
+
+# --- Validate time format ---
+if ! [[ "$TIME" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]]; then
+  echo "Error: time must be HH:MM in 24-hour format (e.g., 02:30, 15:00), got '$TIME'" >&2
+  exit 1
+fi
+
+HOUR="${TIME%%:*}"
+MINUTE="${TIME##*:}"
+
+# Strip leading zeros for cron (08 -> 8)
+HOUR=$((10#$HOUR))
+MINUTE=$((10#$MINUTE))
+
+# --- Validate directory ---
+TARGET_DIR=$(realpath "$TARGET_DIR" 2>/dev/null || echo "$TARGET_DIR")
+if [[ ! -d "$TARGET_DIR" ]]; then
+  echo "Error: directory does not exist: $TARGET_DIR" >&2
+  exit 1
+fi
+
+# --- Validate sprint-or-review script ---
+if [[ ! -f "$SPRINT_SCRIPT" ]]; then
+  echo "Error: sprint-or-review not found at $SPRINT_SCRIPT" >&2
+  exit 1
+fi
+
+if [[ ! -x "$SPRINT_SCRIPT" ]]; then
+  echo "Error: sprint-or-review is not executable. Run: chmod +x $SPRINT_SCRIPT" >&2
+  exit 1
+fi
+
+# --- Validate .env ---
+if [[ ! -f "$ENV_FILE" ]]; then
+  echo "Error: $ENV_FILE not found. Copy .env.example to .env and configure it." >&2
+  exit 1
+fi
+
+if ! grep -qE '^\s*NTFY_TOKEN=.+' "$ENV_FILE"; then
+  echo "Error: NTFY_TOKEN not found (or commented out) in $ENV_FILE." >&2
+  exit 1
+fi
+
+# --- Check for existing job for this directory ---
+# Use the resolved TARGET_DIR as the uniqueness key
+CRON_MARKER="sprint-or-review.*$(printf '%s' "$TARGET_DIR" | sed 's/[[\.*^$()+?{|]/\\&/g')"
+
+if crontab -l 2>/dev/null | grep -qE "$CRON_MARKER"; then
+  echo "Cron job already exists for $TARGET_DIR. No changes made."
+  crontab -l | grep -F "$TARGET_DIR" | grep -F "sprint-or-review"
+  exit 0
+fi
+
+# --- Ensure log directory exists ---
+mkdir -p "$LOG_DIR"
+
+LOG_FILE="$LOG_DIR/sprint-or-review.log"
+touch "$LOG_FILE"
+chmod 600 "$LOG_FILE"
+
+# --- Build cron line ---
+# Source .env for NTFY_TOKEN, set PATH to include ~/.local/bin (for claude)
+CRON_LINE="$MINUTE $HOUR * * * set -a; . \"$ENV_FILE\"; set +a; export PATH=\"\$HOME/.local/bin:\$PATH\"; \"$SPRINT_SCRIPT\" \"$TARGET_DIR\" -c \"$CATEGORY\" >> \"$LOG_FILE\" 2>&1"
+
+# --- Install ---
+COMMENT="# sprint-or-review: $CATEGORY ($TARGET_DIR) daily at $TIME"
+(crontab -l 2>/dev/null; echo ""; echo "$COMMENT"; echo "$CRON_LINE") | crontab -
+
+echo "Cron job installed:"
+echo "  Schedule: daily at $TIME"
+echo "  Directory: $TARGET_DIR"
+echo "  Category: $CATEGORY"
+echo "  Log file: $LOG_FILE"
+echo ""
+echo "Verify with: crontab -l | grep sprint-or-review"

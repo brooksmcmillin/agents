@@ -1,0 +1,600 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Sprint-or-Review: Try to sprint on open tasks first, fall back to code review.
+# Creates a wiki page documenting the results of whichever operation ran.
+#
+# Usage:
+#   sprint-or-review ~/build/agents -c "Code Quality"
+#
+# Designed for cron. Sends ntfy alerts on any failure that would otherwise be silent.
+
+SCRIPT_NAME="sprint-or-review"
+CREDENTIALS_FILE="${HOME}/.claude/.credentials.json"
+NTFY_URL="https://ntfy.brooksmcmillin.com/mcp-alerts"
+AGENTS_DIR="${HOME}/.claude/agents"
+HOSTNAME="$(hostname 2>/dev/null || cat /etc/hostname 2>/dev/null || echo 'unknown')"
+TODAY=$(date +%Y-%m-%d)
+
+# Load NTFY_TOKEN from .env if not already set
+if [[ -z "${NTFY_TOKEN:-}" && -f "${HOME}/build/agents/.env" ]]; then
+  NTFY_TOKEN=$(grep -m1 '^NTFY_TOKEN=' "${HOME}/build/agents/.env" | cut -d= -f2-)
+fi
+
+# --- Alert helper: send push notification on failure ---
+send_alert() {
+  local title="$1" message="$2" priority="${3:-high}"
+  if [[ -z "${NTFY_TOKEN:-}" ]]; then
+    echo "Warning: NTFY_TOKEN not set, cannot send alert: $title" >&2
+    return 0
+  fi
+  curl -sf --max-time 10 \
+    -H "Authorization: Bearer ${NTFY_TOKEN}" \
+    -H "Title: $title" \
+    -H "Priority: $priority" \
+    -H "Tags: warning" \
+    -d "$message" \
+    "$NTFY_URL" >/dev/null 2>&1 || echo "Warning: failed to send ntfy alert" >&2
+}
+
+# --- Code review agents ---
+REVIEW_AGENTS=(
+  code-optimizer
+  dependency-auditor
+  doc-auditor
+  security-code-reviewer
+  test-coverage-checker
+)
+
+usage() {
+  cat <<'EOF'
+Usage: sprint-or-review <directory> [options]
+
+Try to sprint on open tasks from a TaskManager project. If no eligible
+tasks exist, run code review agents and create new tasks instead.
+
+Creates a wiki page documenting the results of whichever operation ran.
+
+Options:
+  -c, --category NAME   TaskManager project/category (required)
+  -m, --max-tasks NUM   Max tasks to sprint on (default: 4)
+  -n, --per-day NUM     Code review: tasks due per day (default: 2)
+  -s, --start DATE      Code review: start date for due dates (default: tomorrow)
+  -a, --agents AGENTS   Code review: comma-separated agents (default: all 5)
+  -d, --dry-run         Print the claude command without running it
+  -h, --help            Show this help
+
+Available review agents:
+  code-optimizer, dependency-auditor, doc-auditor,
+  security-code-reviewer, test-coverage-checker
+
+Examples:
+  sprint-or-review ~/build/agents -c "Code Quality"
+  sprint-or-review ~/build/agents -c "Security" -m 2
+  sprint-or-review ~/build/agents -c "Code Review" -a security-code-reviewer
+  sprint-or-review ~/build/agents -c "Code Review" --dry-run
+EOF
+  exit 0
+}
+
+# --- Preflight: verify required commands ---
+check_prerequisites() {
+  local missing=()
+  for cmd in claude python3 curl git gh; do
+    if ! command -v "$cmd" &>/dev/null; then
+      missing+=("$cmd")
+    fi
+  done
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    local msg="Missing required commands: ${missing[*]}"
+    send_alert "$SCRIPT_NAME: Missing Dependencies [$HOSTNAME]" "$msg"
+    echo "Error: $msg" >&2
+    exit 1
+  fi
+}
+
+# --- Preflight: verify TaskManager MCP OAuth token ---
+check_mcp_token() {
+  if [[ ! -f "$CREDENTIALS_FILE" ]]; then
+    send_alert "$SCRIPT_NAME: Credentials Missing [$HOSTNAME]" \
+      "Credentials file not found at $CREDENTIALS_FILE on $HOSTNAME."
+    echo "Error: credentials file not found at $CREDENTIALS_FILE" >&2
+    return 1
+  fi
+
+  local token_info
+  token_info=$(python3 -c "
+import json, sys
+creds = json.load(open('$CREDENTIALS_FILE'))
+for key, val in creds.get('mcpOAuth', {}).items():
+    if val.get('serverName') == 'taskmanager':
+        print(val.get('accessToken', ''))
+        print(val.get('expiresAt', '0'))
+        sys.exit(0)
+sys.exit(1)
+" 2>/dev/null) || {
+    send_alert "$SCRIPT_NAME: No Token [$HOSTNAME]" \
+      "No taskmanager OAuth token found in credentials on $HOSTNAME. Run mcp-device-auth.sh."
+    echo "Error: no taskmanager token in credentials" >&2
+    return 1
+  }
+
+  local access_token expires_at now_ms buffer_ms
+  access_token=$(echo "$token_info" | sed -n '1p')
+  expires_at=$(echo "$token_info" | sed -n '2p')
+  now_ms=$(($(date +%s) * 1000))
+
+  if [[ -z "$access_token" ]]; then
+    send_alert "$SCRIPT_NAME: Empty Token [$HOSTNAME]" \
+      "TaskManager access token is empty on $HOSTNAME. Re-authenticate."
+    echo "Error: taskmanager access token is empty" >&2
+    return 1
+  fi
+
+  buffer_ms=$((5 * 60 * 1000))
+  if (( now_ms + buffer_ms > expires_at )); then
+    send_alert "$SCRIPT_NAME: Token Expired [$HOSTNAME]" \
+      "TaskManager OAuth token expired or expiring within 5 min on $HOSTNAME. Re-authenticate at https://mcp-auth.brooksmcmillin.com/" "urgent"
+    echo "Error: taskmanager OAuth token is expired or expiring within 5 minutes" >&2
+    return 1
+  fi
+
+  # Validate token against introspection endpoint
+  local introspect_result active
+  introspect_result=$(printf 'token=%s' "$access_token" | \
+    curl -sf --max-time 10 \
+    -X POST "https://mcp-auth.brooksmcmillin.com/introspect" \
+    --data-binary @- 2>/dev/null) || {
+    echo "Warning: could not reach introspection endpoint, trusting local expiry" >&2
+    return 0
+  }
+
+  active=$(echo "$introspect_result" | python3 -c "import json,sys; print(json.load(sys.stdin).get('active', False))" 2>/dev/null)
+  if [[ "$active" != "True" ]]; then
+    send_alert "$SCRIPT_NAME: Token Revoked [$HOSTNAME]" \
+      "TaskManager OAuth token is revoked or invalid on $HOSTNAME (introspection: active=false). Re-authenticate." "urgent"
+    echo "Error: taskmanager OAuth token is revoked or invalid" >&2
+    return 1
+  fi
+
+  return 0
+}
+
+# --- Parse args ---
+[[ $# -eq 0 ]] && usage
+[[ "$1" == "-h" || "$1" == "--help" ]] && usage
+TARGET_DIR="$1"; shift
+
+MAX_TASKS=4
+PER_DAY=2
+START_DATE=$(date -d "+1 day" +%Y-%m-%d 2>/dev/null || date -v+1d +%Y-%m-%d)
+CATEGORY=""
+DRY_RUN=false
+SELECTED_AGENTS=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -c|--category)  CATEGORY="$2"; shift 2 ;;
+    -m|--max-tasks) MAX_TASKS="$2"; shift 2 ;;
+    -n|--per-day)   PER_DAY="$2"; shift 2 ;;
+    -s|--start)     START_DATE="$2"; shift 2 ;;
+    -a|--agents)    IFS=',' read -ra SELECTED_AGENTS <<< "$2"; shift 2 ;;
+    -d|--dry-run)   DRY_RUN=true; shift ;;
+    -h|--help)      usage ;;
+    *)              echo "Unknown option: $1" >&2; usage ;;
+  esac
+done
+
+if [[ -z "$CATEGORY" ]]; then
+  echo "Error: --category is required" >&2
+  exit 1
+fi
+
+if ! [[ "$MAX_TASKS" =~ ^[1-9][0-9]*$ ]]; then
+  echo "Error: --max-tasks must be a positive integer, got '$MAX_TASKS'" >&2
+  exit 1
+fi
+
+if ! [[ "$PER_DAY" =~ ^[1-9][0-9]*$ ]]; then
+  echo "Error: --per-day must be a positive integer, got '$PER_DAY'" >&2
+  exit 1
+fi
+
+if ! [[ "$START_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+  echo "Error: --start must be YYYY-MM-DD format, got '$START_DATE'" >&2
+  exit 1
+fi
+
+TARGET_DIR=$(realpath "$TARGET_DIR")
+if [[ ! -d "$TARGET_DIR" ]]; then
+  send_alert "$SCRIPT_NAME: Invalid Directory [$HOSTNAME]" \
+    "Target directory does not exist: $TARGET_DIR"
+  echo "Error: $TARGET_DIR is not a directory" >&2
+  exit 1
+fi
+
+# --- Preflight checks ---
+check_prerequisites
+
+if ! $DRY_RUN; then
+  if ! check_mcp_token; then
+    exit 1
+  fi
+fi
+
+# Resolve review agents
+if [[ ${#SELECTED_AGENTS[@]} -gt 0 ]]; then
+  RUN_AGENTS=("${SELECTED_AGENTS[@]}")
+else
+  RUN_AGENTS=("${REVIEW_AGENTS[@]}")
+fi
+
+if [[ ! -d "$AGENTS_DIR" ]]; then
+  send_alert "$SCRIPT_NAME: Agents Missing [$HOSTNAME]" \
+    "Agents directory not found: $AGENTS_DIR"
+  echo "Error: agents directory not found: $AGENTS_DIR" >&2
+  exit 1
+fi
+
+for agent in "${RUN_AGENTS[@]}"; do
+  if ! [[ "$agent" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+    echo "Error: invalid agent name '${agent}'" >&2
+    exit 1
+  fi
+  if [[ ! -f "${AGENTS_DIR}/${agent}.md" ]]; then
+    send_alert "$SCRIPT_NAME: Agent Not Found [$HOSTNAME]" \
+      "Agent '${agent}' not found at ${AGENTS_DIR}/${agent}.md"
+    echo "Error: agent '${agent}' not found at ${AGENTS_DIR}/${agent}.md" >&2
+    exit 1
+  fi
+done
+
+AGENT_LIST=$(printf ", %s" "${RUN_AGENTS[@]}")
+AGENT_LIST="${AGENT_LIST:2}"
+
+# Compute slugs used for worktree naming and wiki page
+CATEGORY_SLUG=$(echo "$CATEGORY" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/--*/-/g; s/^-//; s/-$//')
+
+# Wiki page hierarchy: automation-log / <category> / <date>
+WIKI_ROOT_SLUG="automation-log"
+WIKI_ROOT_TITLE="Automation Log"
+WIKI_CAT_SLUG="${CATEGORY_SLUG}"
+WIKI_CAT_TITLE="${CATEGORY}"
+WIKI_DATE_SLUG="${TODAY}"
+WIKI_DATE_TITLE="${CATEGORY} (${TODAY})"
+
+# --- Set up worktree from latest default branch ---
+if ! git -C "$TARGET_DIR" rev-parse --is-inside-work-tree &>/dev/null; then
+  send_alert "$SCRIPT_NAME: Not a Git Repo [$HOSTNAME]" \
+    "$TARGET_DIR is not a git repository on $HOSTNAME."
+  echo "Error: $TARGET_DIR is not a git repository" >&2
+  exit 1
+fi
+
+DEFAULT_BRANCH=$(git -C "$TARGET_DIR" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null \
+  | sed 's@^refs/remotes/origin/@@') || DEFAULT_BRANCH="main"
+WORKTREES_BASE="$(dirname "$TARGET_DIR")/worktrees"
+WORK_DIR="${WORKTREES_BASE}/sprint-or-review-${CATEGORY_SLUG}"
+
+cleanup_worktree() {
+  if [[ -n "${WORK_DIR:-}" && -d "$WORK_DIR" ]]; then
+    echo "$(date -Iseconds) Cleaning up base worktree at $WORK_DIR"
+    git -C "$TARGET_DIR" worktree remove "$WORK_DIR" --force 2>/dev/null || true
+  fi
+}
+
+if ! $DRY_RUN; then
+  echo "$(date -Iseconds) Fetching latest ${DEFAULT_BRANCH} from origin..."
+  if ! git -C "$TARGET_DIR" fetch origin "$DEFAULT_BRANCH" --quiet; then
+    send_alert "$SCRIPT_NAME: Git Fetch Failed [$HOSTNAME]" \
+      "Failed to fetch origin/${DEFAULT_BRANCH} in $TARGET_DIR on $HOSTNAME."
+    echo "Error: git fetch origin ${DEFAULT_BRANCH} failed" >&2
+    exit 1
+  fi
+
+  # Remove stale worktree from a previous run
+  if [[ -d "$WORK_DIR" ]]; then
+    echo "$(date -Iseconds) Removing stale worktree at $WORK_DIR"
+    git -C "$TARGET_DIR" worktree remove "$WORK_DIR" --force 2>/dev/null || true
+  fi
+
+  mkdir -p "$WORKTREES_BASE"
+  if ! git -C "$TARGET_DIR" worktree add "$WORK_DIR" "origin/${DEFAULT_BRANCH}" --detach --quiet; then
+    send_alert "$SCRIPT_NAME: Worktree Failed [$HOSTNAME]" \
+      "Failed to create worktree at $WORK_DIR from origin/${DEFAULT_BRANCH} on $HOSTNAME."
+    echo "Error: failed to create worktree at $WORK_DIR" >&2
+    exit 1
+  fi
+
+  trap cleanup_worktree EXIT
+  echo "$(date -Iseconds) Created worktree at $WORK_DIR (origin/${DEFAULT_BRANCH})"
+fi
+
+# --- Build prompt ---
+read -r -d '' PROMPT <<PROMPT_EOF || true
+You are running an automated sprint-or-review cycle for the project "${CATEGORY}" on ${WORK_DIR}.
+
+Your working directory is a fresh worktree checked out at the latest origin/${DEFAULT_BRANCH}.
+All work (reading code, running agents, creating sub-worktrees) should happen relative to this directory.
+
+## Phase 1: Check for open tasks
+
+Query TaskManager for open (pending) tasks in category "${CATEGORY}" using get_tasks with status="pending" and category="${CATEGORY}".
+
+If there are eligible tasks (pending, with clear implementable descriptions), take up to ${MAX_TASKS} and proceed to the **Sprint path**.
+
+If there are NO eligible tasks (none found, or all are too vague/large to implement), proceed to the **Code review path**.
+
+---
+
+## Sprint path
+
+For each task (up to ${MAX_TASKS}):
+
+1. Assess if the task is implementable (clear description, reasonable scope). Skip vague or huge tasks.
+2. Choose a model based on complexity:
+   - **haiku**: trivial (typo, config, simple one-file edits, doc updates)
+   - **sonnet**: moderate (single feature, bug fix, tests, straightforward refactor)
+   - **opus**: complex (multi-file architecture, ambiguous requirements, deep codebase understanding)
+3. Fetch any linked wiki pages using get_task_wiki_pages and get_wiki_page.
+4. Slugify the task title and create a worktree using an absolute path:
+   \`\`\`
+   git worktree add ${WORKTREES_BASE}/feat/<slug> -b feat/<slug>
+   \`\`\`
+5. Spawn a sub-agent (Agent tool, subagent_type: "general-purpose", with chosen model) to:
+   - Work in: ${WORKTREES_BASE}/feat/<slug>
+   - Implement the fix/feature in the worktree
+   - Run tests, fix failures
+   - Commit with: \`feat(scope): description (task #<ID>)\` and Co-Authored-By
+   - Push and create PR with \`gh pr create --fill\`
+   - Include task link in PR body: https://todo.brooksmcmillin.com/task/<ID>
+   - Add PR URL as a TaskManager comment on the task
+   - Monitor CI (up to 5 fix iterations), check for review comments
+   - If CI passes and no pending required reviews: \`gh pr merge --squash --auto\`
+   - Mark task completed in TaskManager if merged
+
+Spawn all sub-agents in parallel.
+
+After all sub-agents finish:
+- Clean up worktrees: \`git worktree remove ${WORKTREES_BASE}/feat/<slug>\`
+- For merged tasks only: \`git branch -D feat/<slug> && git push origin --delete feat/<slug>\`
+- Leave branches for unmerged PRs
+
+---
+
+## Code review path
+
+Run these code review agents on ${WORK_DIR}: ${AGENT_LIST}.
+
+For each agent, spawn it as a subagent and let it analyze the codebase.
+
+After all agents complete, collect every finding and create tasks in TaskManager:
+- Category: ${CATEGORY}
+- Priority based on severity (high findings = urgent/high, medium = medium, low = low)
+- Schedule due dates: ${PER_DAY} tasks per day starting ${START_DATE}
+- Each task title should identify the agent, file, and issue
+- Each task description should include the finding details and recommended fix
+- Use create_tasks for batch efficiency
+
+---
+
+## Final output
+
+When finished, output a structured summary. This summary will be captured and used to create a wiki page, so include all relevant details:
+
+**For sprint path**, output a markdown table:
+\`\`\`
+## Sprint Results
+| Task ID | Title | Status | PR URL | Notes |
+|---------|-------|--------|--------|-------|
+\`\`\`
+Where Status is one of: merged, awaiting-review, ci-failing, failed, skipped.
+
+**For code review path**, output a markdown table:
+\`\`\`
+## Code Review Results
+Agents run: [list]
+
+| Task ID | Title | Priority | Due Date |
+|---------|-------|----------|----------|
+\`\`\`
+
+Do NOT create a wiki page yourself — that is handled separately after you finish.
+PROMPT_EOF
+
+# --- Allowed tools (union of sprint + code review) ---
+ALLOWED_TOOLS=(
+  # Core
+  "Read"
+  "Write"
+  "Edit"
+  "Glob"
+  "Grep"
+  "Agent"
+
+  # Sprint: git and gh
+  "Bash(git *)"
+  "Bash(gh *)"
+
+  # Sprint: build and test
+  "Bash(make *)"
+  "Bash(npm test*)"
+  "Bash(npm run *)"
+  "Bash(npx *)"
+  "Bash(cargo test*)"
+  "Bash(cargo build*)"
+  "Bash(uv run *)"
+  "Bash(python -m pytest *)"
+
+  # Code review: static analysis
+  "Bash(radon *)"
+  "Bash(vulture *)"
+  "Bash(jscpd *)"
+  "Bash(pylint *)"
+  "Bash(pip-audit *)"
+  "Bash(safety *)"
+  "Bash(npm audit *)"
+  "Bash(cargo audit *)"
+  "Bash(wc *)"
+  "Bash(find *)"
+  "Bash(check-optimizer-tools*)"
+
+  # TaskManager MCP
+  "mcp__taskmanager__get_tasks"
+  "mcp__taskmanager__get_task"
+  "mcp__taskmanager__search_tasks"
+  "mcp__taskmanager__create_task"
+  "mcp__taskmanager__create_tasks"
+  "mcp__taskmanager__create_project"
+  "mcp__taskmanager__update_task"
+  "mcp__taskmanager__complete_task"
+  "mcp__taskmanager__add_task_comment"
+  "mcp__taskmanager__get_task_wiki_pages"
+  "mcp__taskmanager__get_wiki_page"
+  "mcp__taskmanager__list_dependencies"
+)
+
+CMD=(claude -p "$PROMPT" --allowedTools "${ALLOWED_TOOLS[@]}")
+
+if $DRY_RUN; then
+  echo "Would run (in worktree at $WORK_DIR):"
+  echo ""
+  printf "  %q" "${CMD[@]}"
+  echo ""
+  exit 0
+fi
+
+echo "$(date -Iseconds) Starting $SCRIPT_NAME: category=${CATEGORY}, max_tasks=${MAX_TASKS}, dir=${WORK_DIR}"
+
+# Run claude from the worktree so its CWD is the fresh checkout
+cd "$WORK_DIR"
+
+# Capture output for wiki page creation while still showing it to the user
+OUTPUT_FILE=$(mktemp "${TMPDIR:-/tmp}/${SCRIPT_NAME}.XXXXXX")
+# Extend trap to clean up temp file too (evaluated at exit time, not definition time)
+trap 'rm -f "$OUTPUT_FILE"; cleanup_worktree' EXIT
+
+# --- Phase 1: Run sprint or code review ---
+EXIT_CODE=0
+"${CMD[@]}" | tee "$OUTPUT_FILE" || EXIT_CODE=$?
+
+if [[ $EXIT_CODE -ne 0 ]]; then
+  send_alert "$SCRIPT_NAME: Claude Failed [$HOSTNAME]" \
+    "claude -p exited with code $EXIT_CODE for category '${CATEGORY}' on $HOSTNAME. Worktree: ${WORK_DIR}. Check logs."
+  echo "$(date -Iseconds) Error: claude exited with code $EXIT_CODE" >&2
+  # Still attempt wiki page creation with whatever output we got
+fi
+
+# --- Phase 2: Create wiki page from captured output ---
+# This runs as a separate, lightweight claude call so it can't be starved
+# of turns by a heavy sprint run.
+CAPTURED_OUTPUT=$(cat "$OUTPUT_FILE")
+
+if [[ -z "$CAPTURED_OUTPUT" ]]; then
+  send_alert "$SCRIPT_NAME: No Output [$HOSTNAME]" \
+    "claude -p produced no output for category '${CATEGORY}' on $HOSTNAME. Wiki page not created."
+  echo "$(date -Iseconds) Warning: no output captured, skipping wiki page creation" >&2
+else
+  echo "$(date -Iseconds) Creating wiki page: ${WIKI_ROOT_SLUG}/${WIKI_CAT_SLUG}/${WIKI_DATE_SLUG}"
+
+  read -r -d '' WIKI_PROMPT <<WIKI_EOF || true
+Create a hierarchical wiki page in TaskManager to log the results of an automation run.
+
+The page structure is: automation-log / <category> / <date>
+
+Follow these steps IN ORDER:
+
+### Step 1: Ensure the root page exists
+Search for a wiki page with slug "${WIKI_ROOT_SLUG}" using search_wiki_pages.
+- If it does NOT exist, create it:
+  - title: "${WIKI_ROOT_TITLE}"
+  - slug: "${WIKI_ROOT_SLUG}"
+  - content: "Index of automated sprint and code review runs."
+- Note its page ID (from the search result or create response).
+
+### Step 2: Ensure the category page exists
+Search for a wiki page with slug "${WIKI_CAT_SLUG}" using search_wiki_pages.
+- If it does NOT exist, create it:
+  - title: "${WIKI_CAT_TITLE}"
+  - slug: "${WIKI_CAT_SLUG}"
+  - parent_id: (the root page ID from step 1)
+  - content: "Automation logs for ${WIKI_CAT_TITLE}."
+- Note its page ID.
+
+### Step 3: Create or update the date page
+Search for a wiki page with slug "${WIKI_DATE_SLUG}" using search_wiki_pages.
+- If it exists AND is a child of the category page, update it with update_wiki_page.
+- If it does NOT exist, create it:
+  - title: "${WIKI_DATE_TITLE}"
+  - slug: "${WIKI_DATE_SLUG}"
+  - parent_id: (the category page ID from step 2)
+
+### Step 4: Page content
+Set the date page content based on the automation output below.
+
+Here is the raw output from the automation run:
+
+---
+${CAPTURED_OUTPUT}
+---
+
+Format the page content as clean markdown. Use one of these structures:
+
+**If it was a sprint run (tasks implemented, PRs created):**
+
+# Sprint Results: ${CATEGORY} (${TODAY})
+
+## Summary
+- Tasks attempted: (count from output)
+- Merged: (count)
+- Awaiting review: (count)
+- Failed/skipped: (count)
+
+## Results
+
+| Task | Title | Status | PR | Notes |
+|------|-------|--------|----|-------|
+| [#ID](https://todo.brooksmcmillin.com/task/ID) | title | merged/awaiting-review/ci-failing/failed/skipped | PR URL | details |
+
+**If it was a code review run (findings reported, tasks created):**
+
+# Code Review Results: ${CATEGORY} (${TODAY})
+
+## Summary
+- Agents run: (list from output)
+- Total findings: (count)
+- Tasks created: (count)
+
+## Tasks Created
+
+| Task | Title | Priority | Due Date |
+|------|-------|----------|----------|
+| [#ID](https://todo.brooksmcmillin.com/task/ID) | title | priority | date |
+
+Extract the actual data from the output above and fill in the tables. Do not use placeholder values.
+WIKI_EOF
+
+  WIKI_TOOLS=(
+    "mcp__taskmanager__search_wiki_pages"
+    "mcp__taskmanager__create_wiki_page"
+    "mcp__taskmanager__update_wiki_page"
+  )
+
+  WIKI_EXIT=0
+  claude -p "$WIKI_PROMPT" --allowedTools "${WIKI_TOOLS[@]}" >/dev/null 2>&1 || WIKI_EXIT=$?
+
+  if [[ $WIKI_EXIT -ne 0 ]]; then
+    send_alert "$SCRIPT_NAME: Wiki Page Failed [$HOSTNAME]" \
+      "Failed to create wiki page '${WIKI_ROOT_SLUG}/${WIKI_CAT_SLUG}/${WIKI_DATE_SLUG}' for category '${CATEGORY}' on $HOSTNAME. Sprint/review ran but results were not logged to wiki."
+    echo "$(date -Iseconds) Warning: wiki page creation failed (exit $WIKI_EXIT)" >&2
+  else
+    echo "$(date -Iseconds) Wiki page created: ${WIKI_ROOT_SLUG}/${WIKI_CAT_SLUG}/${WIKI_DATE_SLUG}"
+  fi
+fi
+
+if [[ $EXIT_CODE -ne 0 ]]; then
+  exit $EXIT_CODE
+fi
+
+echo "$(date -Iseconds) $SCRIPT_NAME completed successfully"
+# cleanup runs automatically via EXIT trap
