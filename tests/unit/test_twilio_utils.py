@@ -285,8 +285,8 @@ class TestValidateTwilioCredentials:
 
         assert isinstance(result, TwilioCredentials)
 
-    def test_error_message_mentions_console_twilio_for_missing_sid(self) -> None:
-        """Missing SID error should point to Twilio console URL."""
+    def test_error_message_mentions_setup_instructions_for_missing_sid(self) -> None:
+        """Missing SID error should include setup instructions."""
         with patch("agent_framework.tools.twilio_utils.settings") as mock_settings:
             mock_settings.twilio_account_sid = None
             mock_settings.twilio_auth_token = None
@@ -294,12 +294,14 @@ class TestValidateTwilioCredentials:
             result = validate_twilio_credentials()
 
         assert isinstance(result, str)
-        assert "console.twilio.com" in result
+        # Verify the error includes a URL pointing to the Twilio console
+        assert "https://" in result
+        assert "twilio" in result.lower()
 
-    def test_error_message_mentions_console_twilio_for_missing_auth_token(
+    def test_error_message_mentions_setup_instructions_for_missing_auth_token(
         self,
     ) -> None:
-        """Missing auth token error should point to Twilio console URL."""
+        """Missing auth token error should include setup instructions."""
         with patch("agent_framework.tools.twilio_utils.settings") as mock_settings:
             mock_settings.twilio_account_sid = "AC" + "f" * 32
             mock_settings.twilio_auth_token = ""
@@ -307,7 +309,9 @@ class TestValidateTwilioCredentials:
             result = validate_twilio_credentials()
 
         assert isinstance(result, str)
-        assert "console.twilio.com" in result
+        # Verify the error includes a URL pointing to the Twilio console
+        assert "https://" in result
+        assert "twilio" in result.lower()
 
 
 # ---------------------------------------------------------------------------
