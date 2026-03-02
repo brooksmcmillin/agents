@@ -1,0 +1,604 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Weekly PR Review: Analyze all merged PRs over a time period to catch
+# process issues, security gaps, and trends that human review might miss.
+#
+# Pre-fetches PR data in bash to avoid wasting Claude turns on gh calls.
+# Creates a wiki page documenting the analysis.
+#
+# Usage:
+#   weekly-pr-review ~/build/agents -c "PR Review"
+#   weekly-pr-review ~/build/agents -c "PR Review" --days 14
+#
+# Designed for cron. Sends ntfy alerts on any failure that would otherwise be silent.
+
+SCRIPT_NAME="weekly-pr-review"
+CREDENTIALS_FILE="${HOME}/.claude/.credentials.json"
+NTFY_URL="https://ntfy.brooksmcmillin.com/mcp-alerts"
+HOSTNAME="$(hostname 2>/dev/null || cat /etc/hostname 2>/dev/null || echo 'unknown')"
+TODAY=$(date +%Y-%m-%d)
+
+# Load NTFY_TOKEN from .env if not already set (co-located with the script)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ENV="$(dirname "$SCRIPT_DIR")/.env"
+if [[ -z "${NTFY_TOKEN:-}" && -f "$PROJECT_ENV" ]]; then
+  NTFY_TOKEN=$(grep -m1 '^NTFY_TOKEN=' "$PROJECT_ENV" | cut -d= -f2-)
+fi
+
+# --- Alert helper: send push notification on failure ---
+send_alert() {
+  local title="$1" message="$2" priority="${3:-high}"
+  if [[ -z "${NTFY_TOKEN:-}" ]]; then
+    echo "Warning: NTFY_TOKEN not set, cannot send alert: $title" >&2
+    return 0
+  fi
+  curl -sf --max-time 10 \
+    -H "Authorization: Bearer ${NTFY_TOKEN}" \
+    -H "Title: $title" \
+    -H "Priority: $priority" \
+    -H "Tags: warning" \
+    -d "$message" \
+    "$NTFY_URL" >/dev/null 2>&1 || echo "Warning: failed to send ntfy alert" >&2
+}
+
+usage() {
+  cat <<'EOF'
+Usage: weekly-pr-review <directory> [options]
+
+Analyze all merged PRs over a time period to catch process issues,
+security gaps, and trends that human review might miss.
+
+Pre-fetches PR data before calling Claude to minimize tool-call overhead.
+Creates a wiki page documenting the analysis.
+
+Options:
+  -c, --category NAME   TaskManager project/category (required)
+  --days N              Number of days to look back (default: 7)
+  -d, --dry-run         Print the claude command without running it
+  -h, --help            Show this help
+
+Examples:
+  weekly-pr-review ~/build/agents -c "PR Review"
+  weekly-pr-review ~/build/agents -c "PR Review" --days 14
+  weekly-pr-review ~/build/agents -c "Security Review" --dry-run
+EOF
+  exit 0
+}
+
+# --- Preflight: verify required commands ---
+check_prerequisites() {
+  local missing=()
+  for cmd in claude python3 curl git gh; do
+    if ! command -v "$cmd" &>/dev/null; then
+      missing+=("$cmd")
+    fi
+  done
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    local msg="Missing required commands: ${missing[*]}"
+    send_alert "$SCRIPT_NAME: Missing Dependencies [$HOSTNAME]" "$msg"
+    echo "Error: $msg" >&2
+    exit 1
+  fi
+}
+
+# --- Preflight: verify TaskManager MCP OAuth token ---
+check_mcp_token() {
+  if [[ ! -f "$CREDENTIALS_FILE" ]]; then
+    send_alert "$SCRIPT_NAME: Credentials Missing [$HOSTNAME]" \
+      "Credentials file not found at $CREDENTIALS_FILE on $HOSTNAME."
+    echo "Error: credentials file not found at $CREDENTIALS_FILE" >&2
+    return 1
+  fi
+
+  local token_info
+  token_info=$(python3 - "$CREDENTIALS_FILE" <<'PYEOF'
+import json, sys
+creds = json.load(open(sys.argv[1]))
+for key, val in creds.get("mcpOAuth", {}).items():
+    if val.get("serverName") == "taskmanager":
+        print(val.get("accessToken", ""))
+        print(val.get("expiresAt", "0"))
+        sys.exit(0)
+sys.exit(1)
+PYEOF
+  ) || {
+    send_alert "$SCRIPT_NAME: No Token [$HOSTNAME]" \
+      "No taskmanager OAuth token found in credentials on $HOSTNAME. Run mcp-device-auth.sh."
+    echo "Error: no taskmanager token in credentials" >&2
+    return 1
+  }
+
+  local access_token expires_at now_ms buffer_ms
+  access_token=$(echo "$token_info" | sed -n '1p')
+  expires_at=$(echo "$token_info" | sed -n '2p')
+  now_ms=$(($(date +%s) * 1000))
+
+  if [[ -z "$access_token" ]]; then
+    send_alert "$SCRIPT_NAME: Empty Token [$HOSTNAME]" \
+      "TaskManager access token is empty on $HOSTNAME. Re-authenticate."
+    echo "Error: taskmanager access token is empty" >&2
+    return 1
+  fi
+
+  buffer_ms=$((5 * 60 * 1000))
+  if (( now_ms + buffer_ms > expires_at )); then
+    send_alert "$SCRIPT_NAME: Token Expired [$HOSTNAME]" \
+      "TaskManager OAuth token expired or expiring within 5 min on $HOSTNAME. Re-authenticate at https://mcp-auth.brooksmcmillin.com/" "urgent"
+    echo "Error: taskmanager OAuth token is expired or expiring within 5 minutes" >&2
+    return 1
+  fi
+
+  # Validate token against introspection endpoint
+  local introspect_result active
+  introspect_result=$(printf 'token=%s' "$access_token" | \
+    curl -sf --max-time 10 \
+    -X POST "https://mcp-auth.brooksmcmillin.com/introspect" \
+    --data-binary @- 2>/dev/null) || {
+    echo "Warning: could not reach introspection endpoint, trusting local expiry" >&2
+    return 0
+  }
+
+  active=$(echo "$introspect_result" | python3 -c "import json,sys; print(json.load(sys.stdin).get('active', False))" 2>/dev/null)
+  if [[ "$active" != "True" ]]; then
+    send_alert "$SCRIPT_NAME: Token Revoked [$HOSTNAME]" \
+      "TaskManager OAuth token is revoked or invalid on $HOSTNAME (introspection: active=false). Re-authenticate." "urgent"
+    echo "Error: taskmanager OAuth token is revoked or invalid" >&2
+    return 1
+  fi
+
+  return 0
+}
+
+# --- Parse args ---
+[[ $# -eq 0 ]] && usage
+[[ "$1" == "-h" || "$1" == "--help" ]] && usage
+TARGET_DIR="$1"; shift
+
+CATEGORY=""
+DAYS=7
+DRY_RUN=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -c|--category)  CATEGORY="$2"; shift 2 ;;
+    --days)         DAYS="$2"; shift 2 ;;
+    -d|--dry-run)   DRY_RUN=true; shift ;;
+    -h|--help)      usage ;;
+    *)              echo "Unknown option: $1" >&2; usage ;;
+  esac
+done
+
+if [[ -z "$CATEGORY" ]]; then
+  echo "Error: --category is required" >&2
+  exit 1
+fi
+
+if ! [[ "$DAYS" =~ ^[1-9][0-9]*$ ]]; then
+  echo "Error: --days must be a positive integer, got '$DAYS'" >&2
+  exit 1
+fi
+
+TARGET_DIR=$(realpath "$TARGET_DIR")
+if [[ ! -d "$TARGET_DIR" ]]; then
+  send_alert "$SCRIPT_NAME: Invalid Directory [$HOSTNAME]" \
+    "Target directory does not exist: $TARGET_DIR"
+  echo "Error: $TARGET_DIR is not a directory" >&2
+  exit 1
+fi
+
+# --- Preflight checks ---
+check_prerequisites
+
+if ! $DRY_RUN; then
+  if ! check_mcp_token; then
+    exit 1
+  fi
+fi
+
+# --- Validate git repo and extract owner/repo ---
+if ! git -C "$TARGET_DIR" rev-parse --is-inside-work-tree &>/dev/null; then
+  send_alert "$SCRIPT_NAME: Not a Git Repo [$HOSTNAME]" \
+    "$TARGET_DIR is not a git repository on $HOSTNAME."
+  echo "Error: $TARGET_DIR is not a git repository" >&2
+  exit 1
+fi
+
+REMOTE_URL=$(git -C "$TARGET_DIR" remote get-url origin 2>/dev/null || true)
+if [[ -z "$REMOTE_URL" ]]; then
+  send_alert "$SCRIPT_NAME: Bad Remote [$HOSTNAME]" \
+    "No origin remote found in $TARGET_DIR on $HOSTNAME."
+  echo "Error: no origin remote in $TARGET_DIR" >&2
+  exit 1
+fi
+
+# Extract owner/repo from SSH or HTTPS URLs
+REPO_FULL=""
+if [[ "$REMOTE_URL" =~ github\.com[:/]([^/]+)/([^/.]+)(\.git)?$ ]]; then
+  REPO_FULL="${BASH_REMATCH[1]}/${BASH_REMATCH[2]}"
+else
+  send_alert "$SCRIPT_NAME: Bad Remote [$HOSTNAME]" \
+    "Cannot parse GitHub owner/repo from remote URL '$REMOTE_URL' in $TARGET_DIR on $HOSTNAME."
+  echo "Error: cannot parse GitHub owner/repo from remote: $REMOTE_URL" >&2
+  exit 1
+fi
+
+echo "$(date -Iseconds) Repository: $REPO_FULL ($TARGET_DIR)"
+
+# --- Compute date range ---
+SINCE_DATE=$(date -d "-${DAYS} days" +%Y-%m-%d 2>/dev/null || date -v-${DAYS}d +%Y-%m-%d)
+
+# --- Fetch merged PR list ---
+echo "$(date -Iseconds) Fetching merged PRs since $SINCE_DATE..."
+
+PR_LIST_JSON=""
+if ! PR_LIST_JSON=$(gh pr list \
+  --repo "$REPO_FULL" \
+  --state merged \
+  --search "merged:>=${SINCE_DATE}" \
+  --json number,title,author,mergedAt,additions,deletions,labels,url \
+  --limit 200 2>&1); then
+  send_alert "$SCRIPT_NAME: PR Fetch Failed [$HOSTNAME]" \
+    "Failed to fetch merged PR list from $REPO_FULL on $HOSTNAME: $PR_LIST_JSON"
+  echo "Error: gh pr list failed: $PR_LIST_JSON" >&2
+  exit 1
+fi
+
+PR_COUNT=$(echo "$PR_LIST_JSON" | python3 -c "import json,sys; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
+
+if [[ "$PR_COUNT" -eq 0 ]]; then
+  send_alert "$SCRIPT_NAME: No PRs [$HOSTNAME]" \
+    "Zero merged PRs found in $REPO_FULL since $SINCE_DATE on $HOSTNAME." "default"
+  echo "$(date -Iseconds) No merged PRs found in $REPO_FULL since $SINCE_DATE"
+  exit 0
+fi
+
+echo "$(date -Iseconds) Found $PR_COUNT merged PRs"
+
+# --- Fetch per-PR details (file lists, bot comments, body preview) ---
+echo "$(date -Iseconds) Fetching per-PR details..."
+
+# Use a temp file so stderr (progress) goes to console and stdout (JSON) is captured
+DETAIL_ERR=$(mktemp "${TMPDIR:-/tmp}/${SCRIPT_NAME}-detail-err.XXXXXX")
+
+PR_DETAILS=""
+if ! PR_DETAILS=$(python3 - "$REPO_FULL" "$PR_LIST_JSON" 2>"$DETAIL_ERR" <<'PYEOF'
+import json, subprocess, sys
+
+repo = sys.argv[1]
+prs = json.loads(sys.argv[2])
+
+details = []
+for pr in prs:
+    num = pr["number"]
+    detail = {
+        "number": num,
+        "title": pr.get("title", ""),
+        "author": pr.get("author", {}).get("login", "unknown"),
+        "mergedAt": pr.get("mergedAt", ""),
+        "additions": pr.get("additions", 0),
+        "deletions": pr.get("deletions", 0),
+        "labels": [l.get("name", "") for l in pr.get("labels", [])],
+        "url": pr.get("url", ""),
+    }
+
+    # Fetch file list
+    try:
+        files_out = subprocess.run(
+            ["gh", "pr", "view", str(num), "--repo", repo,
+             "--json", "files", "--jq", ".files[] | {path, additions, deletions}"],
+            capture_output=True, text=True, timeout=30
+        )
+        if files_out.returncode == 0 and files_out.stdout.strip():
+            file_entries = []
+            for line in files_out.stdout.strip().split("\n"):
+                if line.strip():
+                    try:
+                        file_entries.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        pass
+            detail["files"] = file_entries
+        else:
+            detail["files"] = []
+    except Exception:
+        detail["files"] = []
+
+    # Fetch body preview
+    try:
+        body_out = subprocess.run(
+            ["gh", "pr", "view", str(num), "--repo", repo,
+             "--json", "body", "--jq", ".body"],
+            capture_output=True, text=True, timeout=30
+        )
+        if body_out.returncode == 0:
+            body = body_out.stdout.strip()
+            detail["body_preview"] = body[:500] + ("..." if len(body) > 500 else "")
+        else:
+            detail["body_preview"] = ""
+    except Exception:
+        detail["body_preview"] = ""
+
+    # Fetch bot/CI comments (look for common CI bot patterns)
+    try:
+        comments_out = subprocess.run(
+            ["gh", "pr", "view", str(num), "--repo", repo,
+             "--json", "comments",
+             "--jq", '.comments[] | select(.author.login | test("bot$|\\[bot\\]$|ci$|github-actions"; "i")) | {author: .author.login, body: .body[:300]}'],
+            capture_output=True, text=True, timeout=30
+        )
+        if comments_out.returncode == 0 and comments_out.stdout.strip():
+            bot_comments = []
+            for line in comments_out.stdout.strip().split("\n"):
+                if line.strip():
+                    try:
+                        bot_comments.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        pass
+            detail["bot_comments"] = bot_comments
+        else:
+            detail["bot_comments"] = []
+    except Exception:
+        detail["bot_comments"] = []
+
+    # Fetch review decision
+    try:
+        reviews_out = subprocess.run(
+            ["gh", "pr", "view", str(num), "--repo", repo,
+             "--json", "reviewDecision", "--jq", ".reviewDecision"],
+            capture_output=True, text=True, timeout=30
+        )
+        if reviews_out.returncode == 0:
+            detail["reviewDecision"] = reviews_out.stdout.strip()
+        else:
+            detail["reviewDecision"] = ""
+    except Exception:
+        detail["reviewDecision"] = ""
+
+    details.append(detail)
+    print(f"  PR #{num}: {pr.get('title', '')}", file=sys.stderr)
+
+print(json.dumps(details, indent=2))
+PYEOF
+); then
+  # Show progress output before the error
+  cat "$DETAIL_ERR" >&2
+  rm -f "$DETAIL_ERR"
+  send_alert "$SCRIPT_NAME: Detail Fetch Failed [$HOSTNAME]" \
+    "Failed to fetch per-PR details for $REPO_FULL on $HOSTNAME: ${PR_DETAILS:0:200}"
+  echo "Error: per-PR detail fetch failed" >&2
+  exit 1
+fi
+
+# Show progress output
+cat "$DETAIL_ERR" >&2
+rm -f "$DETAIL_ERR"
+
+echo "$(date -Iseconds) Fetched details for $PR_COUNT PRs"
+
+# --- Compute slugs for wiki page ---
+CATEGORY_SLUG=$(echo "$CATEGORY" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/--*/-/g; s/^-//; s/-$//')
+
+WIKI_ROOT_SLUG="automation-log"
+WIKI_ROOT_TITLE="Automation Log"
+WIKI_CAT_SLUG="${CATEGORY_SLUG}"
+WIKI_CAT_TITLE="${CATEGORY}"
+WIKI_DATE_SLUG="${CATEGORY_SLUG}-week-${TODAY}"
+WIKI_DATE_TITLE="${CATEGORY} Week of ${TODAY}"
+
+# --- Build prompt ---
+read -r -d '' PROMPT <<PROMPT_EOF || true
+You are performing an automated weekly review of merged pull requests for the repository ${REPO_FULL}.
+
+**Repository:** ${REPO_FULL}
+**Directory:** ${TARGET_DIR}
+**Period:** ${SINCE_DATE} to ${TODAY} (${DAYS} days)
+**PRs merged:** ${PR_COUNT}
+
+## Pre-fetched PR Data
+
+The following JSON contains all merged PRs with their file lists, bot comments, body previews, and review decisions. Use this data for your analysis. Only use tool calls (gh, git, Read, Grep, etc.) if you need to deep-dive into a specific PR or check the current state of files mentioned in PRs.
+
+\`\`\`json
+${PR_DETAILS}
+\`\`\`
+
+## Analysis Instructions
+
+Analyze the merged PRs and produce a comprehensive review covering these sections:
+
+### 1. Executive Summary
+- Total PR count, total lines added/deleted
+- Overall health assessment (healthy, needs attention, concerning)
+- Key highlights or concerns in 2-3 sentences
+
+### 2. Security Analysis
+- Cross-PR patterns that might indicate security issues (e.g., auth changes without tests, new endpoints without validation)
+- Any unresolved security findings from bot comments
+- New attack surface introduced (new endpoints, new dependencies, new file upload handling, etc.)
+- If nothing concerning, say so briefly
+
+### 3. Process Quality
+- PRs with missing or inadequate tests
+- PRs with vague descriptions that make review difficult
+- PRs that bypassed or had no human review
+- PRs with unusually large diffs that should have been split
+- Any patterns of rubber-stamping
+
+### 4. Bot/CI Review Quality
+- Were bot findings real issues or noise?
+- Were bot findings addressed before merge or ignored?
+- Any blind spots (things bots should have caught but didn't)?
+
+### 5. Codebase Trends
+- Files or directories with high churn (touched by many PRs)
+- Signs of complexity growth or architectural drift
+- Consistency of coding patterns across PRs
+
+### 6. Action Items
+Prioritized list of things needing human attention, formatted as:
+- **[URGENT]** items that need immediate action
+- **[TODO]** items to address soon
+- **[WATCH]** trends to monitor
+
+## Deep-Dive Guidelines
+
+You have read-only access to the codebase and git history. If a PR looks suspicious or concerning, you can:
+- Read specific files to check current state: \`Read\`, \`Glob\`, \`Grep\`
+- Check git history: \`git log\`, \`git blame\`, \`git diff\`
+- View full PR details: \`gh pr view <number>\`
+- Count files or lines: \`wc\`, \`find\`
+
+Do NOT create or modify any files. This is a read-only analysis.
+
+## Optional: Create Follow-up Tasks
+
+If you identify action items that warrant tracking, you may create tasks in TaskManager using create_task or create_tasks. Use category "${CATEGORY}" and set priority based on severity. This is optional — only create tasks for items that genuinely need follow-up, not for minor observations.
+PROMPT_EOF
+
+# --- Allowed tools (read-only + gh/git for deep-dives + TaskManager) ---
+ALLOWED_TOOLS=(
+  # Read-only codebase access
+  "Read"
+  "Glob"
+  "Grep"
+
+  # Git and GitHub deep-dives
+  "Bash(git *)"
+  "Bash(gh *)"
+
+  # Counting and searching
+  "Bash(wc *)"
+  "Bash(find *)"
+
+  # TaskManager for optional follow-up tasks
+  "mcp__taskmanager__create_task"
+  "mcp__taskmanager__create_tasks"
+  "mcp__taskmanager__search_tasks"
+  "mcp__taskmanager__get_tasks"
+)
+
+CMD=(claude -p "$PROMPT" --allowedTools "${ALLOWED_TOOLS[@]}")
+
+if $DRY_RUN; then
+  echo "Would run (in $TARGET_DIR):"
+  echo ""
+  echo "Repository: $REPO_FULL"
+  echo "Period: $SINCE_DATE to $TODAY ($DAYS days)"
+  echo "PRs found: $PR_COUNT"
+  echo ""
+  printf "  %q" "${CMD[@]}"
+  echo ""
+  exit 0
+fi
+
+echo "$(date -Iseconds) Starting $SCRIPT_NAME: repo=${REPO_FULL}, category=${CATEGORY}, days=${DAYS}, prs=${PR_COUNT}"
+
+# Run claude from the target directory
+cd "$TARGET_DIR"
+
+# Capture output for wiki page creation
+OUTPUT_FILE=$(mktemp "${TMPDIR:-/tmp}/${SCRIPT_NAME}.XXXXXX")
+trap 'rm -f "$OUTPUT_FILE"' EXIT
+
+# --- Phase 1: Run PR analysis ---
+EXIT_CODE=0
+"${CMD[@]}" | tee "$OUTPUT_FILE" || EXIT_CODE=$?
+
+if [[ $EXIT_CODE -ne 0 ]]; then
+  send_alert "$SCRIPT_NAME: Claude Failed [$HOSTNAME]" \
+    "claude -p exited with code $EXIT_CODE for category '${CATEGORY}' on $HOSTNAME ($REPO_FULL). Check logs."
+  echo "$(date -Iseconds) Error: claude exited with code $EXIT_CODE" >&2
+fi
+
+# --- Phase 2: Create wiki page from captured output ---
+CAPTURED_OUTPUT=$(cat "$OUTPUT_FILE")
+
+if [[ -z "$CAPTURED_OUTPUT" ]]; then
+  send_alert "$SCRIPT_NAME: No Output [$HOSTNAME]" \
+    "claude -p produced no output for category '${CATEGORY}' on $HOSTNAME. Wiki page not created."
+  echo "$(date -Iseconds) Warning: no output captured, skipping wiki page creation" >&2
+else
+  echo "$(date -Iseconds) Creating wiki page: ${WIKI_ROOT_SLUG}/${WIKI_CAT_SLUG}/${WIKI_DATE_SLUG}"
+
+  # Sanitize captured output: strip any line that matches the heredoc delimiter
+  CAPTURED_OUTPUT=$(echo "$CAPTURED_OUTPUT" | grep -vxF '_WIKI_PROMPT_END_')
+
+  read -r -d '' WIKI_PROMPT <<_WIKI_PROMPT_END_ || true
+Create a hierarchical wiki page in TaskManager to log the results of a weekly PR review.
+
+The page structure is: automation-log / <category> / <date>
+
+Follow these steps IN ORDER:
+
+### Step 1: Ensure the root page exists
+Search for a wiki page with slug "${WIKI_ROOT_SLUG}" using search_wiki_pages.
+- If it does NOT exist, create it:
+  - title: "${WIKI_ROOT_TITLE}"
+  - slug: "${WIKI_ROOT_SLUG}"
+  - content: "Index of automated sprint and code review runs."
+- Note its page ID (from the search result or create response).
+
+### Step 2: Ensure the category page exists
+Search for a wiki page with slug "${WIKI_CAT_SLUG}" using search_wiki_pages.
+- If it does NOT exist, create it:
+  - title: "${WIKI_CAT_TITLE}"
+  - slug: "${WIKI_CAT_SLUG}"
+  - parent_id: (the root page ID from step 1)
+  - content: "Automation logs for ${WIKI_CAT_TITLE}."
+- Note its page ID.
+
+### Step 3: Create or update the date page
+Search for a wiki page with slug "${WIKI_DATE_SLUG}" using search_wiki_pages.
+- If it exists AND is a child of the category page, update it with update_wiki_page.
+- If it does NOT exist, create it:
+  - title: "${WIKI_DATE_TITLE}"
+  - slug: "${WIKI_DATE_SLUG}"
+  - parent_id: (the category page ID from step 2)
+
+### Step 4: Page content
+Set the date page content based on the automation output below.
+
+Here is the raw output from the weekly PR review:
+
+---
+${CAPTURED_OUTPUT}
+---
+
+Format the page content as clean markdown:
+
+# Weekly PR Review: ${CATEGORY} (Week of ${TODAY})
+
+## Summary
+- Repository: ${REPO_FULL}
+- Period: ${SINCE_DATE} to ${TODAY}
+- PRs reviewed: ${PR_COUNT}
+- Health assessment: (from the review output)
+
+Then include all sections from the review output (Executive Summary, Security Analysis, Process Quality, Bot/CI Review Quality, Codebase Trends, Action Items).
+
+Extract the actual data from the output above. Do not use placeholder values.
+_WIKI_PROMPT_END_
+
+  WIKI_TOOLS=(
+    "mcp__taskmanager__search_wiki_pages"
+    "mcp__taskmanager__create_wiki_page"
+    "mcp__taskmanager__update_wiki_page"
+  )
+
+  WIKI_EXIT=0
+  claude -p "$WIKI_PROMPT" --model claude-haiku-4-5-20251001 --allowedTools "${WIKI_TOOLS[@]}" >/dev/null 2>&1 || WIKI_EXIT=$?
+
+  if [[ $WIKI_EXIT -ne 0 ]]; then
+    send_alert "$SCRIPT_NAME: Wiki Page Failed [$HOSTNAME]" \
+      "Failed to create wiki page '${WIKI_ROOT_SLUG}/${WIKI_CAT_SLUG}/${WIKI_DATE_SLUG}' for category '${CATEGORY}' on $HOSTNAME. Review ran but results were not logged to wiki."
+    echo "$(date -Iseconds) Warning: wiki page creation failed (exit $WIKI_EXIT)" >&2
+  else
+    echo "$(date -Iseconds) Wiki page created: ${WIKI_ROOT_SLUG}/${WIKI_CAT_SLUG}/${WIKI_DATE_SLUG}"
+  fi
+fi
+
+if [[ $EXIT_CODE -ne 0 ]]; then
+  exit $EXIT_CODE
+fi
+
+echo "$(date -Iseconds) $SCRIPT_NAME completed successfully"
