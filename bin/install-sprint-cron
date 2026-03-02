@@ -73,6 +73,12 @@ fi
 HOUR="${TIME%%:*}"
 MINUTE="${TIME##*:}"
 
+# --- Validate category (reject shell-special characters) ---
+if [[ "$CATEGORY" =~ [\"\$\`\\] ]]; then
+  echo "Error: category name must not contain double quotes, dollar signs, backticks, or backslashes" >&2
+  exit 1
+fi
+
 # Strip leading zeros for cron (08 -> 8)
 HOUR=$((10#$HOUR))
 MINUTE=$((10#$MINUTE))
@@ -129,7 +135,7 @@ CRON_LINE="$MINUTE $HOUR * * * set -a; . \"$ENV_FILE\"; set +a; export PATH=\"\$
 
 # --- Install ---
 COMMENT="# sprint-or-review: $CATEGORY ($TARGET_DIR) daily at $TIME"
-(crontab -l 2>/dev/null; echo ""; echo "$COMMENT"; echo "$CRON_LINE") | crontab -
+(crontab -l 2>/dev/null || true; echo ""; echo "$COMMENT"; echo "$CRON_LINE") | crontab -
 
 echo "Cron job installed:"
 echo "  Schedule: daily at $TIME"

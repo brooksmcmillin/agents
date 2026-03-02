@@ -16,9 +16,11 @@ AGENTS_DIR="${HOME}/.claude/agents"
 HOSTNAME="$(hostname 2>/dev/null || cat /etc/hostname 2>/dev/null || echo 'unknown')"
 TODAY=$(date +%Y-%m-%d)
 
-# Load NTFY_TOKEN from .env if not already set
-if [[ -z "${NTFY_TOKEN:-}" && -f "${HOME}/build/agents/.env" ]]; then
-  NTFY_TOKEN=$(grep -m1 '^NTFY_TOKEN=' "${HOME}/build/agents/.env" | cut -d= -f2-)
+# Load NTFY_TOKEN from .env if not already set (co-located with the script)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ENV="$(dirname "$SCRIPT_DIR")/.env"
+if [[ -z "${NTFY_TOKEN:-}" && -f "$PROJECT_ENV" ]]; then
+  NTFY_TOKEN=$(grep -m1 '^NTFY_TOKEN=' "$PROJECT_ENV" | cut -d= -f2-)
 fi
 
 # --- Alert helper: send push notification on failure ---
@@ -103,16 +105,17 @@ check_mcp_token() {
   fi
 
   local token_info
-  token_info=$(python3 -c "
+  token_info=$(python3 - "$CREDENTIALS_FILE" <<'PYEOF'
 import json, sys
-creds = json.load(open('$CREDENTIALS_FILE'))
-for key, val in creds.get('mcpOAuth', {}).items():
-    if val.get('serverName') == 'taskmanager':
-        print(val.get('accessToken', ''))
-        print(val.get('expiresAt', '0'))
+creds = json.load(open(sys.argv[1]))
+for key, val in creds.get("mcpOAuth", {}).items():
+    if val.get("serverName") == "taskmanager":
+        print(val.get("accessToken", ""))
+        print(val.get("expiresAt", "0"))
         sys.exit(0)
 sys.exit(1)
-" 2>/dev/null) || {
+PYEOF
+  ) || {
     send_alert "$SCRIPT_NAME: No Token [$HOSTNAME]" \
       "No taskmanager OAuth token found in credentials on $HOSTNAME. Run mcp-device-auth.sh."
     echo "Error: no taskmanager token in credentials" >&2
@@ -260,7 +263,7 @@ WIKI_ROOT_SLUG="automation-log"
 WIKI_ROOT_TITLE="Automation Log"
 WIKI_CAT_SLUG="${CATEGORY_SLUG}"
 WIKI_CAT_TITLE="${CATEGORY}"
-WIKI_DATE_SLUG="${TODAY}"
+WIKI_DATE_SLUG="${CATEGORY_SLUG}-${TODAY}"
 WIKI_DATE_TITLE="${CATEGORY} (${TODAY})"
 
 # --- Set up worktree from latest default branch ---
@@ -497,7 +500,11 @@ if [[ -z "$CAPTURED_OUTPUT" ]]; then
 else
   echo "$(date -Iseconds) Creating wiki page: ${WIKI_ROOT_SLUG}/${WIKI_CAT_SLUG}/${WIKI_DATE_SLUG}"
 
-  read -r -d '' WIKI_PROMPT <<WIKI_EOF || true
+  # Sanitize captured output: strip any line that matches the heredoc delimiter
+  # to prevent early termination of the heredoc
+  CAPTURED_OUTPUT=$(echo "$CAPTURED_OUTPUT" | grep -vxF '_WIKI_PROMPT_END_')
+
+  read -r -d '' WIKI_PROMPT <<_WIKI_PROMPT_END_ || true
 Create a hierarchical wiki page in TaskManager to log the results of an automation run.
 
 The page structure is: automation-log / <category> / <date>
@@ -572,7 +579,7 @@ Format the page content as clean markdown. Use one of these structures:
 | [#ID](https://todo.brooksmcmillin.com/task/ID) | title | priority | date |
 
 Extract the actual data from the output above and fill in the tables. Do not use placeholder values.
-WIKI_EOF
+_WIKI_PROMPT_END_
 
   WIKI_TOOLS=(
     "mcp__taskmanager__search_wiki_pages"
@@ -581,7 +588,7 @@ WIKI_EOF
   )
 
   WIKI_EXIT=0
-  claude -p "$WIKI_PROMPT" --allowedTools "${WIKI_TOOLS[@]}" >/dev/null 2>&1 || WIKI_EXIT=$?
+  claude -p "$WIKI_PROMPT" --model haiku --allowedTools "${WIKI_TOOLS[@]}" >/dev/null 2>&1 || WIKI_EXIT=$?
 
   if [[ $WIKI_EXIT -ne 0 ]]; then
     send_alert "$SCRIPT_NAME: Wiki Page Failed [$HOSTNAME]" \
