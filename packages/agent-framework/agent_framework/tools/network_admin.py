@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import platform
+import re
 import socket
 import ssl
 import time
@@ -98,6 +99,49 @@ _SENSITIVE_PATHS = [
     "~/.env",
     "/etc/sudoers",
 ]
+
+# Regex that accepts valid hostnames and IPv4/IPv6 addresses.
+# Rejects values starting with '@' (dig alternate nameserver syntax) or '-'
+# (dig option flags), as well as any other characters that are not valid in a
+# hostname or IP literal.  Labels must be 1-63 chars of [A-Za-z0-9-] and must
+# not start/end with a hyphen.  IPv6 addresses are accepted inside brackets
+# (e.g. [::1]) as well as bare.
+_HOSTNAME_RE = re.compile(
+    r"^(?:"
+    # IPv6 in brackets, e.g. [::1] or [2001:db8::1]
+    r"\[(?:[0-9a-fA-F:]+)\]"
+    r"|"
+    # Bare IPv4, e.g. 192.168.1.1
+    r"(?:\d{1,3}\.){3}\d{1,3}"
+    r"|"
+    # Bare IPv6, e.g. ::1 or 2001:db8::1
+    r"(?:[0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}"
+    r"|"
+    # Hostname with optional trailing dot (FQDN), labels separated by dots
+    r"(?:[A-Za-z0-9](?:[A-Za-z0-9\-]{0,61}[A-Za-z0-9])?\.)*"
+    r"[A-Za-z0-9](?:[A-Za-z0-9\-]{0,61}[A-Za-z0-9])?"
+    r")$"
+)
+
+
+def _validate_dig_target(target: str) -> None:
+    """Raise ValueError if ``target`` is not a safe hostname or IP for dig.
+
+    Prevents argument-injection attacks where a crafted value such as
+    ``@attacker.com`` (alternate nameserver) or ``-option`` (dig flag)
+    is passed directly to ``asyncio.create_subprocess_exec``.
+
+    Args:
+        target: The raw target string supplied by the caller.
+
+    Raises:
+        ValueError: If ``target`` does not look like a valid hostname or IP.
+    """
+    if not _HOSTNAME_RE.match(target):
+        raise ValueError(
+            f"Invalid dig target {target!r}: must be a valid hostname or IP address. "
+            "Values starting with '@' or '-' and other special characters are not allowed."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -648,6 +692,7 @@ async def network_check_dns(
     Returns:
         Dict with DNS records, reverse lookup results, and findings.
     """
+    _validate_dig_target(target)
     await _check_host_allowed(target)
 
     _VALID_RECORD_TYPES = {"A", "AAAA", "MX", "NS", "TXT", "SOA", "CNAME", "PTR", "SRV", "CAA"}
