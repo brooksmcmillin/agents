@@ -4,18 +4,9 @@ Crawls websites and audits them for accessibility, performance, broken links,
 JavaScript errors, SEO, and content quality — all without manual interaction.
 """
 
-from shared import MEMORY_TOOLS, WEB_RESEARCH_TOOLS, create_simple_agent
+from shared import BROWSER_TESTING_TOOLS, MEMORY_TOOLS, WEB_RESEARCH_TOOLS, create_simple_agent
 
 from .prompts import SYSTEM_PROMPT, USER_GREETING_PROMPT
-
-BROWSER_TESTING_TOOLS = [
-    "browser_screenshot",
-    "browser_accessibility_audit",
-    "browser_performance_audit",
-    "browser_console_errors",
-    "browser_check_links",
-    "browser_crawl_site",
-]
 
 WebsiteTesterAgent = create_simple_agent(
     name="WebsiteTesterAgent",

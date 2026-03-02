@@ -10,7 +10,7 @@ import logging
 from typing import Any
 from urllib.parse import urlparse
 
-from ..security import SSRFValidator
+from ..security import SSRFTransport, SSRFValidator
 from ..utils.tool_decorators import handle_tool_errors
 
 try:
@@ -41,7 +41,7 @@ _BROWSER_TIMEOUT_MS = 30_000  # per-page navigation timeout
 _MAX_CRAWL_PAGES = 20  # safety cap for site crawl
 
 
-async def _validate_url(url: str) -> str:
+def _validate_url(url: str) -> str:
     """Validate a URL against SSRF rules and return the safe final URL."""
     if not url.startswith(("http://", "https://")):
         raise ValueError(f"Invalid URL (must start with http:// or https://): {url}")
@@ -84,23 +84,24 @@ async def browser_screenshot(
     _require_playwright()
     from playwright.async_api import async_playwright
 
-    url = await _validate_url(url)
+    url = _validate_url(url)
     logger.info(f"Taking screenshot of {url}")
 
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(headless=True)
-        context = await browser.new_context(
-            viewport={"width": viewport_width, "height": viewport_height},
-            user_agent="AgentFramework-WebsiteTester/1.0",
-        )
-        page = await _new_page(context)
-        await page.goto(url, wait_until="networkidle")
+        try:
+            context = await browser.new_context(
+                viewport={"width": viewport_width, "height": viewport_height},
+                user_agent="AgentFramework-WebsiteTester/1.0",
+            )
+            page = await _new_page(context)
+            await page.goto(url, wait_until="networkidle")
 
-        title = await page.title()
-        screenshot_bytes = await page.screenshot(full_page=full_page)
-        encoded = base64.b64encode(screenshot_bytes).decode()
-
-        await browser.close()
+            title = await page.title()
+            screenshot_bytes = await page.screenshot(full_page=full_page)
+            encoded = base64.b64encode(screenshot_bytes).decode()
+        finally:
+            await browser.close()
 
     return {
         "url": url,
@@ -133,19 +134,20 @@ async def browser_accessibility_audit(url: str) -> dict[str, Any]:
     _require_playwright()
     from playwright.async_api import async_playwright
 
-    url = await _validate_url(url)
+    url = _validate_url(url)
     logger.info(f"Running accessibility audit on {url}")
 
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(headless=True)
-        context = await browser.new_context(user_agent="AgentFramework-WebsiteTester/1.0")
-        page = await _new_page(context)
-        await page.goto(url, wait_until="networkidle")
+        try:
+            context = await browser.new_context(user_agent="AgentFramework-WebsiteTester/1.0")
+            page = await _new_page(context)
+            await page.goto(url, wait_until="networkidle")
 
-        title = await page.title()
+            title = await page.title()
 
-        # Run all checks inside the browser
-        results = await page.evaluate("""() => {
+            # Run all checks inside the browser
+            results = await page.evaluate("""() => {
             const findings = {
                 headings: [],
                 images: [],
@@ -260,8 +262,8 @@ async def browser_accessibility_audit(url: str) -> dict[str, Any]:
 
             return {findings, issues, headingOutline: headingList};
         }""")
-
-        await browser.close()
+        finally:
+            await browser.close()
 
     total_issues = results["issues"]
     # Simple score: 100 minus 5 per issue, floor at 0
@@ -298,68 +300,69 @@ async def browser_performance_audit(url: str) -> dict[str, Any]:
     _require_playwright()
     from playwright.async_api import async_playwright
 
-    url = await _validate_url(url)
+    url = _validate_url(url)
     logger.info(f"Running performance audit on {url}")
 
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(headless=True)
-        context = await browser.new_context(user_agent="AgentFramework-WebsiteTester/1.0")
-        page = await _new_page(context)
+        try:
+            context = await browser.new_context(user_agent="AgentFramework-WebsiteTester/1.0")
+            page = await _new_page(context)
 
-        # Collect network requests for resource breakdown
-        resources: list[dict[str, Any]] = []
+            # Collect network requests for resource breakdown
+            resources: list[dict[str, Any]] = []
 
-        async def _on_response(response: Any) -> None:
-            try:
-                size = int(response.headers.get("content-length", 0))
-            except (ValueError, TypeError):
-                size = 0
-            content_type = response.headers.get("content-type", "")
-            resources.append(
-                {
-                    "url": response.url[:120],
-                    "status": response.status,
-                    "content_type": content_type.split(";")[0].strip(),
-                    "size": size,
-                }
-            )
+            async def _on_response(response: Any) -> None:
+                try:
+                    size = int(response.headers.get("content-length", 0))
+                except (ValueError, TypeError):
+                    size = 0
+                content_type = response.headers.get("content-type", "")
+                resources.append(
+                    {
+                        "url": response.url[:120],
+                        "status": response.status,
+                        "content_type": content_type.split(";")[0].strip(),
+                        "size": size,
+                    }
+                )
 
-        page.on("response", _on_response)
+            page.on("response", _on_response)
 
-        await page.goto(url, wait_until="networkidle")
-        title = await page.title()
+            await page.goto(url, wait_until="networkidle")
+            title = await page.title()
 
-        # Navigation Timing API
-        timing = await page.evaluate("""() => {
-            const p = performance.getEntriesByType('navigation')[0] || {};
-            return {
-                dns_ms: Math.round((p.domainLookupEnd || 0) - (p.domainLookupStart || 0)),
-                tcp_ms: Math.round((p.connectEnd || 0) - (p.connectStart || 0)),
-                ttfb_ms: Math.round((p.responseStart || 0) - (p.requestStart || 0)),
-                download_ms: Math.round((p.responseEnd || 0) - (p.responseStart || 0)),
-                dom_interactive_ms: Math.round(p.domInteractive || 0),
-                dom_complete_ms: Math.round(p.domComplete || 0),
-                load_event_ms: Math.round(p.loadEventEnd || 0),
-                transfer_size: p.transferSize || 0,
-                encoded_body_size: p.encodedBodySize || 0,
-                decoded_body_size: p.decodedBodySize || 0,
-            };
-        }""")
+            # Navigation Timing API
+            timing = await page.evaluate("""() => {
+                const p = performance.getEntriesByType('navigation')[0] || {};
+                return {
+                    dns_ms: Math.round((p.domainLookupEnd || 0) - (p.domainLookupStart || 0)),
+                    tcp_ms: Math.round((p.connectEnd || 0) - (p.connectStart || 0)),
+                    ttfb_ms: Math.round((p.responseStart || 0) - (p.requestStart || 0)),
+                    download_ms: Math.round((p.responseEnd || 0) - (p.responseStart || 0)),
+                    dom_interactive_ms: Math.round(p.domInteractive || 0),
+                    dom_complete_ms: Math.round(p.domComplete || 0),
+                    load_event_ms: Math.round(p.loadEventEnd || 0),
+                    transfer_size: p.transferSize || 0,
+                    encoded_body_size: p.encodedBodySize || 0,
+                    decoded_body_size: p.decodedBodySize || 0,
+                };
+            }""")
 
-        # Core Web Vitals approximations
-        cwv = await page.evaluate("""() => {
-            const lcp = performance.getEntriesByType('largest-contentful-paint');
-            const lcpValue = lcp.length ? Math.round(lcp[lcp.length - 1].startTime) : null;
-            const cls = performance.getEntriesByType('layout-shift')
-                .filter(e => !e.hadRecentInput)
-                .reduce((sum, e) => sum + e.value, 0);
-            return {
-                largest_contentful_paint_ms: lcpValue,
-                cumulative_layout_shift: Math.round(cls * 1000) / 1000,
-            };
-        }""")
-
-        await browser.close()
+            # Core Web Vitals approximations
+            cwv = await page.evaluate("""() => {
+                const lcp = performance.getEntriesByType('largest-contentful-paint');
+                const lcpValue = lcp.length ? Math.round(lcp[lcp.length - 1].startTime) : null;
+                const cls = performance.getEntriesByType('layout-shift')
+                    .filter(e => !e.hadRecentInput)
+                    .reduce((sum, e) => sum + e.value, 0);
+                return {
+                    largest_contentful_paint_ms: lcpValue,
+                    cumulative_layout_shift: Math.round(cls * 1000) / 1000,
+                };
+            }""")
+        finally:
+            await browser.close()
 
     # Categorize resources
     categories: dict[str, dict[str, int]] = {}
@@ -414,7 +417,7 @@ async def browser_console_errors(url: str) -> dict[str, Any]:
     _require_playwright()
     from playwright.async_api import async_playwright
 
-    url = await _validate_url(url)
+    url = _validate_url(url)
     logger.info(f"Capturing console errors on {url}")
 
     errors: list[dict[str, str]] = []
@@ -423,30 +426,31 @@ async def browser_console_errors(url: str) -> dict[str, Any]:
 
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(headless=True)
-        context = await browser.new_context(user_agent="AgentFramework-WebsiteTester/1.0")
-        page = await _new_page(context)
+        try:
+            context = await browser.new_context(user_agent="AgentFramework-WebsiteTester/1.0")
+            page = await _new_page(context)
 
-        def _on_console(msg: Any) -> None:
-            entry = {"text": msg.text[:500], "url": str(msg.location.get("url", ""))[:120]}
-            if msg.type == "error":
-                errors.append(entry)
-            elif msg.type == "warning":
-                warnings.append(entry)
+            def _on_console(msg: Any) -> None:
+                entry = {"text": msg.text[:500], "url": str(msg.location.get("url", ""))[:120]}
+                if msg.type == "error":
+                    errors.append(entry)
+                elif msg.type == "warning":
+                    warnings.append(entry)
 
-        def _on_pageerror(exc: Any) -> None:
-            exceptions.append(str(exc)[:500])
+            def _on_pageerror(exc: Any) -> None:
+                exceptions.append(str(exc)[:500])
 
-        page.on("console", _on_console)
-        page.on("pageerror", _on_pageerror)
+            page.on("console", _on_console)
+            page.on("pageerror", _on_pageerror)
 
-        await page.goto(url, wait_until="networkidle")
-        title = await page.title()
+            await page.goto(url, wait_until="networkidle")
+            title = await page.title()
 
-        # Scroll down to trigger lazy-loaded content errors
-        await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-        await page.wait_for_timeout(1000)
-
-        await browser.close()
+            # Scroll down to trigger lazy-loaded content errors
+            await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            await page.wait_for_timeout(1000)
+        finally:
+            await browser.close()
 
     return {
         "url": url,
@@ -481,7 +485,7 @@ async def browser_check_links(url: str, same_origin_only: bool = True) -> dict[s
     _require_playwright()
     from playwright.async_api import async_playwright
 
-    url = await _validate_url(url)
+    url = _validate_url(url)
     logger.info(f"Checking links on {url}")
 
     parsed_origin = urlparse(url)
@@ -489,21 +493,22 @@ async def browser_check_links(url: str, same_origin_only: bool = True) -> dict[s
 
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(headless=True)
-        context = await browser.new_context(user_agent="AgentFramework-WebsiteTester/1.0")
-        page = await _new_page(context)
-        await page.goto(url, wait_until="networkidle")
+        try:
+            context = await browser.new_context(user_agent="AgentFramework-WebsiteTester/1.0")
+            page = await _new_page(context)
+            await page.goto(url, wait_until="networkidle")
 
-        title = await page.title()
+            title = await page.title()
 
-        # Extract all links
-        raw_links: list[dict[str, str]] = await page.evaluate("""() => {
-            return Array.from(document.querySelectorAll('a[href]')).map(a => ({
-                href: a.href,
-                text: a.textContent.trim().slice(0, 80),
-            }));
-        }""")
-
-        await browser.close()
+            # Extract all links
+            raw_links: list[dict[str, str]] = await page.evaluate("""() => {
+                return Array.from(document.querySelectorAll('a[href]')).map(a => ({
+                    href: a.href,
+                    text: a.textContent.trim().slice(0, 80),
+                }));
+            }""")
+        finally:
+            await browser.close()
 
     # Deduplicate and filter
     seen: set[str] = set()
@@ -513,7 +518,11 @@ async def browser_check_links(url: str, same_origin_only: bool = True) -> dict[s
         if href in seen or href.startswith(("javascript:", "mailto:", "tel:", "#")):
             continue
         seen.add(href)
-        if same_origin_only and not href.startswith(origin):
+        if same_origin_only and not (href.startswith(origin + "/") or href == origin):
+            continue
+        # SSRF-validate each extracted link before checking it
+        safe, _ = SSRFValidator.is_safe_url(href)
+        if not safe:
             continue
         links_to_check.append(link)
 
@@ -525,9 +534,9 @@ async def browser_check_links(url: str, same_origin_only: bool = True) -> dict[s
     healthy = 0
 
     async with httpx.AsyncClient(
+        transport=SSRFTransport(),
         timeout=10.0,
         follow_redirects=False,
-        verify=False,  # nosec B501 - link checker needs to verify broken links regardless of cert validity
     ) as client:
         for link in links_to_check[:100]:  # cap at 100 links
             href = link["href"]
@@ -600,7 +609,7 @@ async def browser_crawl_site(
     _require_playwright()
     from playwright.async_api import async_playwright
 
-    url = await _validate_url(url)
+    url = _validate_url(url)
     max_pages = min(max_pages, _MAX_CRAWL_PAGES)
     logger.info(f"Crawling site {url} (max {max_pages} pages)")
 
@@ -612,59 +621,63 @@ async def browser_crawl_site(
 
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(headless=True)
-        context = await browser.new_context(user_agent="AgentFramework-WebsiteTester/1.0")
+        try:
+            context = await browser.new_context(user_agent="AgentFramework-WebsiteTester/1.0")
 
-        while queue and len(visited) < max_pages:
-            current = queue.pop(0)
-            if current in visited:
-                continue
+            while queue and len(visited) < max_pages:
+                current = queue.pop(0)
+                if current in visited:
+                    continue
 
-            # Normalize trailing slash for dedup
-            normalized = current.rstrip("/")
-            if any(v.rstrip("/") == normalized for v in visited):
-                continue
+                # Normalize trailing slash for dedup
+                normalized = current.rstrip("/")
+                if any(v.rstrip("/") == normalized for v in visited):
+                    continue
 
-            page = await _new_page(context)
-            try:
-                response = await page.goto(current, wait_until="networkidle")
-                status = response.status if response else 0
-                title = await page.title()
+                page = await _new_page(context)
+                try:
+                    response = await page.goto(current, wait_until="networkidle")
+                    status = response.status if response else 0
+                    title = await page.title()
 
-                # Extract same-origin links
-                links: list[str] = await page.evaluate(
-                    """(origin) => {
-                    return Array.from(new Set(
-                        Array.from(document.querySelectorAll('a[href]'))
-                            .map(a => a.href.split('#')[0].split('?')[0])
-                            .filter(href => href.startsWith(origin))
-                    ));
-                }""",
-                    origin,
-                )
+                    # Extract same-origin links (use origin + "/" to prevent subdomain bypass)
+                    links: list[str] = await page.evaluate(
+                        """(origin) => {
+                        return Array.from(new Set(
+                            Array.from(document.querySelectorAll('a[href]'))
+                                .map(a => a.href.split('#')[0].split('?')[0])
+                                .filter(href => href.startsWith(origin + '/') || href === origin)
+                        ));
+                    }""",
+                        origin,
+                    )
 
-                visited[current] = {
-                    "url": current,
-                    "title": title,
-                    "status": status,
-                    "outbound_links": len(links),
-                }
+                    visited[current] = {
+                        "url": current,
+                        "title": title,
+                        "status": status,
+                        "outbound_links": len(links),
+                    }
 
-                for link in links:
-                    if link not in visited and link not in queue:
-                        queue.append(link)
+                    for link in links:
+                        if link not in visited and link not in queue:
+                            # SSRF-validate each discovered URL before queueing
+                            safe, _ = SSRFValidator.is_safe_url(link)
+                            if safe:
+                                queue.append(link)
 
-            except Exception as e:
-                visited[current] = {
-                    "url": current,
-                    "title": "(error)",
-                    "status": 0,
-                    "error": str(e)[:200],
-                    "outbound_links": 0,
-                }
-            finally:
-                await page.close()
-
-        await browser.close()
+                except Exception as e:
+                    visited[current] = {
+                        "url": current,
+                        "title": "(error)",
+                        "status": 0,
+                        "error": str(e)[:200],
+                        "outbound_links": 0,
+                    }
+                finally:
+                    await page.close()
+        finally:
+            await browser.close()
 
     pages = list(visited.values())
 

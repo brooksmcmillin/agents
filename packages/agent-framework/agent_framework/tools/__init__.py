@@ -5,6 +5,15 @@
 # ``input_schema``, and ``handler`` keys.  Importing them here gives server
 # code a single ``ALL_TOOL_SCHEMAS`` to iterate instead of manually
 # registering each tool inline.
+from .browser_testing import TOOL_SCHEMAS as _browser_testing_schemas
+from .browser_testing import (
+    browser_accessibility_audit,
+    browser_check_links,
+    browser_console_errors,
+    browser_crawl_site,
+    browser_performance_audit,
+    browser_screenshot,
+)
 from .claude_code import TOOL_SCHEMAS as _claude_code_schemas
 from .claude_code import (
     create_claude_code_workspace,
@@ -93,15 +102,6 @@ from .twilio_sms_clarification import (
     get_sms_clarification_status,
     get_sms_phone_pool_status,
     send_sms_clarification,
-)
-from .browser_testing import TOOL_SCHEMAS as _browser_testing_schemas
-from .browser_testing import (
-    browser_accessibility_audit,
-    browser_check_links,
-    browser_console_errors,
-    browser_crawl_site,
-    browser_performance_audit,
-    browser_screenshot,
 )
 from .web_analyzer import TOOL_SCHEMAS as _web_analyzer_schemas
 from .web_analyzer import analyze_website
