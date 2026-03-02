@@ -2,9 +2,10 @@
 
 The server must refuse to start unless one of:
   1. API_KEY is set (authentication enabled), or
-  2. DISABLE_AUTH=true is explicitly set (developer opt-out).
+  2. DISABLE_AUTH=true AND ENV=development are both explicitly set (developer opt-out).
 
-This prevents accidental deployment of an unauthenticated API.
+This prevents accidental deployment of an unauthenticated API, including staging
+environments that omit ENV=production but are still publicly accessible.
 """
 
 import os
@@ -44,9 +45,9 @@ class TestLifespanAuthRequirement:
                 pass
 
     @pytest.mark.asyncio
-    async def test_starts_with_disable_auth_true(self) -> None:
-        """Server should start when DISABLE_AUTH=true (explicit dev opt-out)."""
-        env = {"DISABLE_AUTH": "true", "DATABASE_URL": ""}
+    async def test_starts_with_disable_auth_true_and_env_development(self) -> None:
+        """Server should start when DISABLE_AUTH=true and ENV=development (explicit dev opt-out)."""
+        env = {"DISABLE_AUTH": "true", "ENV": "development", "DATABASE_URL": ""}
         with patch.dict(os.environ, env, clear=False), patch("api.server._api_key", None):
             from api.server import app, lifespan
 
@@ -54,9 +55,31 @@ class TestLifespanAuthRequirement:
                 pass
 
     @pytest.mark.asyncio
+    async def test_refuses_with_disable_auth_true_without_env_development(self) -> None:
+        """DISABLE_AUTH=true without ENV=development must raise RuntimeError."""
+        env = {"DISABLE_AUTH": "true", "ENV": "", "DATABASE_URL": ""}
+        with patch.dict(os.environ, env, clear=False), patch("api.server._api_key", None):
+            from api.server import app, lifespan
+
+            with pytest.raises(RuntimeError, match="DISABLE_AUTH=true requires ENV=development"):
+                async with lifespan(app):
+                    pass  # pragma: no cover
+
+    @pytest.mark.asyncio
+    async def test_refuses_with_disable_auth_true_and_env_production(self) -> None:
+        """DISABLE_AUTH=true with ENV=production must raise RuntimeError."""
+        env = {"DISABLE_AUTH": "true", "ENV": "production", "DATABASE_URL": ""}
+        with patch.dict(os.environ, env, clear=False), patch("api.server._api_key", None):
+            from api.server import app, lifespan
+
+            with pytest.raises(RuntimeError, match="DISABLE_AUTH=true requires ENV=development"):
+                async with lifespan(app):
+                    pass  # pragma: no cover
+
+    @pytest.mark.asyncio
     async def test_starts_with_disable_auth_yes(self) -> None:
-        """DISABLE_AUTH=yes should also be accepted."""
-        env = {"DISABLE_AUTH": "yes", "DATABASE_URL": ""}
+        """DISABLE_AUTH=yes with ENV=development should also be accepted."""
+        env = {"DISABLE_AUTH": "yes", "ENV": "development", "DATABASE_URL": ""}
         with patch.dict(os.environ, env, clear=False), patch("api.server._api_key", None):
             from api.server import app, lifespan
 
@@ -65,8 +88,8 @@ class TestLifespanAuthRequirement:
 
     @pytest.mark.asyncio
     async def test_starts_with_disable_auth_one(self) -> None:
-        """DISABLE_AUTH=1 should also be accepted."""
-        env = {"DISABLE_AUTH": "1", "DATABASE_URL": ""}
+        """DISABLE_AUTH=1 with ENV=development should also be accepted."""
+        env = {"DISABLE_AUTH": "1", "ENV": "development", "DATABASE_URL": ""}
         with patch.dict(os.environ, env, clear=False), patch("api.server._api_key", None):
             from api.server import app, lifespan
 

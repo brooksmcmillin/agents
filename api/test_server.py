@@ -12,7 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 # Mock the database and disable auth requirement before importing the server
-with patch.dict(os.environ, {"DATABASE_URL": "", "DISABLE_AUTH": "true"}):
+with patch.dict(os.environ, {"DATABASE_URL": "", "DISABLE_AUTH": "true", "ENV": "development"}):
     from api.server import (
         _get_rate_limit_key,
         _sanitize_log_input,
@@ -256,11 +256,19 @@ class TestMessageSending:
 class TestVerifyApiKey:
     """Tests for the verify_api_key dependency."""
 
+    @staticmethod
+    def _mock_request(host: str = "testclient") -> MagicMock:
+        """Create a mock Request with a configurable client host."""
+        mock_req = MagicMock()
+        mock_req.client = MagicMock()
+        mock_req.client.host = host
+        return mock_req
+
     @pytest.mark.asyncio
     async def test_allows_request_when_no_api_key_configured(self):
-        """When API_KEY env is not set, all requests pass."""
+        """When API_KEY env is not set, all requests pass (non-IP host skips CIDR check)."""
         with patch("api.server._api_key", None):
-            await verify_api_key(credentials=None)  # Should not raise
+            await verify_api_key(request=self._mock_request(), credentials=None)  # Should not raise
 
     @pytest.mark.asyncio
     async def test_rejects_missing_credentials(self):
@@ -269,7 +277,7 @@ class TestVerifyApiKey:
             from fastapi import HTTPException
 
             with pytest.raises(HTTPException) as exc_info:
-                await verify_api_key(credentials=None)
+                await verify_api_key(request=self._mock_request(), credentials=None)
             assert exc_info.value.status_code == 401
 
     @pytest.mark.asyncio
@@ -281,7 +289,7 @@ class TestVerifyApiKey:
 
             creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="wrong-key")
             with pytest.raises(HTTPException) as exc_info:
-                await verify_api_key(credentials=creds)
+                await verify_api_key(request=self._mock_request(), credentials=creds)
             assert exc_info.value.status_code == 401
 
     @pytest.mark.asyncio
@@ -291,7 +299,9 @@ class TestVerifyApiKey:
             from fastapi.security import HTTPAuthorizationCredentials
 
             creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="secret-key")
-            await verify_api_key(credentials=creds)  # Should not raise
+            await verify_api_key(
+                request=self._mock_request(), credentials=creds
+            )  # Should not raise
 
 
 class TestSanitizeLogInput:
@@ -670,10 +680,10 @@ class TestClaudeCodeRestSessionToken:
 
 
 class TestDisableAuthProductionSafety:
-    """Tests for DISABLE_AUTH + ENV=production safety check."""
+    """Tests for DISABLE_AUTH + ENV safety checks."""
 
-    def test_disable_auth_blocked_in_production(self):
-        """DISABLE_AUTH=true with ENV=production raises RuntimeError at startup."""
+    def test_disable_auth_blocked_without_env_development(self):
+        """DISABLE_AUTH=true without ENV=development raises RuntimeError at startup."""
         with (
             patch.dict(
                 os.environ,
@@ -690,12 +700,12 @@ class TestDisableAuthProductionSafety:
                 async with lifespan(app):
                     pass  # pragma: no cover
 
-            with pytest.raises(RuntimeError, match="not allowed when ENV=production"):
+            with pytest.raises(RuntimeError, match="DISABLE_AUTH=true requires ENV=development"):
                 asyncio.run(_run())
 
     def test_disable_auth_allowed_in_development(self, client):
-        """DISABLE_AUTH=true without ENV=production works normally."""
-        # The test suite itself runs with DISABLE_AUTH=true and no ENV=production,
+        """DISABLE_AUTH=true with ENV=development works normally."""
+        # The test suite itself runs with DISABLE_AUTH=true and ENV=development,
         # so if we got this far the server started successfully.
         response = client.get("/health")
         assert response.status_code == 200

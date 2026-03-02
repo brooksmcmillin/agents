@@ -15,7 +15,7 @@ def client():
     """Create a test client for the API server."""
     from api.server import app
 
-    with patch.dict(os.environ, {"DISABLE_AUTH": "true"}):
+    with patch.dict(os.environ, {"DISABLE_AUTH": "true", "ENV": "development"}):
         with TestClient(app) as c:
             yield c
 
@@ -120,7 +120,7 @@ class TestAgentProcessingErrors:
 
         with (
             patch("api.server._create_agent", return_value=mock_agent),
-            patch.dict(os.environ, {"DISABLE_AUTH": "true"}),
+            patch.dict(os.environ, {"DISABLE_AUTH": "true", "ENV": "development"}),
         ):
             with TestClient(app) as client:
                 response = client.post("/agents/chatbot/message", json={"message": "test"})
@@ -228,7 +228,7 @@ class TestConversationEndpointsWithoutDatabase:
 
     def test_list_conversations_no_database(self):
         """List conversations without database should return 503."""
-        env = {"DATABASE_URL": "", "DISABLE_AUTH": "true"}
+        env = {"DATABASE_URL": "", "DISABLE_AUTH": "true", "ENV": "development"}
         with patch.dict(os.environ, env, clear=False):
             server_module = self._reload_server()
             with TestClient(server_module.app) as client:
@@ -239,7 +239,7 @@ class TestConversationEndpointsWithoutDatabase:
 
     def test_get_conversation_no_database(self):
         """Get conversation without database should return 503."""
-        env = {"DATABASE_URL": "", "DISABLE_AUTH": "true"}
+        env = {"DATABASE_URL": "", "DISABLE_AUTH": "true", "ENV": "development"}
         with patch.dict(os.environ, env, clear=False):
             server_module = self._reload_server()
             with TestClient(server_module.app) as client:
@@ -249,7 +249,7 @@ class TestConversationEndpointsWithoutDatabase:
 
     def test_conversation_stats_no_database(self):
         """Get stats without database should return 503."""
-        env = {"DATABASE_URL": "", "DISABLE_AUTH": "true"}
+        env = {"DATABASE_URL": "", "DISABLE_AUTH": "true", "ENV": "development"}
         with patch.dict(os.environ, env, clear=False):
             server_module = self._reload_server()
             with TestClient(server_module.app) as client:
