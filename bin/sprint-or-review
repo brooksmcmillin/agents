@@ -588,7 +588,7 @@ _WIKI_PROMPT_END_
   )
 
   WIKI_EXIT=0
-  claude -p "$WIKI_PROMPT" --model haiku --allowedTools "${WIKI_TOOLS[@]}" >/dev/null 2>&1 || WIKI_EXIT=$?
+  claude -p "$WIKI_PROMPT" --model claude-haiku-4-5-20251001 --allowedTools "${WIKI_TOOLS[@]}" >/dev/null 2>&1 || WIKI_EXIT=$?
 
   if [[ $WIKI_EXIT -ne 0 ]]; then
     send_alert "$SCRIPT_NAME: Wiki Page Failed [$HOSTNAME]" \
