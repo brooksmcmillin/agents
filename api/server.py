@@ -571,11 +571,18 @@ async def stateless_message(
     A fresh agent is created, processes the message, and is discarded.
     Use this for simple request/response patterns where you don't need
     multi-turn context.
+
+    ⚠️ SECURITY: Untrusted Input
+
+    The message content (body.message) is user-supplied input and should
+    be treated as untrusted. The agent will process potentially adversarial
+    input that may include prompt injection payloads.
     """
     agent = _create_agent(agent_name)
 
     try:
         async with _TokenSnapshot(agent) as snap:
+            # ⚠️ UNTRUSTED: body.message is user-supplied input
             response_text = await agent.process_message(body.message)
     except Exception as e:
         logger.exception("Agent %s failed processing message", _sanitize_log_input(agent_name))
@@ -628,6 +635,12 @@ async def session_message(
     """Send a message within an existing session.
 
     Conversation history is preserved from prior calls in this session.
+
+    ⚠️ SECURITY: Untrusted Content in Session History
+
+    The agent's session message history may contain untrusted user input
+    from prior messages in the session. The agent will be given a context
+    window that includes potentially adversarial input.
     """
     session = session_mgr.get(session_id)
     if session is None:
@@ -637,6 +650,7 @@ async def session_message(
 
     try:
         async with _TokenSnapshot(agent) as snap:
+            # ⚠️ UNTRUSTED: body.message plus session history may contain user-supplied input
             response_text = await agent.process_message(
                 body.message,
                 session_id=session_id,  # For Langfuse tracing
@@ -819,10 +833,20 @@ async def conversation_message(
     This loads the conversation history, creates a fresh agent instance,
     processes the message, and saves both the user message and response
     to the database.
+
+    ⚠️ SECURITY: Untrusted Message Content
+
+    Message content loaded from conversation history may contain prompt
+    injection payloads or other untrusted user input. The agent's
+    process_message() method receives a message history that includes
+    untrusted content. Agents should be aware that conversation context
+    may include adversarial input.
+
+    Message storage is verbatim - no sanitization is performed.
     """
     store = _get_conversation_store()
 
-    # Load conversation
+    # Load conversation (⚠️ messages contain untrusted user input)
     conv = await store.get_conversation_with_messages(conversation_id)
     if conv is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
@@ -831,9 +855,13 @@ async def conversation_message(
     agent = _create_agent(conv.agent_name)
 
     # Restore conversation history into agent
+    # ⚠️ WARNING: msg.content may contain untrusted user input / prompt injection payloads
+    # This content is being restored exactly as stored without sanitization.
+    # The agent's process_message() will receive potentially adversarial input in its context.
     # Type cast needed because msg.role is str but MessageParam expects Literal
     for msg in conv.messages:
         if msg.role in ("user", "assistant"):
+            # ⚠️ UNTRUSTED: msg.content is user-supplied and stored verbatim
             agent.messages.append({"role": msg.role, "content": msg.content})  # type: ignore[arg-type]
 
     try:

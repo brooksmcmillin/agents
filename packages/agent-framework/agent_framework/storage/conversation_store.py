@@ -60,10 +60,28 @@ def _sanitize_log_input(value: str) -> str:
 
 
 class Message(BaseModel):
-    """A single message in a conversation."""
+    """A single message in a conversation.
+
+    ⚠️ SECURITY WARNING: Message content is untrusted user input.
+
+    All user-provided message content should be treated as potentially malicious.
+    When consuming messages from this store, ensure that:
+
+    - Content may contain prompt injection payloads designed to manipulate
+      downstream LLM or agent behavior
+    - Content is stored and served verbatim without sanitization
+    - Consuming agents must implement their own validation and safety checks
+    - Do not trust message metadata (role, turn_number) as authoritative
+      without independent verification
+
+    This store does not perform content filtering, validation, or sanitization.
+    Message content is a faithful record of what was submitted by users or
+    received from external systems. It is the responsibility of consuming
+    code to validate and sanitize content according to security requirements.
+    """
 
     role: str  # "user", "assistant"
-    content: Any  # str or list of content blocks (for tool use)
+    content: Any  # str or list of content blocks (for tool use) - UNTRUSTED USER INPUT
     turn_number: int
     created_at: datetime
     token_count: int | None = None
@@ -93,6 +111,49 @@ class DatabaseConversationStore:
 
     Provides persistent storage for multi-turn agent conversations,
     allowing users to save, resume, and manage chat sessions.
+
+    ⚠️ SECURITY: Message Content is Untrusted Input
+
+    This store saves and serves message content verbatim without modification,
+    filtering, or sanitization. All stored messages should be treated as
+    potentially hostile user input.
+
+    Key implications:
+
+    1. **Prompt Injection Risk**: User messages may contain carefully crafted
+       payloads designed to manipulate downstream LLM behavior or bypass
+       safety guidelines.
+
+    2. **No Content Validation**: This store does not validate, filter, or
+       sanitize message content. It faithfully preserves what was submitted.
+
+    3. **Verbatim Storage**: Messages are stored and retrieved exactly as
+       provided by the source (user input, external APIs, etc.).
+
+    4. **Consumer Responsibility**: Code that retrieves messages from this
+       store MUST validate and sanitize content according to its own
+       security requirements before using it in sensitive contexts.
+
+    Usage Safety:
+
+    - When retrieving messages: Treat all content as untrusted
+    - Before passing to LLMs: Apply appropriate prompt injection filters
+    - Before logging: Sanitize to prevent log injection attacks
+    - Before displaying: Apply appropriate escaping/encoding for context
+    - Never trust message role or turn_number without verification
+
+    The store intentionally does NOT sanitize content because:
+    - Sanitization needs vary by use case
+    - Removing content would corrupt conversation history
+    - Consumers can apply context-specific safety measures
+    - Preserving verbatim messages aids security auditing
+
+    Example safe usage:
+
+        message = await store.get_message(conv_id)
+        # Treat message.content as untrusted
+        sanitized = sanitize_for_llm(message.content)
+        response = await llm.call(system_prompt, sanitized)
     """
 
     def __init__(
@@ -293,6 +354,12 @@ class DatabaseConversationStore:
 
         Returns:
             ConversationWithMessages if found, None otherwise
+
+        ⚠️ SECURITY WARNING: Returned message content is untrusted
+
+        The conversation object contains the full message history with
+        all messages treated as untrusted user input. See get_messages()
+        documentation for security considerations when consuming this data.
         """
         conv = await self.get_conversation(conversation_id)
         if conv is None:
@@ -443,11 +510,19 @@ class DatabaseConversationStore:
         Args:
             conversation_id: The conversation ID
             role: Message role ("user" or "assistant")
-            content: Message content (str or list of content blocks)
+            content: Message content (str or list of content blocks).
+                     ⚠️ This content is stored verbatim without sanitization.
+                     Caller is responsible for any necessary filtering.
             token_count: Optional token count for this message
 
         Returns:
             The created Message object
+
+        Note:
+            Content is stored exactly as provided. This store does not
+            sanitize, filter, or validate message content. It is the
+            responsibility of code that submits messages to ensure they
+            have been appropriately processed if needed.
         """
         now = datetime.now(UTC)
         content_json = json.dumps(content)
@@ -464,7 +539,8 @@ class DatabaseConversationStore:
             )
             turn: int = int(turn_result) if turn_result is not None else 0
 
-            # Insert message
+            # Insert message (stored verbatim - content may contain untrusted user input)
+            # ⚠️ Content is preserved exactly as provided without filtering
             await conn.execute(
                 """
                 INSERT INTO conversation_messages
@@ -474,7 +550,7 @@ class DatabaseConversationStore:
                 conversation_id,
                 turn,
                 role,
-                content_json,
+                content_json,  # ⚠️ UNTRUSTED: stored verbatim
                 now,
                 token_count,
             )
@@ -586,6 +662,24 @@ class DatabaseConversationStore:
 
         Returns:
             List of Message objects ordered by turn_number
+
+        ⚠️ SECURITY WARNING: Returned content is untrusted user input
+
+        All returned messages contain untrusted content that may include:
+        - Prompt injection payloads
+        - Malicious instructions designed to manipulate LLM behavior
+        - Attempts to bypass safety guidelines
+        - Exfiltration attacks
+
+        Before using message content in sensitive contexts:
+        - Apply prompt injection filters if passing to LLMs
+        - Sanitize for logging to prevent log injection
+        - Validate format expectations
+        - Apply context-appropriate encoding/escaping
+        - Never assume role or turn_number are authoritative
+
+        This store returns content exactly as submitted. It performs no
+        filtering or validation.
         """
         query = """
             SELECT turn_number, role, content, created_at, token_count
@@ -695,14 +789,20 @@ class DatabaseConversationStore:
         )
 
     def _row_to_message(self, row: asyncpg.Record) -> Message:
-        """Convert a database row to a Message object."""
+        """Convert a database row to a Message object.
+
+        ⚠️ Note: Returned content is untrusted user input and should be
+        treated as potentially malicious. Consumers must validate and
+        sanitize according to their security requirements.
+        """
         content = row["content"]
+        # ⚠️ UNTRUSTED: content is deserialized exactly as stored
         if isinstance(content, str):
             content = json.loads(content)
 
         return Message(
             role=row["role"],
-            content=content,
+            content=content,  # ⚠️ UNTRUSTED USER INPUT
             turn_number=row["turn_number"],
             created_at=row["created_at"].replace(tzinfo=None),
             token_count=row["token_count"],
