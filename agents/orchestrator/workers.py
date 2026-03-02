@@ -17,8 +17,14 @@ import os
 import re
 import shlex
 from dataclasses import dataclass
+from datetime import timedelta
 from pathlib import Path
 
+from agent_framework.security.capabilities import (
+    attenuate_for_worker,
+    is_tenuo_configured,
+    set_active_warrant,
+)
 from agent_framework.tools.claude_code import (
     create_claude_code_workspace,
     get_claude_code_workspace_status,
@@ -287,6 +293,31 @@ async def dispatch_worker(
         f"Dispatching worker for task {task.id} ({safe_title}) "
         f"in workspace {task.workspace_name} on branch {branch_name}"
     )
+
+    # If Tenuo is configured, mint an attenuated warrant for this worker.
+    # The warrant cryptographically scopes the worker to its workspace and
+    # branch, with a TTL matching the worker timeout. This replaces the
+    # broad ``skip_permissions=True`` with least-privilege authorization.
+    _warrant_token = None
+    if is_tenuo_configured():
+        workspaces_dir = os.environ.get(
+            "CLAUDE_CODE_WORKSPACES_DIR",
+            str(Path.home() / ".claude_code_workspaces"),
+        )
+        abs_workspace = str(Path(workspaces_dir) / task.workspace_name)
+        worker_ttl = timedelta(seconds=config.worker_timeout + 60)  # buffer
+
+        warrant_ctx = attenuate_for_worker(
+            workspace_path=abs_workspace,
+            branch_name=branch_name,
+            ttl=worker_ttl,
+        )
+        if warrant_ctx is not None:
+            _warrant_token = set_active_warrant(warrant_ctx)
+            logger.info(
+                f"Tenuo warrant minted for worker {task.id}: "
+                f"workspace={abs_workspace}, branch={branch_name}, ttl={worker_ttl}"
+            )
 
     result = await run_claude_code(
         folder_name=task.workspace_name,

@@ -922,6 +922,29 @@ class Agent(ABC):
                 f"permissions: {new_context.permissions}"
             )
 
+        # Mint a Tenuo capability warrant for this agent session.
+        # The warrant cryptographically scopes tool access to match the
+        # agent's effective PermissionSet. This is an additive layer —
+        # the existing code-level permission checks remain in place.
+        warrant_token = None
+        try:
+            from agent_framework.security.capabilities import (
+                is_tenuo_configured,
+                mint_agent_warrant_sync,
+                set_active_warrant,
+            )
+
+            if is_tenuo_configured():
+                effective_perms = self.get_execution_context().permissions
+                warrant_ctx = mint_agent_warrant_sync(
+                    agent_name=self.get_agent_name(),
+                    permission_names=effective_perms.to_list(),
+                )
+                if warrant_ctx is not None:
+                    warrant_token = set_active_warrant(warrant_ctx)
+        except Exception as e:
+            logger.debug(f"Tenuo warrant minting skipped: {e}")
+
         # Start observability trace for this message
         trace_ctx = None
         if self._observability_enabled and start_trace is not None:
@@ -950,6 +973,12 @@ class Agent(ABC):
             # Reset execution context to prevent leaking between requests
             if context_token is not None:
                 _execution_context_var.reset(context_token)
+
+            # Reset Tenuo warrant context
+            if warrant_token is not None:
+                from agent_framework.security.capabilities import _active_warrant
+
+                _active_warrant.reset(warrant_token)
 
             if trace_ctx is not None and exc_info is not None:
                 trace_ctx.__exit__(*exc_info)

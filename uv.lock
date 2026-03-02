@@ -44,6 +44,7 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "slack-bolt" },
     { name = "slack-sdk" },
+    { name = "tenuo", extra = ["mcp"] },
 ]
 
 [package.optional-dependencies]
@@ -72,6 +73,7 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "slack-bolt", specifier = ">=1.18.0" },
     { name = "slack-sdk", specifier = ">=3.27.0" },
+    { name = "tenuo", extras = ["mcp"], specifier = ">=0.1.0b10" },
 ]
 provides-extras = ["browser"]
 
@@ -2345,6 +2347,26 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/c4/68/79977123bb7be889ad680d79a40f339082c1978b5cfcf62c2d8d196873ac/starlette-0.52.1.tar.gz", hash = "sha256:834edd1b0a23167694292e94f597773bc3f89f362be6effee198165a35d62933", size = 2653702, upload-time = "2026-01-18T13:34:11.062Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/81/0d/13d1d239a25cbfb19e740db83143e95c772a1fe10202dda4b76792b114dd/starlette-0.52.1-py3-none-any.whl", hash = "sha256:0029d43eb3d273bc4f83a08720b4912ea4b071087a3b48db01b7c839f7954d74", size = 74272, upload-time = "2026-01-18T13:34:09.188Z" },
+]
+
+[[package]]
+name = "tenuo"
+version = "0.1.0b10"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pydantic" },
+    { name = "pyyaml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e8/23/065dbef19020416c73b7cce3778d0ddd14ae235e16ca185dfde34bd5fb0b/tenuo-0.1.0b10.tar.gz", hash = "sha256:18ed07ad4c3e18244796ee9ae1b77bd6326ce59764d8ff7e23aec0427d78d1c6", size = 1677744, upload-time = "2026-02-21T00:43:37.148Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/29/6b/22bf81d440a4f5a0aa4cf9c1bfb96c15ecc106161b59bea5b134cd8d9bca/tenuo-0.1.0b10-cp38-abi3-macosx_11_0_arm64.whl", hash = "sha256:3345f1623e21e925cbec5b43268931b95d7b19f4ced0f60f6dbbdc0b7f32da43", size = 2919393, upload-time = "2026-02-21T00:43:33.062Z" },
+    { url = "https://files.pythonhosted.org/packages/f0/7d/8e9847e697396a3341c1c76c01247b47cebd25152150e55ec5cdf316ac79/tenuo-0.1.0b10-cp38-abi3-manylinux_2_34_x86_64.whl", hash = "sha256:50f3974fb07e4efbf42cc7e33688846759172c08abce03d179e54ef2c18ae799", size = 3256781, upload-time = "2026-02-21T00:43:34.605Z" },
+    { url = "https://files.pythonhosted.org/packages/25/66/5852fba170585706a787b5f59547c7e6e6a5a7240e59cb724116e362d01a/tenuo-0.1.0b10-cp38-abi3-win_amd64.whl", hash = "sha256:01ec1ce069ca77b78379df92378584b1cf1c7145f45cc5747834214f09a66b6c", size = 2769793, upload-time = "2026-02-21T00:43:36.005Z" },
+]
+
+[package.optional-dependencies]
+mcp = [
+    { name = "mcp" },
 ]
 
 [[package]]

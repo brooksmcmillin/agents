@@ -13,6 +13,10 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import EmbeddedResource, ImageContent, TextContent, Tool
 
+from agent_framework.security.capabilities import (
+    check_tool_authorized,
+    is_tenuo_configured,
+)
 from agent_framework.telemetry import log_tool_invocation
 from agent_framework.tools import ALL_TOOL_SCHEMAS
 
@@ -25,6 +29,9 @@ class MCPServerBase:
 
     This provides a clean interface for building MCP servers with automatic
     tool registration and error handling.
+
+    If Tenuo is configured, each tool call is verified against the active
+    capability warrant before execution.
     """
 
     def __init__(self, name: str, setup_defaults: bool = True) -> None:
@@ -116,6 +123,13 @@ class MCPServerBase:
                 # Check if tool exists
                 if name not in self._tool_handlers:
                     raise ValueError(f"Unknown tool: {name}")
+
+                # Tenuo capability check (additive layer on top of
+                # existing PermissionSet checks in the agent).
+                if not check_tool_authorized(name):
+                    raise PermissionError(
+                        f"Capability denied: no active warrant authorizes '{name}'"
+                    )
 
                 # Call the handler
                 handler = self._tool_handlers[name]
