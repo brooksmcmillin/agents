@@ -67,6 +67,19 @@ _ALLOWED_ENV_KEYS: set[str] = {
     "GH_TOKEN",
 }
 
+# Environment variables that callers are allowed to pass via the `env` parameter.
+# This is a strict subset of what the subprocess environment would contain anyway,
+# limited to git identity overrides that legitimate orchestrators may need.
+# Keeping this separate from _ALLOWED_ENV_KEYS prevents a compromised orchestrator
+# from injecting arbitrary credentials (DATABASE_URL, FASTMAIL_API_TOKEN, etc.)
+# into the Claude Code subprocess.
+_CALLER_ALLOWED_ENV_KEYS: set[str] = {
+    "GIT_AUTHOR_NAME",
+    "GIT_AUTHOR_EMAIL",
+    "GIT_COMMITTER_NAME",
+    "GIT_COMMITTER_EMAIL",
+}
+
 # Default tools to allow when not using --dangerously-skip-permissions.
 # These are the standard Claude Code tools needed for non-interactive -p mode.
 #
@@ -215,8 +228,9 @@ async def run_claude_code(
         working_dir_base: Base directory for workspaces (optional, uses env var or default)
         custom_instructions: Optional custom instructions to prepend to command
         env: Optional environment variables to pass to the subprocess.
-            WARNING: Caller-provided env vars bypass the _ALLOWED_ENV_KEYS
-            allowlist and are passed directly to the subprocess.
+            Only keys present in _CALLER_ALLOWED_ENV_KEYS are forwarded;
+            all other keys are silently dropped to prevent a compromised
+            orchestrator from injecting credentials into the subprocess.
         skip_permissions: When True, pass --dangerously-skip-permissions (internal only,
             not exposed via MCP schema). When False (default), use --allowedTools
             with a safe default set.
@@ -351,9 +365,19 @@ async def run_claude_code(
                 )
                 subprocess_env["ANTHROPIC_API_KEY"] = main_key
 
-        # Caller-provided env overrides take precedence
+        # Caller-provided env overrides are filtered through _CALLER_ALLOWED_ENV_KEYS
+        # before being merged.  This prevents a compromised orchestrator agent from
+        # injecting sensitive credentials (DATABASE_URL, FASTMAIL_API_TOKEN, etc.)
+        # into the Claude Code subprocess by supplying them via this parameter.
         if env is not None:
-            subprocess_env.update(env)
+            safe_caller_env = {k: v for k, v in env.items() if k in _CALLER_ALLOWED_ENV_KEYS}
+            rejected_keys = set(env.keys()) - _CALLER_ALLOWED_ENV_KEYS
+            if rejected_keys:
+                logger.warning(
+                    "Caller-supplied env keys rejected (not in _CALLER_ALLOWED_ENV_KEYS): %s",
+                    sorted(rejected_keys),
+                )
+            subprocess_env.update(safe_caller_env)
 
         # Run claude and wait for completion
         process = await asyncio.create_subprocess_exec(

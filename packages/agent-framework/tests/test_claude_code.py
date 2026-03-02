@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from agent_framework.tools.claude_code import (
+    _CALLER_ALLOWED_ENV_KEYS,
     _get_workspace_path,
     _validate_folder_name,
     create_claude_code_workspace,
@@ -874,3 +875,122 @@ class TestRunClaudeCode:
                     subprocess_env = call_kwargs["env"]
 
                     assert subprocess_env["ANTHROPIC_API_KEY"] == "sk-ant-main"
+
+    @pytest.mark.asyncio
+    async def test_caller_env_sensitive_keys_are_filtered(self, tmp_path):
+        """Test that sensitive caller-supplied env vars are filtered out (not forwarded to subprocess)."""
+        workspace_dir = tmp_path / "workspaces"
+        workspace_dir.mkdir()
+        project_dir = workspace_dir / "project"
+        project_dir.mkdir()
+
+        with patch(
+            "agent_framework.tools.claude_code.shutil.which", return_value="/usr/bin/claude"
+        ):
+            with patch(
+                "agent_framework.tools.claude_code.asyncio.create_subprocess_exec"
+            ) as mock_exec:
+                mock_process = AsyncMock()
+                mock_process.communicate = AsyncMock(return_value=(b"Done", b""))
+                mock_process.returncode = 0
+                mock_exec.return_value = mock_process
+
+                await run_claude_code(
+                    folder_name="project",
+                    command="Do something",
+                    working_dir_base=str(workspace_dir),
+                    env={
+                        "DATABASE_URL": "postgres://secret",
+                        "FASTMAIL_API_TOKEN": "fm-token",
+                        "ANTHROPIC_API_KEY": "sk-injected",
+                        "GIT_AUTHOR_NAME": "Test Author",
+                    },
+                )
+
+                call_kwargs = mock_exec.call_args[1]
+                subprocess_env = call_kwargs["env"]
+
+                # Sensitive keys must not be injected
+                assert "DATABASE_URL" not in subprocess_env
+                assert "FASTMAIL_API_TOKEN" not in subprocess_env
+                # A compromised caller must not override the API key this way
+                assert subprocess_env.get("ANTHROPIC_API_KEY") != "sk-injected"
+                # Allowed git identity key should still pass through
+                assert subprocess_env["GIT_AUTHOR_NAME"] == "Test Author"
+
+    @pytest.mark.asyncio
+    async def test_caller_env_allowed_git_keys_pass_through(self, tmp_path):
+        """Test that all _CALLER_ALLOWED_ENV_KEYS are forwarded to the subprocess."""
+        workspace_dir = tmp_path / "workspaces"
+        workspace_dir.mkdir()
+        project_dir = workspace_dir / "project"
+        project_dir.mkdir()
+
+        git_identity = {
+            "GIT_AUTHOR_NAME": "Alice",
+            "GIT_AUTHOR_EMAIL": "alice@example.com",
+            "GIT_COMMITTER_NAME": "Bob",
+            "GIT_COMMITTER_EMAIL": "bob@example.com",
+        }
+
+        with patch(
+            "agent_framework.tools.claude_code.shutil.which", return_value="/usr/bin/claude"
+        ):
+            with patch(
+                "agent_framework.tools.claude_code.asyncio.create_subprocess_exec"
+            ) as mock_exec:
+                mock_process = AsyncMock()
+                mock_process.communicate = AsyncMock(return_value=(b"Done", b""))
+                mock_process.returncode = 0
+                mock_exec.return_value = mock_process
+
+                await run_claude_code(
+                    folder_name="project",
+                    command="Do something",
+                    working_dir_base=str(workspace_dir),
+                    env=git_identity,
+                )
+
+                call_kwargs = mock_exec.call_args[1]
+                subprocess_env = call_kwargs["env"]
+
+                for key, value in git_identity.items():
+                    assert subprocess_env[key] == value, (
+                        f"Expected {key}={value!r} in subprocess env"
+                    )
+
+    @pytest.mark.asyncio
+    async def test_caller_env_none_is_safe(self, tmp_path):
+        """Test that passing env=None does not raise and produces a clean subprocess env."""
+        workspace_dir = tmp_path / "workspaces"
+        workspace_dir.mkdir()
+        project_dir = workspace_dir / "project"
+        project_dir.mkdir()
+
+        with patch(
+            "agent_framework.tools.claude_code.shutil.which", return_value="/usr/bin/claude"
+        ):
+            with patch(
+                "agent_framework.tools.claude_code.asyncio.create_subprocess_exec"
+            ) as mock_exec:
+                mock_process = AsyncMock()
+                mock_process.communicate = AsyncMock(return_value=(b"Done", b""))
+                mock_process.returncode = 0
+                mock_exec.return_value = mock_process
+
+                result = await run_claude_code(
+                    folder_name="project",
+                    command="Do something",
+                    working_dir_base=str(workspace_dir),
+                    env=None,
+                )
+
+                assert result["success"] is True
+
+    def test_caller_allowed_env_keys_is_subset_of_allowed_env_keys(self):
+        """_CALLER_ALLOWED_ENV_KEYS must be a subset of _ALLOWED_ENV_KEYS for consistency."""
+        from agent_framework.tools.claude_code import _ALLOWED_ENV_KEYS
+
+        assert _CALLER_ALLOWED_ENV_KEYS.issubset(_ALLOWED_ENV_KEYS), (
+            "_CALLER_ALLOWED_ENV_KEYS contains keys not in _ALLOWED_ENV_KEYS"
+        )
