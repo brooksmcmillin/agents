@@ -471,7 +471,8 @@ ALLOWED_TOOLS=(
   "mcp__taskmanager__get_tasks"
 )
 
-CMD_ARGS=(claude -p - --allowedTools "${ALLOWED_TOOLS[@]}")
+SESSION_ID=$(python3 -c "import uuid; print(uuid.uuid4())")
+CMD_ARGS=(claude -p - --allowedTools "${ALLOWED_TOOLS[@]}" --session-id "$SESSION_ID")
 
 if $DRY_RUN; then
   echo "Would run (in $TARGET_DIR):"
@@ -491,13 +492,9 @@ echo "$(date -Iseconds) Starting $SCRIPT_NAME: repo=${REPO_FULL}, category=${CAT
 # Run claude from the target directory
 cd "$TARGET_DIR"
 
-# Capture output for wiki page creation
-OUTPUT_FILE=$(mktemp "${TMPDIR:-/tmp}/${SCRIPT_NAME}.XXXXXX")
-trap 'rm -f "$OUTPUT_FILE"' EXIT
-
 # --- Phase 1: Run PR analysis (pipe prompt via stdin to avoid ARG_MAX) ---
 EXIT_CODE=0
-echo "$PROMPT" | "${CMD_ARGS[@]}" | tee "$OUTPUT_FILE" || EXIT_CODE=$?
+echo "$PROMPT" | "${CMD_ARGS[@]}" || EXIT_CODE=$?
 
 if [[ $EXIT_CODE -ne 0 ]]; then
   send_alert "$SCRIPT_NAME: Claude Failed [$HOSTNAME]" \
@@ -506,11 +503,38 @@ if [[ $EXIT_CODE -ne 0 ]]; then
 fi
 
 # --- Phase 2: Create wiki page from captured output ---
-CAPTURED_OUTPUT=$(cat "$OUTPUT_FILE")
+# Extract assistant text from session JSONL — this is the source of truth.
+# claude -p stdout can be empty when the session ends mid-tool-call (e.g.,
+# TodoWrite consuming the final turn), but the JSONL always has the full
+# conversation including all text blocks.
+PROJECT_SLUG=$(printf '%s' "$TARGET_DIR" | sed 's|/|-|g')
+SESSION_JSONL="${HOME}/.claude/projects/${PROJECT_SLUG}/${SESSION_ID}.jsonl"
+
+CAPTURED_OUTPUT=""
+if [[ -f "$SESSION_JSONL" ]]; then
+  CAPTURED_OUTPUT=$(python3 - "$SESSION_JSONL" <<'PYEOF'
+import json, sys
+
+texts = []
+with open(sys.argv[1]) as f:
+    for line in f:
+        entry = json.loads(line)
+        if entry.get("type") == "assistant":
+            for block in entry.get("message", {}).get("content", []):
+                if isinstance(block, dict) and block.get("type") == "text":
+                    texts.append(block["text"])
+
+print("\n".join(texts))
+PYEOF
+  )
+  echo "$(date -Iseconds) Extracted output from session JSONL: ${SESSION_JSONL}"
+else
+  echo "$(date -Iseconds) Warning: session JSONL not found at ${SESSION_JSONL}" >&2
+fi
 
 if [[ -z "$CAPTURED_OUTPUT" ]]; then
   send_alert "$SCRIPT_NAME: No Output [$HOSTNAME]" \
-    "claude -p produced no output for category '${CATEGORY}' on $HOSTNAME. Wiki page not created."
+    "No assistant text found in session JSONL for category '${CATEGORY}' on $HOSTNAME. Session: ${SESSION_ID}. Wiki page not created."
   echo "$(date -Iseconds) Warning: no output captured, skipping wiki page creation" >&2
 else
   echo "$(date -Iseconds) Creating wiki page: ${WIKI_ROOT_SLUG}/${WIKI_CAT_SLUG}/${WIKI_DATE_SLUG}"

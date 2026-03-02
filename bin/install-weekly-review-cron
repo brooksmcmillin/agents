@@ -121,6 +121,13 @@ fi
 HOUR=$((10#$HOUR))
 MINUTE=$((10#$MINUTE))
 
+# Offset by 5 minutes to avoid collision with token refresh crons at :00/:30
+MINUTE=$((MINUTE + 5))
+if (( MINUTE >= 60 )); then
+  MINUTE=$((MINUTE - 60))
+  HOUR=$(( (HOUR + 1) % 24 ))
+fi
+
 # --- Validate directory ---
 TARGET_DIR=$(realpath "$TARGET_DIR" 2>/dev/null || echo "$TARGET_DIR")
 if [[ ! -d "$TARGET_DIR" ]]; then
