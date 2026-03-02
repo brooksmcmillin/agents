@@ -38,13 +38,17 @@ dependencies = [
     { name = "mcp" },
     { name = "openai" },
     { name = "opentelemetry-instrumentation-anthropic" },
-    { name = "playwright" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "pypdf" },
     { name = "python-dotenv" },
     { name = "slack-bolt" },
     { name = "slack-sdk" },
+]
+
+[package.optional-dependencies]
+browser = [
+    { name = "playwright" },
 ]
 
 [package.metadata]
@@ -61,7 +65,7 @@ requires-dist = [
     { name = "mcp", specifier = ">=1.23.0" },
     { name = "openai", specifier = ">=1.0.0" },
     { name = "opentelemetry-instrumentation-anthropic", specifier = ">=0.38.0" },
-    { name = "playwright", specifier = ">=1.40.0" },
+    { name = "playwright", marker = "extra == 'browser'", specifier = ">=1.40.0" },
     { name = "pydantic", specifier = ">=2.10.0" },
     { name = "pydantic-settings", specifier = ">=2.6.0" },
     { name = "pypdf", specifier = ">=6.7.4" },
@@ -69,6 +73,7 @@ requires-dist = [
     { name = "slack-bolt", specifier = ">=1.18.0" },
     { name = "slack-sdk", specifier = ">=3.27.0" },
 ]
+provides-extras = ["browser"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -106,7 +111,6 @@ dependencies = [
     { name = "markdown" },
     { name = "markdownify" },
     { name = "mcp" },
-    { name = "playwright" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "pypdf" },
@@ -118,6 +122,9 @@ dependencies = [
 ]
 
 [package.dev-dependencies]
+browser = [
+    { name = "agent-framework", extra = ["browser"] },
+]
 dev = [
     { name = "pre-commit" },
     { name = "pyright" },
@@ -146,7 +153,6 @@ requires-dist = [
     { name = "markdown", specifier = ">=3.10.1" },
     { name = "markdownify", specifier = ">=1.2.0" },
     { name = "mcp", specifier = ">=1.23.0" },
-    { name = "playwright", specifier = ">=1.40.0" },
     { name = "pydantic", specifier = ">=2.10.0" },
     { name = "pydantic-settings", specifier = ">=2.6.0" },
     { name = "pypdf", specifier = ">=6.7.4" },
@@ -158,6 +164,7 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
+browser = [{ name = "agent-framework", extras = ["browser"], editable = "packages/agent-framework" }]
 dev = [
     { name = "pre-commit", specifier = ">=4.5.1" },
     { name = "pyright", specifier = ">=1.1.408" },

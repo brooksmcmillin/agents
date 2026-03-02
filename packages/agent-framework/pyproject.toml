@@ -36,8 +36,6 @@ dependencies = [
     "openai>=1.0.0",
     "pypdf>=6.7.4",  # Updated from >=4.0.0 to fix CVE-2026-27628 + RunLengthDecode RAM exhaustion
     "lxml>=6.0.2",
-    # Browser automation
-    "playwright>=1.40.0",
     # Observability
     "langfuse>=3.0.0",
     "opentelemetry-instrumentation-anthropic>=0.38.0",
@@ -120,6 +118,11 @@ skips = ["B106", "B608"]
 
 [tool.bandit.assert_used]
 skips = ["**/test_*.py", "**/tests/**"]
+
+[project.optional-dependencies]
+browser = [
+    "playwright>=1.40.0",
+]
 
 [dependency-groups]
 dev = [

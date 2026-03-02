@@ -13,6 +13,24 @@ from urllib.parse import urlparse
 from ..security import SSRFValidator
 from ..utils.tool_decorators import handle_tool_errors
 
+try:
+    import playwright  # noqa: F401
+
+    _PLAYWRIGHT_AVAILABLE = True
+except ImportError:
+    _PLAYWRIGHT_AVAILABLE = False
+
+
+def _require_playwright() -> None:
+    """Raise a clear error if playwright is not installed."""
+    if not _PLAYWRIGHT_AVAILABLE:
+        raise RuntimeError(
+            "Playwright is not installed. Install the browser extras with:\n"
+            "  uv sync --group browser\n"
+            "  uv run playwright install chromium"
+        )
+
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -63,6 +81,7 @@ async def browser_screenshot(
     Returns:
         Dictionary with base64-encoded PNG screenshot and page metadata.
     """
+    _require_playwright()
     from playwright.async_api import async_playwright
 
     url = await _validate_url(url)
@@ -111,6 +130,7 @@ async def browser_accessibility_audit(url: str) -> dict[str, Any]:
     Returns:
         Dictionary with categorized accessibility findings and a summary score.
     """
+    _require_playwright()
     from playwright.async_api import async_playwright
 
     url = await _validate_url(url)
@@ -275,6 +295,7 @@ async def browser_performance_audit(url: str) -> dict[str, Any]:
     Returns:
         Dictionary with timing metrics, resource counts, and page weight.
     """
+    _require_playwright()
     from playwright.async_api import async_playwright
 
     url = await _validate_url(url)
@@ -294,12 +315,14 @@ async def browser_performance_audit(url: str) -> dict[str, Any]:
             except (ValueError, TypeError):
                 size = 0
             content_type = response.headers.get("content-type", "")
-            resources.append({
-                "url": response.url[:120],
-                "status": response.status,
-                "content_type": content_type.split(";")[0].strip(),
-                "size": size,
-            })
+            resources.append(
+                {
+                    "url": response.url[:120],
+                    "status": response.status,
+                    "content_type": content_type.split(";")[0].strip(),
+                    "size": size,
+                }
+            )
 
         page.on("response", _on_response)
 
@@ -388,6 +411,7 @@ async def browser_console_errors(url: str) -> dict[str, Any]:
     Returns:
         Dictionary with lists of console errors, warnings, and uncaught exceptions.
     """
+    _require_playwright()
     from playwright.async_api import async_playwright
 
     url = await _validate_url(url)
@@ -454,6 +478,7 @@ async def browser_check_links(url: str, same_origin_only: bool = True) -> dict[s
     Returns:
         Dictionary with broken, redirected, and healthy link counts plus details.
     """
+    _require_playwright()
     from playwright.async_api import async_playwright
 
     url = await _validate_url(url)
@@ -502,33 +527,39 @@ async def browser_check_links(url: str, same_origin_only: bool = True) -> dict[s
     async with httpx.AsyncClient(
         timeout=10.0,
         follow_redirects=False,
-        verify=False,
+        verify=False,  # nosec B501 - link checker needs to verify broken links regardless of cert validity
     ) as client:
         for link in links_to_check[:100]:  # cap at 100 links
             href = link["href"]
             try:
                 resp = await client.head(href)
                 if resp.status_code >= 400:
-                    broken.append({
-                        "url": href,
-                        "text": link["text"],
-                        "status": resp.status_code,
-                    })
+                    broken.append(
+                        {
+                            "url": href,
+                            "text": link["text"],
+                            "status": resp.status_code,
+                        }
+                    )
                 elif 300 <= resp.status_code < 400:
-                    redirected.append({
-                        "url": href,
-                        "text": link["text"],
-                        "status": resp.status_code,
-                        "location": resp.headers.get("location", "")[:200],
-                    })
+                    redirected.append(
+                        {
+                            "url": href,
+                            "text": link["text"],
+                            "status": resp.status_code,
+                            "location": resp.headers.get("location", "")[:200],
+                        }
+                    )
                 else:
                     healthy += 1
             except httpx.RequestError as exc:
-                broken.append({
-                    "url": href,
-                    "text": link["text"],
-                    "error": str(exc)[:200],
-                })
+                broken.append(
+                    {
+                        "url": href,
+                        "text": link["text"],
+                        "error": str(exc)[:200],
+                    }
+                )
 
     return {
         "url": url,
@@ -566,6 +597,7 @@ async def browser_crawl_site(
     Returns:
         Dictionary with a list of discovered pages and crawl summary.
     """
+    _require_playwright()
     from playwright.async_api import async_playwright
 
     url = await _validate_url(url)
@@ -599,13 +631,16 @@ async def browser_crawl_site(
                 title = await page.title()
 
                 # Extract same-origin links
-                links: list[str] = await page.evaluate("""(origin) => {
+                links: list[str] = await page.evaluate(
+                    """(origin) => {
                     return Array.from(new Set(
                         Array.from(document.querySelectorAll('a[href]'))
                             .map(a => a.href.split('#')[0].split('?')[0])
                             .filter(href => href.startsWith(origin))
                     ));
-                }""", origin)
+                }""",
+                    origin,
+                )
 
                 visited[current] = {
                     "url": current,

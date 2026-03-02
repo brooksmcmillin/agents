@@ -24,7 +24,6 @@ dependencies = [
     "slowapi>=0.1.9",
     "markdown>=3.10.1",
     "pypdf>=6.7.4",
-    "playwright>=1.40.0",
 ]
 
 [tool.uv]
@@ -49,6 +48,9 @@ agent-framework = { path = "packages/agent-framework", editable = true }
 chasm = { path = "packages/chasm", editable = true }
 
 [dependency-groups]
+browser = [
+    "agent-framework[browser]",
+]
 dev = [
     "pre-commit>=4.5.1",
     "pyright>=1.1.408",
