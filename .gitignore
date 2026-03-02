@@ -28,6 +28,7 @@ ENV/
 
 # Environment variables
 .env
+.ntfy.env
 
 # Runtime data directory
 .data/

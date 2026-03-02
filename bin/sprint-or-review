@@ -309,7 +309,7 @@ if ! $DRY_RUN; then
     exit 1
   fi
 
-  trap cleanup_worktree EXIT
+  trap 'cleanup_worktree' EXIT
   echo "$(date -Iseconds) Created worktree at $WORK_DIR (origin/${DEFAULT_BRANCH})"
 fi
 
@@ -415,9 +415,21 @@ ALLOWED_TOOLS=(
   "Grep"
   "Agent"
 
-  # Sprint: git and gh
-  "Bash(git *)"
-  "Bash(gh *)"
+  # Sprint: git (scoped to specific subcommands)
+  "Bash(git add *)"
+  "Bash(git commit *)"
+  "Bash(git push *)"
+  "Bash(git checkout *)"
+  "Bash(git branch *)"
+  "Bash(git worktree *)"
+  "Bash(git status*)"
+  "Bash(git log *)"
+  "Bash(git diff *)"
+  "Bash(git fetch *)"
+
+  # Sprint: gh (scoped to PR operations and CI checks)
+  "Bash(gh pr *)"
+  "Bash(gh run *)"
 
   # Sprint: build and test
   "Bash(make *)"
@@ -457,7 +469,14 @@ ALLOWED_TOOLS=(
   "mcp__taskmanager__list_dependencies"
 )
 
-CMD=(claude -p "$PROMPT" --allowedTools "${ALLOWED_TOOLS[@]}")
+SESSION_ID=$(python3 -c "import uuid; print(uuid.uuid4())")
+# --dangerously-skip-permissions is required for headless automation.
+# Without it, higher-risk tools (git commit, git push, gh pr create) trigger
+# interactive approval prompts that can't be answered in -p mode, causing the
+# sprint path to fail silently. The --allowedTools list above is the real
+# security boundary — it restricts the session to only git, gh, build/test
+# commands, and TaskManager MCP tools.
+CMD=(claude -p "$PROMPT" --allowedTools "${ALLOWED_TOOLS[@]}" --dangerously-skip-permissions --session-id "$SESSION_ID")
 
 if $DRY_RUN; then
   echo "Would run (in worktree at $WORK_DIR):"
@@ -472,14 +491,9 @@ echo "$(date -Iseconds) Starting $SCRIPT_NAME: category=${CATEGORY}, max_tasks=$
 # Run claude from the worktree so its CWD is the fresh checkout
 cd "$WORK_DIR"
 
-# Capture output for wiki page creation while still showing it to the user
-OUTPUT_FILE=$(mktemp "${TMPDIR:-/tmp}/${SCRIPT_NAME}.XXXXXX")
-# Extend trap to clean up temp file too (evaluated at exit time, not definition time)
-trap 'rm -f "$OUTPUT_FILE"; cleanup_worktree' EXIT
-
 # --- Phase 1: Run sprint or code review ---
 EXIT_CODE=0
-"${CMD[@]}" | tee "$OUTPUT_FILE" || EXIT_CODE=$?
+"${CMD[@]}" || EXIT_CODE=$?
 
 if [[ $EXIT_CODE -ne 0 ]]; then
   send_alert "$SCRIPT_NAME: Claude Failed [$HOSTNAME]" \
@@ -489,13 +503,38 @@ if [[ $EXIT_CODE -ne 0 ]]; then
 fi
 
 # --- Phase 2: Create wiki page from captured output ---
-# This runs as a separate, lightweight claude call so it can't be starved
-# of turns by a heavy sprint run.
-CAPTURED_OUTPUT=$(cat "$OUTPUT_FILE")
+# Extract assistant text from session JSONL — this is the source of truth.
+# claude -p stdout can be empty when the session ends mid-tool-call (e.g.,
+# TodoWrite consuming the final turn), but the JSONL always has the full
+# conversation including all text blocks.
+PROJECT_SLUG=$(printf '%s' "$WORK_DIR" | sed 's|/|-|g')
+SESSION_JSONL="${HOME}/.claude/projects/${PROJECT_SLUG}/${SESSION_ID}.jsonl"
+
+CAPTURED_OUTPUT=""
+if [[ -f "$SESSION_JSONL" ]]; then
+  CAPTURED_OUTPUT=$(python3 - "$SESSION_JSONL" <<'PYEOF'
+import json, sys
+
+texts = []
+with open(sys.argv[1]) as f:
+    for line in f:
+        entry = json.loads(line)
+        if entry.get("type") == "assistant":
+            for block in entry.get("message", {}).get("content", []):
+                if isinstance(block, dict) and block.get("type") == "text":
+                    texts.append(block["text"])
+
+print("\n".join(texts))
+PYEOF
+  )
+  echo "$(date -Iseconds) Extracted output from session JSONL: ${SESSION_JSONL}"
+else
+  echo "$(date -Iseconds) Warning: session JSONL not found at ${SESSION_JSONL}" >&2
+fi
 
 if [[ -z "$CAPTURED_OUTPUT" ]]; then
   send_alert "$SCRIPT_NAME: No Output [$HOSTNAME]" \
-    "claude -p produced no output for category '${CATEGORY}' on $HOSTNAME. Wiki page not created."
+    "No assistant text found in session JSONL for category '${CATEGORY}' on $HOSTNAME. Session: ${SESSION_ID}. Wiki page not created."
   echo "$(date -Iseconds) Warning: no output captured, skipping wiki page creation" >&2
 else
   echo "$(date -Iseconds) Creating wiki page: ${WIKI_ROOT_SLUG}/${WIKI_CAT_SLUG}/${WIKI_DATE_SLUG}"
@@ -588,15 +627,21 @@ _WIKI_PROMPT_END_
   )
 
   WIKI_EXIT=0
-  claude -p "$WIKI_PROMPT" --model claude-haiku-4-5-20251001 --allowedTools "${WIKI_TOOLS[@]}" >/dev/null 2>&1 || WIKI_EXIT=$?
+  WIKI_ERR=$(mktemp "${TMPDIR:-/tmp}/${SCRIPT_NAME}-wiki-err.XXXXXX")
+  claude -p "$WIKI_PROMPT" --model claude-haiku-4-5-20251001 --allowedTools "${WIKI_TOOLS[@]}" >/dev/null 2>"$WIKI_ERR" || WIKI_EXIT=$?
 
   if [[ $WIKI_EXIT -ne 0 ]]; then
     send_alert "$SCRIPT_NAME: Wiki Page Failed [$HOSTNAME]" \
       "Failed to create wiki page '${WIKI_ROOT_SLUG}/${WIKI_CAT_SLUG}/${WIKI_DATE_SLUG}' for category '${CATEGORY}' on $HOSTNAME. Sprint/review ran but results were not logged to wiki."
     echo "$(date -Iseconds) Warning: wiki page creation failed (exit $WIKI_EXIT)" >&2
+    if [[ -s "$WIKI_ERR" ]]; then
+      echo "$(date -Iseconds) Wiki stderr (last 20 lines):" >&2
+      tail -20 "$WIKI_ERR" >&2
+    fi
   else
     echo "$(date -Iseconds) Wiki page created: ${WIKI_ROOT_SLUG}/${WIKI_CAT_SLUG}/${WIKI_DATE_SLUG}"
   fi
+  rm -f "$WIKI_ERR"
 fi
 
 if [[ $EXIT_CODE -ne 0 ]]; then
