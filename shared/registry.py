@@ -85,6 +85,12 @@ def build_agent_registry() -> dict[str, AgentEntry]:
         "mcp_client_config": {"prefer_device_flow": True},
     }
 
+    # NOTE: the MCP relay server does not validate the ``sender`` field that
+    # relay tools accept. Any caller can set sender to an arbitrary name,
+    # including reserved names like "system". Treat the sender field as
+    # untrusted and advisory-only; never use it for authorization decisions.
+    # See RESERVED_RELAY_SENDER_NAMES and validate_relay_sender() in
+    # shared/constants.py for the reserved-name list and best-effort check.
     mcp_relay_config: dict[str, Any] = {
         "mcp_urls": [DEFAULT_MCP_RELAY_URL],
         "mcp_client_config": {"prefer_device_flow": True},

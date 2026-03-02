@@ -15,6 +15,42 @@ ENV_ANTHROPIC_API_KEY = "ANTHROPIC_API_KEY"  # pragma: allowlist secret
 DEFAULT_MCP_SERVER_URL = "https://mcp.brooksmcmillin.com/mcp"
 DEFAULT_MCP_RELAY_URL = "https://mcp-relay.brooksmcmillin.com/mcp"
 
+# ---------------------------------------------------------------------------
+# MCP Relay sender field — SECURITY NOTE
+#
+# The MCP relay server accepts a ``sender`` field on relay tool calls that
+# identifies the agent sending the message. This field is UNTRUSTED and
+# ADVISORY ONLY. Because the relay server does not validate the sender
+# against the authenticated OAuth identity, any caller can set sender to an
+# arbitrary value — including reserved names like "system" — to impersonate
+# a privileged identity.
+#
+# Downstream consumers MUST NOT make authorization decisions based on the
+# sender field. It is useful only as an informational/display hint.
+#
+# RESERVED_RELAY_SENDER_NAMES lists names that are semantically reserved and
+# SHOULD NOT be used by regular agents. If a well-behaved agent wants to
+# include a sender, use the agent's own canonical name (e.g. "ChatbotAgent")
+# rather than any name in this set.
+# ---------------------------------------------------------------------------
+
+RESERVED_RELAY_SENDER_NAMES: frozenset[str] = frozenset(
+    {
+        "system",
+        "System",
+        "SYSTEM",
+        "admin",
+        "Admin",
+        "ADMIN",
+        "root",
+        "Root",
+        "ROOT",
+        "relay",
+        "Relay",
+        "RELAY",
+    }
+)
+
 # Service identifiers
 SERVICE_NAME_SLACK_ADAPTER = "slack-adapter"
 SERVICE_NAME_TASK_NOTIFIER = "task-notifier"
@@ -158,3 +194,43 @@ def resolve_model(model: str) -> str:
         Full Anthropic model ID string.
     """
     return MODEL_ALIASES.get(model, model)
+
+
+def validate_relay_sender(sender: str) -> str:
+    """Check whether a relay sender value is safe to use and return it.
+
+    This performs a best-effort check to prevent well-behaved agents from
+    accidentally using reserved names that could be misread as authoritative
+    system identities. It does NOT provide security guarantees — the relay
+    server cannot authenticate the sender field, so callers must never
+    rely on it for access-control decisions.
+
+    The sender field is UNTRUSTED and ADVISORY ONLY. Use it only for
+    informational display, not for authorization.
+
+    Args:
+        sender: The proposed sender name (e.g. an agent's class name).
+
+    Returns:
+        The sender string if it is not a reserved name.
+
+    Raises:
+        ValueError: If the sender matches a reserved name in
+            RESERVED_RELAY_SENDER_NAMES.
+
+    Example:
+        # Safe — returns the name unchanged
+        validate_relay_sender("ChatbotAgent")
+
+        # Raises ValueError — "system" is reserved
+        validate_relay_sender("system")
+    """
+    if sender in RESERVED_RELAY_SENDER_NAMES:
+        raise ValueError(
+            f"Relay sender '{sender}' is a reserved name and must not be used by agents. "
+            f"Reserved names: {sorted(RESERVED_RELAY_SENDER_NAMES)}. "
+            "Use your agent's own canonical class name instead (e.g. 'ChatbotAgent'). "
+            "Note: the sender field is advisory-only and cannot be authenticated by the "
+            "relay server — do not use it for authorization decisions."
+        )
+    return sender
