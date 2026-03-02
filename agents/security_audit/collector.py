@@ -26,8 +26,6 @@ calls and file reads.
 from __future__ import annotations
 
 import argparse
-import grp
-import hashlib
 import json
 import logging
 import os
@@ -36,8 +34,7 @@ import pwd
 import re
 import socket
 import stat
-import subprocess
-import sys
+import subprocess  # nosec B404 - collector must run system commands
 import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
@@ -92,11 +89,13 @@ def check_open_ports() -> dict[str, Any]:
                 proto = parts[0]
                 local_addr = parts[4]
                 process = parts[-1] if "users:" in parts[-1] else ""
-                findings.append({
-                    "proto": proto,
-                    "listen_address": local_addr,
-                    "process": _sanitize_process_info(process),
-                })
+                findings.append(
+                    {
+                        "proto": proto,
+                        "listen_address": local_addr,
+                        "process": _sanitize_process_info(process),
+                    }
+                )
     else:
         # Fallback: parse /proc/net/tcp
         for proto, path in [("tcp", "/proc/net/tcp"), ("udp", "/proc/net/udp")]:
@@ -110,11 +109,13 @@ def check_open_ports() -> dict[str, Any]:
                         if proto == "tcp" and state != "0A":  # 0A = LISTEN
                             continue
                         addr, port = _decode_proc_net_addr(local)
-                        findings.append({
-                            "proto": proto,
-                            "listen_address": f"{addr}:{port}",
-                            "process": "",
-                        })
+                        findings.append(
+                            {
+                                "proto": proto,
+                                "listen_address": f"{addr}:{port}",
+                                "process": "",
+                            }
+                        )
 
     # Flag high-risk ports
     high_risk_ports = {21, 23, 25, 111, 135, 139, 445, 1433, 3306, 3389, 5432, 6379, 27017}
@@ -198,12 +199,14 @@ def check_ssh_config() -> dict[str, Any]:
                     pass
 
             if is_bad:
-                findings.append({
-                    "setting": name,
-                    "current_value": match.group(1),
-                    "severity": check["severity"],
-                    "recommendation": check["recommendation"],
-                })
+                findings.append(
+                    {
+                        "setting": name,
+                        "current_value": match.group(1),
+                        "severity": check["severity"],
+                        "recommendation": check["recommendation"],
+                    }
+                )
 
     return {
         "available": True,
@@ -252,14 +255,16 @@ def check_file_permissions() -> dict[str, Any]:
                 issues.append("group-writable")
 
             if issues:
-                findings.append({
-                    "path": path,
-                    "description": description,
-                    "current_mode": oct(mode),
-                    "expected_max_mode": oct(expected_max_mode),
-                    "issues": issues,
-                    "severity": "critical" if world_writable else "high",
-                })
+                findings.append(
+                    {
+                        "path": path,
+                        "description": description,
+                        "current_mode": oct(mode),
+                        "expected_max_mode": oct(expected_max_mode),
+                        "issues": issues,
+                        "severity": "critical" if world_writable else "high",
+                    }
+                )
         except PermissionError:
             pass
 
@@ -321,20 +326,24 @@ def check_users_and_auth() -> dict[str, Any]:
     try:
         for entry in pwd.getpwall():
             if entry.pw_uid == 0 and entry.pw_name != "root":
-                findings.append({
-                    "issue": "non_root_uid_zero",
-                    "user": entry.pw_name,
-                    "severity": "critical",
-                    "detail": f"User '{entry.pw_name}' has UID 0 (root equivalent)",
-                })
+                findings.append(
+                    {
+                        "issue": "non_root_uid_zero",
+                        "user": entry.pw_name,
+                        "severity": "critical",
+                        "detail": f"User '{entry.pw_name}' has UID 0 (root equivalent)",
+                    }
+                )
             # Check for empty password fields
             if entry.pw_passwd in ("", " "):
-                findings.append({
-                    "issue": "empty_password",
-                    "user": entry.pw_name,
-                    "severity": "critical",
-                    "detail": f"User '{entry.pw_name}' has no password set",
-                })
+                findings.append(
+                    {
+                        "issue": "empty_password",
+                        "user": entry.pw_name,
+                        "severity": "critical",
+                        "detail": f"User '{entry.pw_name}' has no password set",
+                    }
+                )
     except PermissionError:
         pass
 
@@ -348,12 +357,14 @@ def check_users_and_auth() -> dict[str, Any]:
                 if phash in ("", "!!", "*"):
                     continue  # locked or no-login accounts
                 if not phash.startswith("$"):
-                    findings.append({
-                        "issue": "weak_password_hash",
-                        "user": user,
-                        "severity": "high",
-                        "detail": f"User '{user}' has a non-standard password hash format",
-                    })
+                    findings.append(
+                        {
+                            "issue": "weak_password_hash",
+                            "user": user,
+                            "severity": "high",
+                            "detail": f"User '{user}' has a non-standard password hash format",
+                        }
+                    )
 
     # Check for sudo with NOPASSWD
     sudoers_content = _read_file("/etc/sudoers")
@@ -361,11 +372,13 @@ def check_users_and_auth() -> dict[str, Any]:
         for line in sudoers_content.splitlines():
             line = line.strip()
             if line and not line.startswith("#") and "NOPASSWD" in line:
-                findings.append({
-                    "issue": "sudo_nopasswd",
-                    "severity": "medium",
-                    "detail": f"NOPASSWD sudo rule found: {line[:120]}",
-                })
+                findings.append(
+                    {
+                        "issue": "sudo_nopasswd",
+                        "severity": "medium",
+                        "detail": f"NOPASSWD sudo rule found: {line[:120]}",
+                    }
+                )
 
     # Also check /etc/sudoers.d/
     sudoers_d = "/etc/sudoers.d"
@@ -377,11 +390,13 @@ def check_users_and_auth() -> dict[str, Any]:
                     for line in content.splitlines():
                         line = line.strip()
                         if line and not line.startswith("#") and "NOPASSWD" in line:
-                            findings.append({
-                                "issue": "sudo_nopasswd",
-                                "severity": "medium",
-                                "detail": f"NOPASSWD in {fname}: {line[:120]}",
-                            })
+                            findings.append(
+                                {
+                                    "issue": "sudo_nopasswd",
+                                    "severity": "medium",
+                                    "detail": f"NOPASSWD in {fname}: {line[:120]}",
+                                }
+                            )
         except PermissionError:
             pass
 
@@ -393,7 +408,9 @@ def check_users_and_auth() -> dict[str, Any]:
 
 def check_running_services() -> dict[str, Any]:
     """List running services and flag potentially unnecessary ones."""
-    result = _run_cmd(["systemctl", "list-units", "--type=service", "--state=running", "--no-pager"])
+    result = _run_cmd(
+        ["systemctl", "list-units", "--type=service", "--state=running", "--no-pager"]
+    )
 
     if result["exit_code"] != 0:
         # Fallback: check /proc
@@ -403,11 +420,13 @@ def check_running_services() -> dict[str, Any]:
     for line in result["stdout"].splitlines():
         parts = line.split()
         if len(parts) >= 4 and parts[0].endswith(".service"):
-            services.append({
-                "name": parts[0],
-                "state": parts[2],
-                "description": " ".join(parts[3:]),
-            })
+            services.append(
+                {
+                    "name": parts[0],
+                    "state": parts[2],
+                    "description": " ".join(parts[3:]),
+                }
+            )
 
     # Flag services that are often unnecessary on servers
     unnecessary_candidates = {
@@ -434,8 +453,8 @@ def check_package_updates() -> dict[str, Any]:
     # Try apt (Debian/Ubuntu)
     result = _run_cmd(["apt", "list", "--upgradable"], timeout=30)
     if result["exit_code"] == 0:
-        lines = [l for l in result["stdout"].splitlines() if "/" in l]
-        security_updates = [l for l in lines if "security" in l.lower()]
+        lines = [line for line in result["stdout"].splitlines() if "/" in line]
+        security_updates = [line for line in lines if "security" in line.lower()]
         return {
             "package_manager": "apt",
             "total_upgradable": len(lines),
@@ -447,7 +466,11 @@ def check_package_updates() -> dict[str, Any]:
     for pm in ["dnf", "yum"]:
         result = _run_cmd([pm, "check-update", "--security"], timeout=30)
         if result["exit_code"] in (0, 100):  # 100 = updates available
-            lines = [l for l in result["stdout"].splitlines() if l.strip() and not l.startswith("Last")]
+            lines = [
+                line
+                for line in result["stdout"].splitlines()
+                if line.strip() and not line.startswith("Last")
+            ]
             return {
                 "package_manager": pm,
                 "security_updates": len(lines),
@@ -460,28 +483,66 @@ def check_package_updates() -> dict[str, Any]:
 def check_kernel_security() -> dict[str, Any]:
     """Check kernel security parameters via sysctl."""
     checks = {
-        "net.ipv4.ip_forward": {"expected": "0", "severity": "medium", "desc": "IP forwarding enabled (router mode)"},
-        "net.ipv4.conf.all.accept_redirects": {"expected": "0", "severity": "medium", "desc": "ICMP redirects accepted"},
-        "net.ipv4.conf.all.send_redirects": {"expected": "0", "severity": "low", "desc": "ICMP redirects sent"},
-        "net.ipv4.conf.all.accept_source_route": {"expected": "0", "severity": "medium", "desc": "Source routing accepted"},
-        "net.ipv4.conf.all.log_martians": {"expected": "1", "severity": "low", "desc": "Martian packets not logged"},
-        "net.ipv4.tcp_syncookies": {"expected": "1", "severity": "medium", "desc": "SYN cookies disabled (vulnerable to SYN flood)"},
-        "kernel.randomize_va_space": {"expected": "2", "severity": "high", "desc": "ASLR not fully enabled"},
-        "kernel.dmesg_restrict": {"expected": "1", "severity": "low", "desc": "Kernel logs readable by unprivileged users"},
-        "fs.suid_dumpable": {"expected": "0", "severity": "medium", "desc": "SUID programs may dump core (info leak)"},
+        "net.ipv4.ip_forward": {
+            "expected": "0",
+            "severity": "medium",
+            "desc": "IP forwarding enabled (router mode)",
+        },
+        "net.ipv4.conf.all.accept_redirects": {
+            "expected": "0",
+            "severity": "medium",
+            "desc": "ICMP redirects accepted",
+        },
+        "net.ipv4.conf.all.send_redirects": {
+            "expected": "0",
+            "severity": "low",
+            "desc": "ICMP redirects sent",
+        },
+        "net.ipv4.conf.all.accept_source_route": {
+            "expected": "0",
+            "severity": "medium",
+            "desc": "Source routing accepted",
+        },
+        "net.ipv4.conf.all.log_martians": {
+            "expected": "1",
+            "severity": "low",
+            "desc": "Martian packets not logged",
+        },
+        "net.ipv4.tcp_syncookies": {
+            "expected": "1",
+            "severity": "medium",
+            "desc": "SYN cookies disabled (vulnerable to SYN flood)",
+        },
+        "kernel.randomize_va_space": {
+            "expected": "2",
+            "severity": "high",
+            "desc": "ASLR not fully enabled",
+        },
+        "kernel.dmesg_restrict": {
+            "expected": "1",
+            "severity": "low",
+            "desc": "Kernel logs readable by unprivileged users",
+        },
+        "fs.suid_dumpable": {
+            "expected": "0",
+            "severity": "medium",
+            "desc": "SUID programs may dump core (info leak)",
+        },
     }
 
     findings: list[dict[str, Any]] = []
     for key, check in checks.items():
         value = _read_sysctl(key)
         if value is not None and value != check["expected"]:
-            findings.append({
-                "parameter": key,
-                "current_value": value,
-                "expected_value": check["expected"],
-                "severity": check["severity"],
-                "description": check["desc"],
-            })
+            findings.append(
+                {
+                    "parameter": key,
+                    "current_value": value,
+                    "expected_value": check["expected"],
+                    "severity": check["severity"],
+                    "description": check["desc"],
+                }
+            )
 
     return {
         "checked_parameters": len(checks),
@@ -502,12 +563,14 @@ def check_cron_jobs() -> dict[str, Any]:
             if line and not line.startswith("#"):
                 # Flag jobs running as root that fetch from the internet
                 if "curl " in line or "wget " in line:
-                    findings.append({
-                        "source": "/etc/crontab",
-                        "line": line[:200],
-                        "severity": "high",
-                        "issue": "Cron job fetches remote content",
-                    })
+                    findings.append(
+                        {
+                            "source": "/etc/crontab",
+                            "line": line[:200],
+                            "severity": "high",
+                            "issue": "Cron job fetches remote content",
+                        }
+                    )
 
     # Check cron directories
     for cron_dir in ["/etc/cron.d", "/etc/cron.daily", "/etc/cron.hourly"]:
@@ -517,11 +580,13 @@ def check_cron_jobs() -> dict[str, Any]:
                     fpath = os.path.join(cron_dir, fname)
                     content = _read_file(fpath)
                     if content and ("curl " in content or "wget " in content):
-                        findings.append({
-                            "source": fpath,
-                            "severity": "medium",
-                            "issue": f"Cron script in {cron_dir} fetches remote content",
-                        })
+                        findings.append(
+                            {
+                                "source": fpath,
+                                "severity": "medium",
+                                "issue": f"Cron script in {cron_dir} fetches remote content",
+                            }
+                        )
             except PermissionError:
                 pass
 
@@ -557,7 +622,7 @@ ALL_CHECKS: dict[str, tuple[Any, str]] = {
 def _run_cmd(cmd: list[str], timeout: int = 15) -> dict[str, Any]:
     """Run a subprocess and return structured output."""
     try:
-        proc = subprocess.run(
+        proc = subprocess.run(  # nosec B603 - commands are hardcoded, not user input
             cmd,
             capture_output=True,
             text=True,
@@ -715,7 +780,9 @@ def run_audit(
     except OSError:
         pass
 
-    logger.info("Report written to %s (%d findings)", report_path, report["summary"]["total_findings"])
+    logger.info(
+        "Report written to %s (%d findings)", report_path, report["summary"]["total_findings"]
+    )
     return report_path
 
 
@@ -738,7 +805,7 @@ def upload_report(report_path: Path, url: str) -> None:
     )
 
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=30) as resp:  # nosec B310
             logger.info("Upload response: %d %s", resp.status, resp.reason)
     except Exception as e:
         logger.error("Upload failed: %s", e)
