@@ -212,6 +212,7 @@ jobs:
 
           echo "=== Fetching CI reviewer comments ==="
 
+          # Try marker-based lookup first (ideal case: Claude included the markers)
           CODE_REVIEW=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
             --paginate \
             --jq '[.[] | select(.body | contains("<!-- claude-code-review -->"))] | last | .body // empty')
@@ -219,6 +220,29 @@ jobs:
           SECURITY_REVIEW=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
             --paginate \
             --jq '[.[] | select(.body | contains("<!-- claude-security-review -->"))] | last | .body // empty')
+
+          # Fallback: if markers not found, use the 2 most recent claude[bot] comments.
+          # Claude doesn't always include the HTML markers despite being prompted to,
+          # so we fall back to identifying review comments by author.
+          if [ -z "$CODE_REVIEW" ] && [ -z "$SECURITY_REVIEW" ]; then
+            echo "Warning: HTML markers not found, falling back to claude[bot] comment lookup"
+            REVIEW_BODIES=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+              --paginate \
+              --jq '[.[] | select(.user.login == "claude[bot]")] | sort_by(.created_at) | .[-2:] | .[].body')
+
+            if [ -z "$REVIEW_BODIES" ]; then
+              echo "::error::No review comments found (neither markers nor claude[bot] comments)"
+              exit 1
+            fi
+
+            if echo "$REVIEW_BODIES" | grep -qE '### (New Issues|Still Open)'; then
+              echo "::error::Review Gate FAILED — CI reviews have unresolved issues."
+              exit 1
+            fi
+
+            echo "Review Gate passed — all CI reviews clean (fallback mode)."
+            exit 0
+          fi
 
           HAS_ISSUES=false
 
