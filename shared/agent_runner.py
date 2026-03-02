@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 async def run_agent(
     agent_class: type[Agent],
     agent_kwargs: dict[str, Any] | None = None,
+    session_id: str | None = None,
 ) -> None:
     """Run an agent with standard error handling.
 
@@ -24,10 +25,12 @@ async def run_agent(
     Args:
         agent_class: Agent class to instantiate and run
         agent_kwargs: Keyword arguments to pass to agent constructor
+        session_id: Optional session ID to resume. Pass ``"last"`` to
+            resume the most recent session for this agent.
     """
     try:
         agent = agent_class(**(agent_kwargs or {}))
-        await agent.start()
+        await agent.start(session_id=session_id)
 
     except ValueError as e:
         print(f"\nConfiguration error: {e}")
