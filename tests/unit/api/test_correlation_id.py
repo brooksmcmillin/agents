@@ -22,7 +22,7 @@ def client() -> TestClient:
     """Create a test client with auth disabled."""
     from api.server import app
 
-    with patch.dict(os.environ, {"DISABLE_AUTH": "true"}):
+    with patch.dict(os.environ, {"DISABLE_AUTH": "true", "ENV": "development"}):
         with TestClient(app) as c:
             yield c
 

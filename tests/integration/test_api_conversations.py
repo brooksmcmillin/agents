@@ -59,7 +59,7 @@ def client(mock_agent):
     # Patch the agent creation to return our mock; set DISABLE_AUTH for lifespan
     with (
         patch("api.server._create_agent", return_value=mock_agent),
-        patch.dict(os.environ, {"DISABLE_AUTH": "true"}),
+        patch.dict(os.environ, {"DISABLE_AUTH": "true", "ENV": "development"}),
     ):
         with TestClient(app) as test_client:
             yield test_client

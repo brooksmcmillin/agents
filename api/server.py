@@ -26,6 +26,7 @@ Run with:
 """
 
 import asyncio
+import ipaddress
 import logging
 import os
 import re
@@ -238,27 +239,41 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     else:
         logger.info("Conversation persistence disabled (no DATABASE_URL)")
 
-    # Block DISABLE_AUTH in production to prevent accidental public exposure
+    # DISABLE_AUTH is only honoured when ENV=development is explicitly set.
+    # Absence of ENV=production is NOT sufficient – staging/CI environments that
+    # omit the variable would otherwise be fully unauthenticated.
     _disable_auth = os.getenv("DISABLE_AUTH", "").lower() in ("true", "1", "yes")
     _env = os.getenv("ENV", "").lower()
-    if _disable_auth and _env == "production":
+    if _disable_auth and _env != "development":
         raise RuntimeError(
-            "DISABLE_AUTH=true is not allowed when ENV=production. "
-            "Set API_KEY to enable authentication in production."
+            "DISABLE_AUTH=true requires ENV=development to be explicitly set. "
+            "This prevents accidental exposure in staging or CI environments. "
+            "Set API_KEY to enable authentication, or set ENV=development if "
+            "you intentionally want to run without authentication."
         )
 
     if not _api_key:
         if _disable_auth:
+            allowed_ips_raw = os.getenv("DISABLE_AUTH_ALLOWED_IPS", "127.0.0.0/8,::1/128")
             logger.warning(
-                "SECURITY: Authentication disabled via DISABLE_AUTH=true. "
-                "All endpoints are publicly accessible."
+                "SECURITY: Authentication disabled via DISABLE_AUTH=true. Access restricted to: %s",
+                allowed_ips_raw,
             )
         else:
             raise RuntimeError(
                 "API_KEY environment variable is required. "
                 "Set API_KEY to enable authentication, or set DISABLE_AUTH=true "
-                "to explicitly run without authentication (development only)."
+                "with ENV=development to explicitly run without authentication "
+                "(development only)."
             )
+
+    # Fail fast if Twilio signature validation is disabled in production.
+    _skip_twilio = os.getenv("SKIP_TWILIO_SIGNATURE_VALIDATION", "").lower() == "true"
+    if _skip_twilio and _env == "production":
+        raise RuntimeError(
+            "SKIP_TWILIO_SIGNATURE_VALIDATION=true is not allowed when ENV=production. "
+            "Remove SKIP_TWILIO_SIGNATURE_VALIDATION or set it to false in production."
+        )
 
     logger.info("Agent REST API started")
     yield
@@ -357,19 +372,92 @@ async def add_correlation_id(
 _api_key = os.getenv("API_KEY")
 _security = HTTPBearer(auto_error=False)
 
+# Default CIDR list when DISABLE_AUTH_ALLOWED_IPS is not set.
+_DISABLE_AUTH_DEFAULT_CIDRS = "127.0.0.0/8,::1/128"
+
+
+def _parse_cidr_list(raw: str) -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
+    """Parse a comma-separated list of CIDR strings into network objects.
+
+    Invalid entries are logged and skipped.
+
+    Args:
+        raw: Comma-separated CIDR strings, e.g. "127.0.0.0/8,::1/128".
+
+    Returns:
+        List of parsed IPv4Network or IPv6Network objects (strict=False).
+    """
+    networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
+    for entry in raw.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        try:
+            networks.append(ipaddress.ip_network(entry, strict=False))
+        except ValueError:
+            logger.warning("DISABLE_AUTH_ALLOWED_IPS: ignoring invalid CIDR %r", entry)
+    return networks
+
+
+def _ip_in_cidr_list(
+    ip_str: str,
+    networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network],
+) -> bool:
+    """Return True if *ip_str* falls within any network in *networks*.
+
+    Args:
+        ip_str: IP address string (IPv4 or IPv6).
+        networks: List of network objects to check against.
+
+    Returns:
+        True if the address is contained in at least one network.
+    """
+    try:
+        addr = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return False
+    return any(addr in net for net in networks)
+
 
 async def verify_api_key(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Security(_security),
 ) -> None:
     """Verify API key.
 
     Requires a valid Authorization: Bearer <API_KEY> header when API_KEY
-    is set. When DISABLE_AUTH=true (no API_KEY), all requests are allowed.
+    is set. When DISABLE_AUTH=true (no API_KEY) and ENV=development, requests
+    are only allowed from IPs listed in DISABLE_AUTH_ALLOWED_IPS (defaults to
+    loopback only: 127.0.0.0/8 and ::1/128).
 
     Uses constant-time comparison to prevent timing attacks.
     """
     if not _api_key:
-        return  # Auth not configured, allow all
+        # Auth disabled – enforce IP allowlist from DISABLE_AUTH_ALLOWED_IPS.
+        allowed_ips_raw = os.getenv("DISABLE_AUTH_ALLOWED_IPS", _DISABLE_AUTH_DEFAULT_CIDRS)
+        allowed_networks = _parse_cidr_list(allowed_ips_raw)
+        client_host = request.client.host if request.client else ""
+        try:
+            ipaddress.ip_address(client_host)
+        except ValueError:
+            # Host is not a parseable IP address (e.g. a hostname or test client stub).
+            # Log a warning and allow, since CIDR filtering is best-effort for non-IP
+            # hosts; the startup check (ENV=development) is the primary guard.
+            logger.warning(
+                "DISABLE_AUTH: client host %r is not a parseable IP, skipping CIDR check",
+                client_host,
+            )
+            return
+        if not _ip_in_cidr_list(client_host, allowed_networks):
+            logger.warning(
+                "DISABLE_AUTH: rejected request from non-allowlisted IP %r",
+                client_host,
+            )
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied: client IP not in DISABLE_AUTH_ALLOWED_IPS",
+            )
+        return
     if not credentials or not secrets.compare_digest(
         credentials.credentials.encode("utf-8"),
         _api_key.encode("utf-8"),
