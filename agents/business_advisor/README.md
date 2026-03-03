@@ -45,7 +45,7 @@ A strategic business advisor powered by Claude Sonnet 4.5, specialized in techno
 
 ### Prerequisites
 
-1. **Python 3.11 or higher**
+1. **Python 3.12 or higher**
 
 2. **Anthropic API Key**: Required for Claude
    ```bash

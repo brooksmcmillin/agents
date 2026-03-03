@@ -44,7 +44,7 @@ An expert AI security research assistant powered by Claude Sonnet 4.5, specializ
 
 ### Prerequisites
 
-1. **Python 3.11 or higher**
+1. **Python 3.12 or higher**
 
 2. **Anthropic API Key**: Required for Claude
    ```bash

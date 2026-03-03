@@ -1324,7 +1324,7 @@ async def chat(message: str):
 
 **As a Docker container:**
 ```dockerfile
-FROM python:3.11
+FROM python:3.12
 WORKDIR /app
 COPY . .
 RUN pip install -e .
