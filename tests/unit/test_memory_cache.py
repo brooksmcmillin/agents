@@ -1,6 +1,5 @@
 """Unit tests for MemoryCache in database_memory_store.py."""
 
-import time
 from unittest.mock import patch
 
 from agent_framework.storage.database_memory_store import (
@@ -106,11 +105,11 @@ class TestMemoryCacheExpiry:
 
     def test_expired_entry_returns_none(self) -> None:
         """An entry past its TTL should not be returned."""
-        cache = MemoryCache(default_ttl=0.05)
-        memory = make_memory()
-        cache.set("k", memory)
-        time.sleep(0.1)
-        assert cache.get("k") is None
+        cache = MemoryCache()
+        with patch("time.time", return_value=1000.0):
+            cache.set("k", make_memory(), ttl=1.0)
+        with patch("time.time", return_value=1001.1):
+            assert cache.get("k") is None
 
     def test_expired_entry_is_removed_from_internal_cache(self) -> None:
         """Reading an expired key should evict it from the internal dict."""
@@ -164,11 +163,22 @@ class TestMemoryCacheInvalidation:
         cache.delete("no_such_key")  # must not raise
 
     def test_delete_invalidates_all_memories_cache(self) -> None:
-        """delete() should also invalidate the all-memories cache."""
+        """delete() always invalidates the all-memories cache, even for present keys."""
+        cache = MemoryCache()
+        memory = make_memory(key="k")
+        cache.set("k", memory)
+        cache.set_all_memories([memory])
+        assert cache.get_all_memories() is not None
+        cache.delete("k")
+        assert cache.get("k") is None
+        assert cache.get_all_memories() is None
+
+    def test_delete_nonexistent_key_also_invalidates_all_memories_cache(self) -> None:
+        """delete() of a non-present key still invalidates the all-memories cache."""
         cache = MemoryCache()
         cache.set_all_memories([make_memory()])
         assert cache.get_all_memories() is not None
-        cache.delete("k")
+        cache.delete("never_set")
         assert cache.get_all_memories() is None
 
     def test_invalidate_is_alias_for_delete(self) -> None:
