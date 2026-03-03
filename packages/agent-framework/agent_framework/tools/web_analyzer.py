@@ -13,8 +13,7 @@ from typing import Any, Literal
 import httpx
 from bs4 import BeautifulSoup
 
-from ..security import SSRFValidator
-from ..security.ssrf import SSRFTransport
+from ..security import SSRFTransport, SSRFValidator
 from ..utils.tool_decorators import handle_tool_errors
 
 logger = logging.getLogger(__name__)
