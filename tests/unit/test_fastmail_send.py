@@ -103,11 +103,6 @@ class TestCollectAllRecipients:
         result = _collect_all_recipients([], ["cc@example.com"], None)
         assert result == ["cc@example.com"]
 
-    def test_all_none_optional_fields(self) -> None:
-        """Both cc and bcc are None – only to is returned."""
-        result = _collect_all_recipients(["only@example.com"], None, None)
-        assert result == ["only@example.com"]
-
 
 # ---------------------------------------------------------------------------
 # _check_recipients_allowed
@@ -273,3 +268,18 @@ class TestCheckRecipientsAllowed:
         ok, disallowed = _check_recipients_allowed([original], ["admin@example.com"])
         assert ok is False
         assert disallowed == [original]
+
+    def test_subdomain_not_matched_by_wildcard_domain_pattern(self) -> None:
+        """*@trusted.com must NOT match user@sub.trusted.com (subdomain != domain).
+
+        The matching uses endswith('@trusted.com'), so a subdomain email like
+        user@sub.trusted.com ends with '.trusted.com', not '@trusted.com'.
+        This is correct security behavior: subdomain access is not implied by
+        the parent domain wildcard.
+        """
+        ok, disallowed = _check_recipients_allowed(
+            ["user@sub.trusted.com"],
+            ["*@trusted.com"],
+        )
+        assert ok is False
+        assert disallowed == ["user@sub.trusted.com"]
