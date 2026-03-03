@@ -46,6 +46,7 @@ import anthropic
 from agent_framework import Agent
 from agent_framework.logging import correlation_id_var
 from agent_framework.storage import DatabaseConversationStore
+from agent_framework.utils.sanitize import sanitize_log_input
 from anthropic.types import TextBlock
 from fastapi import (
     Depends,
@@ -92,18 +93,6 @@ from .models import (
 from .sessions import SessionManager
 
 logger = logging.getLogger(__name__)
-
-
-def _sanitize_log_input(value: str) -> str:
-    """Sanitize user input for safe logging.
-
-    Prevents log injection attacks by removing newlines and control characters
-    that could be used to forge log entries or corrupt log analysis.
-    """
-    # Replace newlines and carriage returns, then remove other control chars
-    sanitized = value.replace("\n", "\\n").replace("\r", "\\r")
-    # Remove other ASCII control characters (0x00-0x1F except tab)
-    return "".join(c if c == "\t" or (ord(c) >= 0x20) else f"\\x{ord(c):02x}" for c in sanitized)
 
 
 # ---------------------------------------------------------------------------
@@ -673,7 +662,7 @@ async def stateless_message(
             # ⚠️ UNTRUSTED: body.message is user-supplied input
             response_text = await agent.process_message(body.message)
     except Exception as e:
-        logger.exception("Agent %s failed processing message", _sanitize_log_input(agent_name))
+        logger.exception("Agent %s failed processing message", sanitize_log_input(agent_name))
         raise HTTPException(status_code=500, detail="Internal server error") from e
 
     return MessageResponse(
@@ -744,7 +733,7 @@ async def session_message(
                 session_id=session_id,  # For Langfuse tracing
             )
     except Exception as e:
-        logger.exception("Session %s failed processing message", _sanitize_log_input(session_id))
+        logger.exception("Session %s failed processing message", sanitize_log_input(session_id))
         raise HTTPException(status_code=500, detail="Internal server error") from e
 
     session.touch()
@@ -960,7 +949,7 @@ async def conversation_message(
             )
     except Exception as e:
         logger.exception(
-            "Conversation %s failed processing message", _sanitize_log_input(conversation_id)
+            "Conversation %s failed processing message", sanitize_log_input(conversation_id)
         )
         raise HTTPException(status_code=500, detail="Internal server error") from e
 
@@ -1530,9 +1519,9 @@ async def handle_incoming_sms(request: Request) -> Response:
     """
     # Parse form data and sanitize for safe logging
     form = await request.form()
-    from_phone = _sanitize_log_input(str(form.get("From", "")))
-    to_phone = _sanitize_log_input(str(form.get("To", "")))
-    message_body = _sanitize_log_input(str(form.get("Body", "")))
+    from_phone = sanitize_log_input(str(form.get("From", "")))
+    to_phone = sanitize_log_input(str(form.get("To", "")))
+    message_body = sanitize_log_input(str(form.get("Body", "")))
 
     logger.info(f"Incoming SMS from {from_phone} to {to_phone}")
 
@@ -1593,8 +1582,8 @@ async def handle_incoming_sms(request: Request) -> Response:
             )
 
         logger.info(
-            f"Routing SMS reply to conversation {_sanitize_log_input(conversation_id)} "
-            f"(agent: {_sanitize_log_input(agent_name or 'unknown')})"
+            f"Routing SMS reply to conversation {sanitize_log_input(conversation_id)} "
+            f"(agent: {sanitize_log_input(agent_name or 'unknown')})"
         )
 
         # Get conversation store

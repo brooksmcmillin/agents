@@ -15,11 +15,12 @@ from fastapi.testclient import TestClient
 with patch.dict(os.environ, {"DATABASE_URL": "", "DISABLE_AUTH": "true", "ENV": "development"}):
     from api.server import (
         _get_rate_limit_key,
-        _sanitize_log_input,
         _validate_cors_origin,
         app,
         verify_api_key,
     )
+
+from agent_framework.utils.sanitize import sanitize_log_input as _sanitize_log_input
 
 
 @pytest.fixture
