@@ -47,6 +47,13 @@ class TestSanitizeLogInput:
         assert "\\n" in result
         assert "\\x01" in result
 
+    def test_escapes_nel_c1_control(self) -> None:
+        # U+0085 NEXT LINE (NEL) is a C1 control character treated as a line
+        # terminator by some parsers (ISO 6429, certain SIEM tools).
+        result = sanitize_log_input("before\u0085after")
+        assert "\u0085" not in result
+        assert "\\u0085" in result
+
     def test_escapes_unicode_line_separator(self) -> None:
         # U+2028 LINE SEPARATOR is treated as a line terminator by some parsers.
         result = sanitize_log_input("before\u2028after")
