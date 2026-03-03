@@ -469,7 +469,7 @@ class TestAgentFallbackIntegration:
                     "agent_framework.core.backup_model.call_backup_model",
                     new_callable=AsyncMock,
                     return_value=backup_msg,
-                ) as mock_backup:
+                ):
                     result = await agent._call_claude(tools=[])
                     assert result.content[0].text == "Backup on 500"
 
