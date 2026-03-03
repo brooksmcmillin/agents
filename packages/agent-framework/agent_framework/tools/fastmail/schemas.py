@@ -3,6 +3,7 @@
 Contains TOOL_SCHEMAS list with all FastMail tool definitions.
 """
 
+from .calendar import get_calendar_events, list_calendars
 from .mailbox import list_mailboxes
 from .manage import delete_email, move_email, update_email_flags
 from .read import get_email, get_emails, search_emails
@@ -334,5 +335,67 @@ TOOL_SCHEMAS = [
             "required": ["subject", "body"],
         },
         "handler": send_agent_report,
+    },
+    {
+        "name": "list_calendars",
+        "description": (
+            "List all calendars in the FastMail account. "
+            "Returns calendars with their name, color, visibility, and subscription status. "
+            "Use this to discover available calendars before querying events."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "api_token": {
+                    "type": "string",
+                    "description": "Optional FastMail API token. If not provided, uses FASTMAIL_API_TOKEN from environment.",
+                },
+            },
+            "required": [],
+        },
+        "handler": list_calendars,
+    },
+    {
+        "name": "get_calendar_events",
+        "description": (
+            "Query calendar events by date range. "
+            "Retrieves events within the specified date range with title, start time, "
+            "duration, location, description, and participants. "
+            "Optionally filter by calendar ID or title text."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "after": {
+                    "type": "string",
+                    "description": "Start of date range in ISO 8601 format (e.g. '2025-03-01T00:00:00')",
+                },
+                "before": {
+                    "type": "string",
+                    "description": "End of date range in ISO 8601 format (e.g. '2025-03-31T23:59:59')",
+                },
+                "calendar_id": {
+                    "type": "string",
+                    "description": "Optional calendar ID to filter events by. Use list_calendars to find IDs.",
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Optional title text to filter by (partial match)",
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100,
+                    "default": 50,
+                    "description": "Maximum number of events to return (default: 50)",
+                },
+                "api_token": {
+                    "type": "string",
+                    "description": "Optional FastMail API token",
+                },
+            },
+            "required": ["after", "before"],
+        },
+        "handler": get_calendar_events,
     },
 ]

@@ -19,6 +19,7 @@ JMAP_CAPABILITIES = {
     "core": "urn:ietf:params:jmap:core",
     "mail": "urn:ietf:params:jmap:mail",
     "submission": "urn:ietf:params:jmap:submission",
+    "calendars": "urn:ietf:params:jmap:calendars",
 }
 
 

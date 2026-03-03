@@ -27,8 +27,10 @@ from .content_suggestions import suggest_content_topics
 from .fastmail import TOOL_SCHEMAS as _fastmail_schemas
 from .fastmail import (
     delete_email,
+    get_calendar_events,
     get_email,
     get_emails,
+    list_calendars,
     list_mailboxes,
     move_email,
     search_emails,
@@ -157,7 +159,7 @@ __all__ = [
     "delete_document",
     "list_documents",
     "get_rag_stats",
-    # FastMail tools
+    # FastMail tools - Email
     "list_mailboxes",
     "get_emails",
     "get_email",
@@ -167,6 +169,9 @@ __all__ = [
     "move_email",
     "update_email_flags",
     "delete_email",
+    # FastMail tools - Calendar
+    "list_calendars",
+    "get_calendar_events",
     # Claude Code tools
     "run_claude_code",
     "list_claude_code_workspaces",

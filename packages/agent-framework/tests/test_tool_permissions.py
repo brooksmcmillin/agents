@@ -315,6 +315,7 @@ class TestGetToolPermissionsByCategory:
             "memory",
             "rag",
             "email",
+            "calendar",
             "communication",
             "social_media",
             "content",
