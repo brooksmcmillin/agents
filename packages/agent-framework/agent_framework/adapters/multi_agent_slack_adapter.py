@@ -717,55 +717,59 @@ class MultiAgentSlackAdapter:
             raise
 
     def _split_message(self, text: str, max_length: int) -> list[str]:
-        """Split a long message into parts at paragraph boundaries.
-
-        TODO: Refactor this method - cyclomatic complexity is 15.
-        Consider extracting:
-        - _can_fit(current, new, max_len) for length checking
-        - _append_paragraph(current, paragraph) for paragraph appending
-        - _split_oversized_paragraph(paragraph, max_len) for large paragraphs
-        - _split_by_sentences(sentences, max_len) for sentence-level splitting
-        - _split_by_chars(text, max_len) for character-level splitting
-        See code optimizer report for detailed recommendations.
-        """
-        parts = []
+        """Split a long message into parts at paragraph boundaries."""
+        parts: list[str] = []
         current_part = ""
 
-        paragraphs = text.split("\n\n")
-
-        for paragraph in paragraphs:
-            if len(current_part) + len(paragraph) + 2 > max_length:
-                if current_part:
-                    parts.append(current_part.strip())
-                    current_part = ""
-
-                if len(paragraph) > max_length:
-                    sentences = re.split(r"(?<=[.!?])\s+", paragraph)
-                    for sentence in sentences:
-                        if len(sentence) > max_length:
-                            while len(sentence) > max_length:
-                                if current_part:
-                                    parts.append(current_part.strip())
-                                    current_part = ""
-                                parts.append(sentence[:max_length])
-                                sentence = sentence[max_length:]
-                            if sentence:
-                                current_part = sentence
-                        elif len(current_part) + len(sentence) + 1 > max_length:
-                            if current_part:
-                                parts.append(current_part.strip())
-                            current_part = sentence
-                        else:
-                            current_part += (" " if current_part else "") + sentence
-                else:
-                    current_part = paragraph
-            else:
+        for paragraph in text.split("\n\n"):
+            if len(current_part) + len(paragraph) + 2 <= max_length:
                 current_part += ("\n\n" if current_part else "") + paragraph
+                continue
+
+            if current_part:
+                parts.append(current_part.strip())
+                current_part = ""
+
+            if len(paragraph) > max_length:
+                overflow_parts, current_part = self._split_oversized_paragraph(
+                    paragraph, max_length
+                )
+                parts.extend(overflow_parts)
+            else:
+                current_part = paragraph
 
         if current_part:
             parts.append(current_part.strip())
 
         return parts
+
+    def _split_oversized_paragraph(self, paragraph: str, max_length: int) -> tuple[list[str], str]:
+        """Split a paragraph that exceeds max_length into sentence/char-level parts.
+
+        Returns:
+            Tuple of (completed parts, remaining text for next accumulation).
+        """
+        parts: list[str] = []
+        current_part = ""
+
+        for sentence in re.split(r"(?<=[.!?])\s+", paragraph):
+            if len(sentence) > max_length:
+                if current_part:
+                    parts.append(current_part.strip())
+                    current_part = ""
+                while len(sentence) > max_length:
+                    parts.append(sentence[:max_length])
+                    sentence = sentence[max_length:]
+                if sentence:
+                    current_part = sentence
+            elif len(current_part) + len(sentence) + 1 > max_length:
+                if current_part:
+                    parts.append(current_part.strip())
+                current_part = sentence
+            else:
+                current_part += (" " if current_part else "") + sentence
+
+        return parts, current_part
 
     def _fetch_bot_info(self) -> None:
         """Fetch and store bot user information."""
