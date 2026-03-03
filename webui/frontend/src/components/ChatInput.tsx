@@ -53,6 +53,7 @@ export function ChatInput({
     if (message.trim() && !disabled) {
       onSend(message.trim());
       setMessage('');
+      voiceBaseRef.current = '';
     }
   };
 

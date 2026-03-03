@@ -155,6 +155,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
     } catch {
       setError('Failed to start speech recognition. Please try again.');
       setIsListening(false);
+      recognitionRef.current = null;
     }
   }, [lang, onResult, continuous]);
 
