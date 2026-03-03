@@ -15,6 +15,7 @@ NTFY_URL="https://ntfy.brooksmcmillin.com/mcp-alerts"
 AGENTS_DIR="${HOME}/.claude/agents"
 HOSTNAME="$(hostname 2>/dev/null || cat /etc/hostname 2>/dev/null || echo 'unknown')"
 TODAY=$(date +%Y-%m-%d)
+NOW_TIME=$(date +%H:%M)
 
 # Load NTFY_TOKEN from .env if not already set (co-located with the script)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -263,8 +264,8 @@ WIKI_ROOT_SLUG="automation-log"
 WIKI_ROOT_TITLE="Automation Log"
 WIKI_CAT_SLUG="${CATEGORY_SLUG}"
 WIKI_CAT_TITLE="${CATEGORY}"
-WIKI_DATE_SLUG="${CATEGORY_SLUG}-${TODAY}"
-WIKI_DATE_TITLE="${CATEGORY} (${TODAY})"
+WIKI_DATE_SLUG="${CATEGORY_SLUG}-${TODAY}-${NOW_TIME//:}"
+WIKI_DATE_TITLE="${CATEGORY} (${TODAY} ${NOW_TIME})"
 
 # --- Set up worktree from latest default branch ---
 if ! git -C "$TARGET_DIR" rev-parse --is-inside-work-tree &>/dev/null; then
@@ -484,6 +485,9 @@ CMD=(claude -p "$PROMPT" --allowedTools "${ALLOWED_TOOLS[@]}" --dangerously-skip
 if $DRY_RUN; then
   echo "Would run (in worktree at $WORK_DIR):"
   echo ""
+  echo "Wiki slug:  ${WIKI_ROOT_SLUG}/${WIKI_CAT_SLUG}/${WIKI_DATE_SLUG}"
+  echo "Wiki title: ${WIKI_DATE_TITLE}"
+  echo ""
   printf "  %q" "${CMD[@]}"
   echo ""
   exit 0
@@ -593,7 +597,7 @@ Format the page content as clean markdown. Use one of these structures:
 
 **If it was a sprint run (tasks implemented, PRs created):**
 
-# Sprint Results: ${CATEGORY} (${TODAY})
+# Sprint Results: ${CATEGORY} (${TODAY} ${NOW_TIME})
 
 ## Summary
 - Tasks attempted: (count from output)
@@ -609,7 +613,7 @@ Format the page content as clean markdown. Use one of these structures:
 
 **If it was a code review run (findings reported, tasks created):**
 
-# Code Review Results: ${CATEGORY} (${TODAY})
+# Code Review Results: ${CATEGORY} (${TODAY} ${NOW_TIME})
 
 ## Summary
 - Agents run: (list from output)

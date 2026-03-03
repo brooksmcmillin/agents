@@ -18,6 +18,7 @@ CREDENTIALS_FILE="${HOME}/.claude/.credentials.json"
 NTFY_URL="https://ntfy.brooksmcmillin.com/mcp-alerts"
 HOSTNAME="$(hostname 2>/dev/null || cat /etc/hostname 2>/dev/null || echo 'unknown')"
 TODAY=$(date +%Y-%m-%d)
+NOW_TIME=$(date +%H:%M)
 
 # Load NTFY_TOKEN from .env if not already set (co-located with the script)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -355,8 +356,8 @@ WIKI_ROOT_SLUG="automation-log"
 WIKI_ROOT_TITLE="Automation Log"
 WIKI_CAT_SLUG="${CATEGORY_SLUG}"
 WIKI_CAT_TITLE="${CATEGORY}"
-WIKI_DATE_SLUG="${CATEGORY_SLUG}-week-${TODAY}"
-WIKI_DATE_TITLE="${CATEGORY} Week of ${TODAY}"
+WIKI_DATE_SLUG="${CATEGORY_SLUG}-week-${TODAY}-${NOW_TIME//:}"
+WIKI_DATE_TITLE="${CATEGORY} (Week of ${TODAY} ${NOW_TIME})"
 
 # --- Build prompt ---
 # Sanitize PR details: strip any line matching heredoc delimiters to prevent early termination
@@ -480,6 +481,8 @@ if $DRY_RUN; then
   echo "Repository: $REPO_FULL"
   echo "Period: $SINCE_DATE to $TODAY ($DAYS days)"
   echo "PRs found: $PR_COUNT"
+  echo "Wiki slug:  ${WIKI_ROOT_SLUG}/${WIKI_CAT_SLUG}/${WIKI_DATE_SLUG}"
+  echo "Wiki title: ${WIKI_DATE_TITLE}"
   echo ""
   echo "Prompt length: $(echo "$PROMPT" | wc -c) bytes"
   printf "  %q" "${CMD_ARGS[@]}"
@@ -585,7 +588,7 @@ ${CAPTURED_OUTPUT}
 
 Format the page content as clean markdown:
 
-# Weekly PR Review: ${CATEGORY} (Week of ${TODAY})
+# Weekly PR Review: ${CATEGORY} (Week of ${TODAY} ${NOW_TIME})
 
 ## Summary
 - Repository: ${REPO_FULL}
