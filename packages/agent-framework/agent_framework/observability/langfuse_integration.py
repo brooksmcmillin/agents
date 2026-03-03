@@ -36,6 +36,10 @@ logger = logging.getLogger(__name__)
 _langfuse_client = None
 _instrumentor = None
 _initialized = False
+# NOTE: _last_trace_id is not concurrency-safe. It is set in TraceContext.__enter__()
+# and read by get_last_trace_id(). If multiple traces run concurrently (e.g., via
+# asyncio.gather), the last writer wins and scores may attach to the wrong trace.
+# The eval runner currently processes cases sequentially, so this is safe for now.
 _last_trace_id: str | None = None
 
 

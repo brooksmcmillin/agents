@@ -52,9 +52,12 @@ def _find_dataset(agent_name: str, dataset_path: str | None = None) -> Path:
         path = Path(dataset_path)
         if not path.is_absolute():
             path = PROJECT_ROOT / path
-        if not path.exists():
-            raise FileNotFoundError(f"Dataset not found: {path}")
-        return path
+        resolved = path.resolve()
+        if not str(resolved).startswith(str(PROJECT_ROOT.resolve())):
+            raise ValueError(f"Dataset path must be within project root: {path}")
+        if not resolved.exists():
+            raise FileNotFoundError(f"Dataset not found: {resolved}")
+        return resolved
 
     path = DATASETS_DIR / f"{agent_name}.jsonl"
     if not path.exists():
@@ -99,7 +102,9 @@ def _create_agent(agent_name: str, variant: str | None = None):
             raise ValueError(
                 f"Variant {variant!r} not found for {agent_name}. "
                 f"Available: {available}. "
-                f"Define PROMPT_VARIANTS in agents/{agent_name.replace('-', '_')}/prompts.py"
+                f"Define PROMPT_VARIANTS in agents/"
+                f"{_AGENT_MODULE_ALIASES.get(agent_name, agent_name.replace('-', '_'))}"
+                f"/prompts.py"
             )
 
         variant_prompt = variants[variant]
@@ -124,7 +129,7 @@ def _load_prompts_module(agent_name: str):
     module_name = _AGENT_MODULE_ALIASES.get(agent_name, agent_name.replace("-", "_"))
     try:
         return importlib.import_module(f"agents.{module_name}.prompts")
-    except (ImportError, ModuleNotFoundError):
+    except ImportError:
         return None
 
 
@@ -159,9 +164,10 @@ def _push_langfuse_score(result: EvalResult, variant: str, dataset_path: str) ->
             comment=json.dumps(
                 {
                     "variant": variant,
-                    "dataset": dataset_path,
+                    "dataset": Path(dataset_path).name,
                     "score_details": result.score_details,
                     "tags": result.case.tags,
+                    "is_error": result.error is not None,
                 }
             ),
         )
@@ -406,6 +412,10 @@ async def _main() -> None:
     )
 
     args = parser.parse_args()
+
+    # Validate A/B variant flags: require both or neither
+    if bool(args.variant_a) != bool(args.variant_b) and args.variant_b:
+        parser.error("A/B testing requires both --variant-a and --variant-b")
 
     # A/B testing mode
     if args.variant_a and args.variant_b:

@@ -349,8 +349,9 @@ class TestAllDatasets:
         path = DATASETS_DIR / f"{agent_name}.jsonl"
         cases = load_dataset(path)
         for case in cases:
+            label = case.input[:40] + ("..." if len(case.input) > 40 else "")
             assert len(case.tags) >= 1, (
-                f"Case '{case.input[:40]}...' in {agent_name} should have at least one tag"
+                f"Case '{label}' in {agent_name} should have at least one tag"
             )
 
 
@@ -408,14 +409,13 @@ class TestLangfuseIntegration:
         _push_langfuse_score(result, "default", "test.jsonl")
 
     @patch("tests.evaluations.runner._get_langfuse_client")
-    @patch("tests.evaluations.runner.json")
-    def test_push_langfuse_score_calls_langfuse(self, mock_json, mock_get_client):
+    @patch("tests.evaluations.runner.json.dumps", return_value="{}")
+    def test_push_langfuse_score_calls_langfuse(self, mock_dumps, mock_get_client):
         """When Langfuse is available and trace_id exists, score should be pushed."""
         from tests.evaluations.runner import _push_langfuse_score
 
         mock_langfuse = MagicMock()
         mock_get_client.return_value = mock_langfuse
-        mock_json.dumps.return_value = "{}"
 
         case = EvalCase(input="test", expected="test", tags=["basic"])
         result = EvalResult(
@@ -436,3 +436,4 @@ class TestLangfuseIntegration:
         assert call_kwargs["trace_id"] == "trace-123"
         assert call_kwargs["name"] == "eval_score"
         assert call_kwargs["value"] == 4.0
+        mock_dumps.assert_called_once()
