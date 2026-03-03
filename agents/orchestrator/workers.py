@@ -258,7 +258,21 @@ async def dispatch_worker(
     # Sanitise all user-controlled text before interpolation
     safe_title = _sanitise_task_text(task.title, max_length=200)
     safe_description = _sanitise_task_text(task.description)
-    safe_context = _sanitise_task_text(context) if context else "No additional context."
+
+    # Inject feedback from outcome store if available
+    combined_context = context or ""
+    try:
+        from shared.outcome_store import get_relevant_feedback
+
+        feedback = await get_relevant_feedback(task_category=task.category, limit=5)
+        if feedback:
+            combined_context = f"{combined_context}\n\n{feedback}" if combined_context else feedback
+    except Exception as e:
+        logger.debug(f"Could not fetch feedback for worker: {e}")
+
+    safe_context = (
+        _sanitise_task_text(combined_context) if combined_context else "No additional context."
+    )
 
     # Build worker instructions with sanitised text
     branch_info = f"Branch: {branch_name}\nCreate this branch and work on it."

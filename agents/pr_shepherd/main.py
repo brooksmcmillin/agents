@@ -246,6 +246,18 @@ class PRShepherd:
             review_section = REVIEW_COMMENTS_SECTION_TEMPLATE.format(
                 review_comments=_escape(review_comments),
             )
+
+        # Query feedback store for known patterns in this repo
+        feedback_section = ""
+        try:
+            from shared.outcome_store import get_relevant_feedback
+
+            feedback = await get_relevant_feedback(repo=pr.repo, limit=5)
+            if feedback:
+                feedback_section = f"\n{_escape(feedback)}\n"
+        except Exception as e:
+            logger.debug(f"Could not fetch feedback for PR fix: {e}")
+
         instructions = FIX_CI_INSTRUCTIONS_TEMPLATE.format(
             title=_escape(pr.title),
             branch=_escape(pr.head_branch),
@@ -253,6 +265,7 @@ class PRShepherd:
             failing_checks=_escape(", ".join(failing_checks)),
             logs=_escape(logs),
             review_comments_section=review_section,
+            feedback_section=feedback_section,
         )
 
         # Run Claude Code worker
