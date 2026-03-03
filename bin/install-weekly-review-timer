@@ -172,7 +172,7 @@ Wants=network-online.target
 Type=oneshot
 User=$(whoami)
 WorkingDirectory=${TARGET_DIR}
-ExecStart=${REVIEW_SCRIPT} ${TARGET_DIR} -c \"${CATEGORY}\"
+ExecStart=\"${REVIEW_SCRIPT}\" \"${TARGET_DIR}\" -c \"${CATEGORY}\"
 EnvironmentFile=${ENV_FILE}
 Environment=PATH=${HOME}/.local/bin:/usr/local/bin:/usr/bin:/bin
 TimeoutStartSec=1800

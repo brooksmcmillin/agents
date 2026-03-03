@@ -70,9 +70,9 @@ if ! [[ "$TIME" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]]; then
   exit 1
 fi
 
-# --- Validate category (reject shell-special characters) ---
-if [[ "$CATEGORY" =~ [\"\$\`\\%] ]]; then
-  echo "Error: category name must not contain double quotes, dollar signs, backticks, backslashes, or percent signs" >&2
+# --- Validate category (reject shell-special characters and control chars) ---
+if [[ "$CATEGORY" =~ [\"\$\`\\%] ]] || [[ "$CATEGORY" == *$'\n'* ]] || [[ "$CATEGORY" == *$'\r'* ]]; then
+  echo "Error: category name must not contain double quotes, dollar signs, backticks, backslashes, percent signs, or newlines" >&2
   exit 1
 fi
 
@@ -127,7 +127,7 @@ Wants=network-online.target
 Type=oneshot
 User=$(whoami)
 WorkingDirectory=${TARGET_DIR}
-ExecStart=${SPRINT_SCRIPT} ${TARGET_DIR} -c \"${CATEGORY}\"
+ExecStart=\"${SPRINT_SCRIPT}\" \"${TARGET_DIR}\" -c \"${CATEGORY}\"
 EnvironmentFile=${ENV_FILE}
 Environment=PATH=${HOME}/.local/bin:/usr/local/bin:/usr/bin:/bin
 TimeoutStartSec=3600
