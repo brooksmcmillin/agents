@@ -72,30 +72,37 @@ class OutcomeCollector:
         outcomes: list[TaskOutcome] = []
 
         # Fetch merged, closed, and failing PRs in parallel
-        merged_task = asyncio.create_task(self._fetch_merged_prs(repo))
-        closed_task = asyncio.create_task(self._fetch_closed_prs(repo))
-        failing_task = asyncio.create_task(self._fetch_failing_prs(repo))
-
-        merged = await merged_task
-        closed = await closed_task
-        failing = await failing_task
+        merged, closed, failing = await asyncio.gather(
+            self._fetch_merged_prs(repo),
+            self._fetch_closed_prs(repo),
+            self._fetch_failing_prs(repo),
+        )
 
         for pr in merged:
-            outcome = self._pr_to_outcome(pr, repo, "merged")
-            outcomes.append(outcome)
+            try:
+                outcome = self._pr_to_outcome(pr, repo, "merged")
+                outcomes.append(outcome)
+            except (ValueError, KeyError) as e:
+                logger.warning(f"Skipping malformed merged PR in {repo}: {e}")
 
         for pr in closed:
-            outcome = self._pr_to_outcome(pr, repo, "closed")
-            outcomes.append(outcome)
+            try:
+                outcome = self._pr_to_outcome(pr, repo, "closed")
+                outcomes.append(outcome)
+            except (ValueError, KeyError) as e:
+                logger.warning(f"Skipping malformed closed PR in {repo}: {e}")
 
         for pr, failing_checks in failing:
-            outcome = self._pr_to_outcome(pr, repo, "ci_failing")
-            outcome.ci_failures = failing_checks
-            # Fetch CI logs and extract patterns
-            logs = await github_ops.get_failing_logs(repo, int(pr["number"]))
-            if logs:
-                outcome.failure_patterns = extract_failure_patterns(logs)
-            outcomes.append(outcome)
+            try:
+                outcome = self._pr_to_outcome(pr, repo, "ci_failing")
+                outcome.ci_failures = failing_checks
+                # Fetch CI logs and extract patterns
+                logs = await github_ops.get_failing_logs(repo, int(pr["number"]))
+                if logs:
+                    outcome.failure_patterns = extract_failure_patterns(logs)
+                outcomes.append(outcome)
+            except (ValueError, KeyError) as e:
+                logger.warning(f"Skipping malformed failing PR in {repo}: {e}")
 
         # Save all outcomes
         for outcome in outcomes:
@@ -171,13 +178,21 @@ class OutcomeCollector:
         return failing
 
     def _pr_to_outcome(self, pr: dict, repo: str, status: str) -> TaskOutcome:
-        """Convert a PR dict to a TaskOutcome."""
+        """Convert a PR dict to a TaskOutcome.
+
+        Raises:
+            ValueError: If pr["number"] is missing or non-numeric.
+        """
         branch = pr.get("headRefName", "")
         task_id = self._extract_task_id(branch, pr.get("body", ""))
-        pr_number = int(pr["number"])
+
+        raw_number = pr.get("number")
+        if raw_number is None:
+            raise ValueError(f"PR dict missing 'number' field: {pr}")
+        pr_number = int(raw_number)
 
         return TaskOutcome(
-            task_id=task_id or f"{repo}#{pr_number}",
+            task_id=task_id or f"{repo}-{pr_number}",
             task_title=pr.get("title", ""),
             repo=repo,
             pr_number=pr_number,
@@ -199,19 +214,3 @@ class OutcomeCollector:
                 return match.group(1)
 
         return None
-
-
-async def main(repos: list[str] | None = None, dry_run: bool = False) -> None:
-    """CLI entry point for the outcome collector."""
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
-        datefmt="%H:%M:%S",
-    )
-    collector = OutcomeCollector(repos=repos, dry_run=dry_run)
-    outcomes = await collector.run()
-
-    print(f"\nCollected {len(outcomes)} outcome(s):")
-    for o in outcomes:
-        patterns = f" patterns={o.failure_patterns}" if o.failure_patterns else ""
-        print(f"  {o.repo}#{o.pr_number}: {o.pr_status}{patterns}")

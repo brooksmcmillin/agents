@@ -16,6 +16,7 @@ from shared.outcome_store import (
     _outcome_key,
     _pattern_key,
     _tags_for_pattern,
+    _validate_outcome_data,
     get_failure_patterns,
     get_outcomes,
     get_relevant_feedback,
@@ -97,6 +98,51 @@ class TestTagDerivation:
     def test_generic_tags(self) -> None:
         tags = _tags_for_pattern("some-unknown-pattern")
         assert tags == ["ci"]
+
+
+# ---------------------------------------------------------------------------
+# Outcome data validation
+# ---------------------------------------------------------------------------
+
+
+class TestValidateOutcomeData:
+    def test_invalid_pr_status_replaced(self) -> None:
+        data = {"pr_status": "malicious_value"}
+        result = _validate_outcome_data(data)
+        assert result["pr_status"] == "open"
+
+    def test_valid_pr_status_preserved(self) -> None:
+        for status in ("merged", "closed", "ci_failing", "open"):
+            data = {"pr_status": status}
+            result = _validate_outcome_data(data)
+            assert result["pr_status"] == status
+
+    def test_invalid_pr_url_cleared(self) -> None:
+        data = {"pr_url": "https://evil.com/attack"}
+        result = _validate_outcome_data(data)
+        assert result["pr_url"] is None
+
+    def test_valid_pr_url_preserved(self) -> None:
+        url = "https://github.com/owner/repo/pull/42"
+        data = {"pr_url": url}
+        result = _validate_outcome_data(data)
+        assert result["pr_url"] == url
+
+    def test_non_list_patterns_replaced(self) -> None:
+        data = {"failure_patterns": "not a list"}
+        result = _validate_outcome_data(data)
+        assert result["failure_patterns"] == []
+
+    def test_pattern_strings_truncated(self) -> None:
+        long_pattern = "x" * 300
+        data = {"failure_patterns": [long_pattern]}
+        result = _validate_outcome_data(data)
+        assert len(result["failure_patterns"][0]) == 200
+
+    def test_non_string_patterns_filtered(self) -> None:
+        data = {"failure_patterns": ["valid", 123, None, "also_valid"]}
+        result = _validate_outcome_data(data)
+        assert result["failure_patterns"] == ["valid", "also_valid"]
 
 
 # ---------------------------------------------------------------------------
@@ -303,7 +349,7 @@ class TestGetRelevantFeedback:
             assert "Lessons from previous tasks" in result
             assert "ruff:E501" in result
             assert "Run ruff check --fix" in result
-            assert "owner/repo" in result
+            assert "`owner/repo`" in result
 
     @pytest.mark.asyncio
     async def test_includes_outcome_stats(self) -> None:

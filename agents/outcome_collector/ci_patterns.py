@@ -17,11 +17,11 @@ _PYTEST_RE = re.compile(r"FAILED\s+([\w/.]+::\w+)")
 # Mypy errors: error: <message> [<code>]
 _MYPY_RE = re.compile(r"error:\s+(.+?)\s+\[(\w+)\]")
 
-# Generic import/syntax errors
-_GENERIC_RE = re.compile(r"(ModuleNotFoundError|ImportError|SyntaxError):\s*(.+)")
+# Generic import/syntax errors (bounded to 200 chars to avoid backtracking on long lines)
+_GENERIC_RE = re.compile(r"(ModuleNotFoundError|ImportError|SyntaxError):\s*(.{1,200})")
 
-# Build tool errors
-_BUILD_RE = re.compile(r"(npm ERR!|cargo error|go build)\s*(.+)")
+# Build tool errors (bounded match length)
+_BUILD_RE = re.compile(r"(npm ERR!|cargo error|go build)\s*(.{1,200})")
 
 
 def extract_failure_patterns(logs: str) -> list[str]:

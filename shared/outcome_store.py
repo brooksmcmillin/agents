@@ -67,7 +67,11 @@ async def save_outcome(outcome: TaskOutcome) -> None:
     """
     key = _outcome_key(outcome)
 
-    # Check for existing outcome to avoid unnecessary writes
+    # Check for existing outcome to avoid unnecessary writes.
+    # NOTE: search_memories is keyword-based, not a key lookup. This dedup check
+    # relies on the key string appearing in search results. If the memory backend
+    # does not surface exact matches, duplicates may be written (benign — the
+    # save_memory API upserts on key).
     existing = await search_memories(query=key, limit=1, agent_name=AGENT_NAME)
     existing_memories = existing.get("memories", [])
     if existing_memories:
@@ -183,12 +187,47 @@ def _tags_for_pattern(pattern: str) -> list[str]:
     return tags
 
 
+_VALID_PR_STATUSES = frozenset({"merged", "closed", "ci_failing", "open"})
+_GITHUB_URL_PREFIX = "https://github.com/"
+
+
+def _validate_outcome_data(data: dict) -> dict:
+    """Validate and sanitize outcome data before constructing TaskOutcome.
+
+    Ensures key fields have expected types/values to prevent poisoned
+    memory entries from propagating into prompts.
+    """
+    # Validate pr_status
+    if data.get("pr_status") not in _VALID_PR_STATUSES:
+        data["pr_status"] = "open"
+
+    # Validate pr_url if present
+    pr_url = data.get("pr_url")
+    if pr_url and not pr_url.startswith(_GITHUB_URL_PREFIX):
+        data["pr_url"] = None
+
+    # Validate failure_patterns is a list of strings
+    patterns = data.get("failure_patterns")
+    if patterns is not None:
+        if not isinstance(patterns, list):
+            data["failure_patterns"] = []
+        else:
+            data["failure_patterns"] = [str(p)[:200] for p in patterns if isinstance(p, str)]
+
+    return data
+
+
 async def get_outcomes(
     repo: str | None = None,
     status: str | None = None,
     limit: int = 20,
 ) -> list[TaskOutcome]:
-    """Query outcomes, optionally filtered by repo and status."""
+    """Query outcomes, optionally filtered by repo and status.
+
+    Note: when ``repo`` is specified, filtering happens in Python after
+    fetching ``limit`` entries from the memory store. This means the
+    actual number of returned results may be less than ``limit``.
+    """
     tags = ["outcome"]
     if status:
         tags.append(status)
@@ -206,6 +245,7 @@ async def get_outcomes(
             data = json.loads(mem["value"])
             if repo and data.get("repo") != repo:
                 continue
+            data = _validate_outcome_data(data)
             outcomes.append(TaskOutcome(**data))
         except (json.JSONDecodeError, KeyError, TypeError) as e:
             logger.debug(f"Skipping malformed outcome: {e}")
@@ -306,5 +346,5 @@ async def get_relevant_feedback(
 
     header = "## Lessons from previous tasks"
     if repo:
-        header += f" in {repo}"
+        header += f" in `{repo}`"
     return header + "\n" + "\n\n".join(sections)
