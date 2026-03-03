@@ -82,7 +82,6 @@ def build_agent_registry() -> dict[str, AgentEntry]:
     from agents.system_admin.main import SystemAdminAgent
     from agents.task_manager.main import TaskManagerAgent
     from agents.website_tester.main import WebsiteTesterAgent
-
     from shared.delegation import setup_delegation
 
     mcp_task_config: dict[str, Any] = {
@@ -132,7 +131,7 @@ def build_agent_registry() -> dict[str, AgentEntry]:
         ),
         "pr": (
             PRAgent,
-            {**delegation_config},
+            delegation_config,
             "PR and content strategy assistant",
         ),
         "red-team": (

@@ -14,7 +14,8 @@ Architecture:
       their tool list and intercept calls to it in _execute_tool_calls().
     - The handler runs in-process (not via MCP subprocess), instantiating
       the target agent from the registry and calling process_message().
-    - Permission propagation uses ExecutionContext intersection semantics.
+    - Permission propagation uses ExecutionContext.delegate_to() for proper
+      intersection semantics.
 """
 
 import logging
@@ -24,6 +25,25 @@ logger = logging.getLogger(__name__)
 
 MAX_DELEGATION_DEPTH = 3
 DELEGATION_TOOL_NAME = "request_agent"
+
+# Module-level registry cache to avoid rebuilding on every delegation call
+_registry_cache: dict[str, Any] | None = None
+
+
+def _get_registry() -> dict[str, Any]:
+    """Get or build the agent registry (cached at module level)."""
+    global _registry_cache
+    if _registry_cache is None:
+        from shared.registry import build_agent_registry
+
+        _registry_cache = build_agent_registry()
+    return _registry_cache
+
+
+def invalidate_registry_cache() -> None:
+    """Clear the cached registry (call after registry changes)."""
+    global _registry_cache
+    _registry_cache = None
 
 
 def build_delegation_tool_schema(exclude_class_name: str | None = None) -> dict[str, Any]:
@@ -37,9 +57,7 @@ def build_delegation_tool_schema(exclude_class_name: str | None = None) -> dict[
         Tool definition dict in Anthropic tool format, or empty dict if
         no agents are available.
     """
-    from shared.registry import build_agent_registry
-
-    registry = build_agent_registry()
+    registry = _get_registry()
     available: dict[str, str] = {}
     for name, (cls, _, desc) in registry.items():
         if exclude_class_name and cls.__name__ == exclude_class_name:
@@ -49,9 +67,7 @@ def build_delegation_tool_schema(exclude_class_name: str | None = None) -> dict[
     if not available:
         return {}
 
-    agent_list = "\n".join(
-        f"  - {name}: {desc}" for name, desc in sorted(available.items())
-    )
+    agent_list = "\n".join(f"  - {name}: {desc}" for name, desc in sorted(available.items()))
 
     return {
         "name": DELEGATION_TOOL_NAME,
@@ -93,7 +109,7 @@ async def handle_delegation(
 
     1. Resolves the target agent from the registry
     2. Checks for circular delegation and depth limits
-    3. Propagates permissions via ExecutionContext (intersection semantics)
+    3. Propagates permissions via ExecutionContext.delegate_to() (intersection)
     4. Runs the target agent's full agentic loop
     5. Returns the response
 
@@ -105,15 +121,13 @@ async def handle_delegation(
     Returns:
         Dict with agent name, description, and response (or error key).
     """
-    from agent_framework.permissions import AgentIdentity, ExecutionContext
-    from shared.registry import GITHUB_MCP_AGENTS, build_agent_registry, github_mcp_config
+    from shared.registry import GITHUB_MCP_AGENTS, github_mcp_config
 
     # Resolve agent from registry
-    registry = build_agent_registry()
+    registry = _get_registry()
     entry = registry.get(agent_name)
     if entry is None:
-        available = sorted(registry.keys())
-        return {"error": f"Unknown agent '{agent_name}'. Available agents: {available}"}
+        return {"error": f"Unknown agent '{agent_name}'. Use the agent_name enum values."}
 
     agent_class, kwargs, description = entry
 
@@ -129,8 +143,7 @@ async def handle_delegation(
     if agent_name in chain:
         return {
             "error": (
-                f"Circular delegation detected: '{agent_name}' is already in the "
-                f"delegation chain {chain}."
+                f"Circular delegation detected: '{agent_name}' is already in the delegation chain."
             ),
         }
 
@@ -138,8 +151,7 @@ async def handle_delegation(
         return {
             "error": (
                 f"Maximum delegation depth ({MAX_DELEGATION_DEPTH}) reached. "
-                f"Current chain: {chain}. Handle this request directly instead "
-                f"of delegating further."
+                f"Handle this request directly instead of delegating further."
             ),
         }
 
@@ -150,11 +162,13 @@ async def handle_delegation(
     if agent_name in GITHUB_MCP_AGENTS and not kwargs:
         try:
             target_kwargs = github_mcp_config()
-        except ValueError as e:
-            return {"error": f"Agent '{agent_name}' is unavailable: {e}"}
+        except ValueError:
+            return {"error": f"Agent '{agent_name}' is currently unavailable."}
 
-    # Enable delegation for the target agent (allows multi-hop)
-    target_kwargs["enable_delegation"] = True
+    # Only enable delegation on target if its registry entry has it enabled
+    registry_kwargs = kwargs or {}
+    if registry_kwargs.get("enable_delegation"):
+        target_kwargs["enable_delegation"] = True
 
     # Find calling agent's registry short name for chain tracking
     calling_short_name = calling_agent.get_agent_name()
@@ -166,24 +180,21 @@ async def handle_delegation(
     # Build updated delegation chain
     new_chain = [*chain, calling_short_name]
 
-    # Create delegated execution context with permission propagation
-    delegated_context = ExecutionContext(
-        caller=AgentIdentity(
-            name=calling_agent.get_agent_name(),
-            source="delegation",
-            metadata={"target_agent": agent_name, "delegation_chain": new_chain},
-        ),
-        permissions=context.permissions,
-        parent=context,
-        metadata={**context.metadata, "delegation_chain": new_chain},
-    )
-
     # Instantiate target agent
     try:
         target_agent = agent_class(**target_kwargs)
     except Exception as e:
         logger.error(f"Failed to instantiate agent '{agent_name}': {e}")
-        return {"error": f"Failed to initialize agent '{agent_name}': {e}"}
+        return {"error": f"Failed to initialize agent '{agent_name}'."}
+
+    # Create delegated execution context using delegate_to() for proper
+    # permission intersection (most restrictive wins)
+    delegated_context = context.delegate_to(
+        agent_name,
+        agent_permissions=target_agent.get_default_permissions(),
+    )
+    # Update metadata with delegation chain
+    delegated_context.metadata["delegation_chain"] = new_chain
 
     # Delegate the request
     logger.info(
@@ -203,7 +214,7 @@ async def handle_delegation(
         }
     except Exception as e:
         logger.error(f"Agent '{agent_name}' failed during delegation: {e}")
-        return {"error": f"Agent '{agent_name}' encountered an error: {e}"}
+        return {"error": f"Agent '{agent_name}' encountered an error during processing."}
 
 
 def setup_delegation() -> None:

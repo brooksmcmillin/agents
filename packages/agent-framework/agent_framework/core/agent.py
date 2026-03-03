@@ -1198,12 +1198,9 @@ class Agent(ABC):
                     and self.enable_delegation
                     and "handler" in self._delegation_config
                 ):
+                    self._check_tool_permissions("request_agent")
                     handler = self._delegation_config["handler"]
-                    input_dict = (
-                        tool_call.input
-                        if isinstance(tool_call.input, dict)
-                        else {}
-                    )
+                    input_dict = tool_call.input if isinstance(tool_call.input, dict) else {}
                     result = await handler(
                         input_dict.get("agent_name", ""),
                         input_dict.get("message", ""),
