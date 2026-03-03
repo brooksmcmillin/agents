@@ -33,6 +33,12 @@ class Settings(BaseSettings):
         description="API key for the backup model provider. "
         "E.g., OpenAI API key if backup_model is 'openai/gpt-4o'.",
     )
+    use_backup_model: bool = Field(
+        default=False,
+        description="When True, route ALL requests through the backup model instead of "
+        "Anthropic. Useful for testing full agent flows with the backup provider "
+        "before an actual outage. Requires BACKUP_MODEL to be set.",
+    )
 
     # MCP Server Configuration
     mcp_server_host: str = Field(default="localhost", description="MCP server host")

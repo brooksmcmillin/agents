@@ -457,6 +457,7 @@ class Agent(ABC):
         # Backup model fallback (resolved from args -> env -> settings)
         self.backup_model = backup_model or settings.backup_model
         self.backup_api_key = backup_api_key or settings.backup_api_key
+        self.use_backup_model = settings.use_backup_model
 
         # Initialize MCP client with stderr logging to agent's log file
         self.mcp_client = MCPClient(
@@ -1100,6 +1101,21 @@ class Agent(ABC):
         Returns:
             The final ``Message`` from the Claude API (or backup model).
         """
+        # USE_BACKUP_MODEL=true → skip Anthropic entirely and route through LiteLLM
+        if self.use_backup_model and self.backup_model:
+            logger.info("USE_BACKUP_MODEL is set, routing to backup model: %s", self.backup_model)
+            from .backup_model import call_backup_model
+
+            return await call_backup_model(
+                model=self.backup_model,
+                api_key=self.backup_api_key,
+                system_prompt=self.get_system_prompt(),
+                messages=self.messages,
+                tools=tools,
+                max_tokens=16000,
+                on_text_delta=on_text_delta,
+            )
+
         api_messages = self._messages_for_api()
         try:
             if on_text_delta is not None:

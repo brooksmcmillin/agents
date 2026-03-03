@@ -548,3 +548,54 @@ class TestAgentFallbackIntegration:
 
                     with pytest.raises(APIConnectionError):
                         await agent._call_claude(tools=[])
+
+    @pytest.mark.asyncio
+    async def test_use_backup_model_skips_anthropic(self, env_with_api_key):
+        """Verify USE_BACKUP_MODEL=true routes directly to backup without calling Anthropic."""
+        with patch("agent_framework.core.agent.AsyncAnthropic") as mock_cls:
+            with patch("agent_framework.core.agent.MCPClient"):
+                from agent_framework.core.agent import Agent
+
+                class TestAgent(Agent):
+                    def get_system_prompt(self) -> str:
+                        return "test"
+
+                    def get_agent_name(self) -> str:
+                        return "TestAgent"
+
+                    def get_greeting(self) -> str:
+                        return "hi"
+
+                agent = TestAgent(backup_model="openai/gpt-4o", backup_api_key="test")
+                agent.use_backup_model = True
+                agent.messages = [{"role": "user", "content": "hello"}]
+
+                backup_msg = Message(
+                    id="direct-backup",
+                    type="message",
+                    role="assistant",
+                    content=[TextBlock(type="text", text="Direct backup response")],
+                    model="gpt-4o",
+                    stop_reason="end_turn",
+                    stop_sequence=None,
+                    usage=Usage(
+                        input_tokens=5,
+                        output_tokens=10,
+                        cache_creation_input_tokens=0,
+                        cache_read_input_tokens=0,
+                    ),
+                )
+
+                with patch(
+                    "agent_framework.core.backup_model.call_backup_model",
+                    new_callable=AsyncMock,
+                    return_value=backup_msg,
+                ) as mock_backup:
+                    result = await agent._call_claude(tools=[])
+
+                    assert result.content[0].text == "Direct backup response"
+                    mock_backup.assert_called_once()
+
+                    # Anthropic client should NOT have been called
+                    mock_client = mock_cls.return_value
+                    mock_client.messages.create.assert_not_called()
