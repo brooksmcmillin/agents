@@ -145,6 +145,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
 
     recognition.onend = () => {
       setIsListening(false);
+      setInterimTranscript('');
       if (recognitionRef.current === recognition) {
         recognitionRef.current = null;
       }
