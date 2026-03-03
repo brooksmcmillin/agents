@@ -7,7 +7,7 @@ This file provides guidance to Claude Code when working with this repository.
 Multi-agent system built with Claude (Anthropic SDK) and Model Context Protocol (MCP).
 
 **Architecture:**
-1. **Agents** (`agents/`) - Individual agent implementations (chatbot, pr_agent, security_researcher, business_advisor, task_manager, email_intake, notifier, orchestrator, red_team, events, code_analysis, log_analysis, security_audit, system_admin, website_tester)
+1. **Agents** (`agents/`) - Individual agent implementations (chatbot, pr_agent, security_researcher, business_advisor, task_manager, email_intake, notifier, orchestrator, red_team, events, code_analysis, log_analysis, security_audit, system_admin, web_analysis, website_tester)
 2. **API Server** (`api/`) - FastAPI REST server for HTTP access to agents
 3. **Web UI** (`webui/`) - React web interface for agents
 4. **MCP Server** (`mcp_server/`) - MCP server config and OAuth infrastructure
@@ -119,7 +119,7 @@ uv run python -m mcp_server.server
 
 ## Current State
 
-**Working:** Full agentic loop (Claude Sonnet 4.6), 12 interactive agents + 6 services, 53 MCP tools, web scraping, RAG search, FastMail email, Twilio SMS, persistent memory, hot reload, OAuth infrastructure, REST API, Web UI, Langfuse observability.
+**Working:** Full agentic loop (Claude Sonnet 4.6), 13 interactive agents + 6 services, 53 MCP tools, web scraping, RAG search, FastMail email, Twilio SMS, persistent memory, hot reload, OAuth infrastructure, REST API, Web UI, Langfuse observability.
 
 **Needs work:** Social media tools use mock data, rate limiting, multi-user support, security hardening for public deployments.
 

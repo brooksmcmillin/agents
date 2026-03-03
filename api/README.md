@@ -20,7 +20,7 @@ A FastAPI-based REST server that exposes all agents as HTTP endpoints, supportin
 
 ### 🤖 Multi-Agent Support
 
-Access all 12 interactive agents via REST API:
+Access all 13 interactive agents via REST API:
 - **chatbot**: General-purpose assistant with full tool access
 - **pr**: PR and content strategy assistant
 - **tasks**: Interactive task management (requires remote MCP)
@@ -32,6 +32,7 @@ Access all 12 interactive agents via REST API:
 - **log-analysis**: Log file investigation with automatic critical finding pinning
 - **security-audit**: Security audit report analyzer (reads reports from non-LLM collector)
 - **sysadmin**: Network and system security assessment
+- **web-analysis**: Website auditing with automatic task creation for issues found
 - **website-tester**: Automated website testing with headless Playwright browser
 
 ### 📊 Token Tracking
@@ -163,6 +164,7 @@ List all available agents. **Requires authentication.**
     { "name": "log-analysis", "description": "Log analysis agent with automatic pinning of critical findings" },
     { "name": "security-audit", "description": "Security audit analyzer (reads reports from non-LLM collector)" },
     { "name": "sysadmin", "description": "Network and system security assessment agent" },
+    { "name": "web-analysis", "description": "Website auditing with automatic task creation for issues found" },
     { "name": "website-tester", "description": "Automated website testing with headless Playwright browser" }
   ]
 }
@@ -182,7 +184,7 @@ curl -H "Authorization: Bearer $API_KEY" http://localhost:8080/agents
 Send a single message to an agent with no conversation history.
 
 **Path Parameters**:
-- `agent_name`: Agent to use (any agent from `GET /agents`, e.g. `chatbot`, `pr`, `tasks`, `security`, `business`, `code-analysis`, `events`, `red-team`, `log-analysis`, `security-audit`, `sysadmin`, `website-tester`)
+- `agent_name`: Agent to use (any agent from `GET /agents`, e.g. `chatbot`, `pr`, `tasks`, `security`, `business`, `code-analysis`, `events`, `red-team`, `log-analysis`, `security-audit`, `sysadmin`, `web-analysis`, `website-tester`)
 
 **Request Body**:
 ```json
@@ -693,7 +695,7 @@ curl http://localhost:8080/agents
 
 # Check agent name spelling
 # Valid: chatbot, pr, tasks, security, business, code-analysis, events, red-team,
-#        log-analysis, security-audit, sysadmin, website-tester
+#        log-analysis, security-audit, sysadmin, web-analysis, website-tester
 ```
 
 ### Session Not Found

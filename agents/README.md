@@ -84,6 +84,17 @@ Network and system security assessment agent with tools for host discovery, port
 
 ---
 
+### Web Analysis (`web_analysis/`)
+Website auditing agent that crawls sites with a headless Chromium browser and creates tracked tasks in TaskManager for every significant finding (accessibility, performance, broken links, JavaScript errors, SEO).
+
+**Use for**: Automated site audits with tracked remediation tasks, CI-integrated quality checks
+
+**Requirements**: Remote MCP server for task creation (configured via `MCP_SERVER_URL`)
+
+**Run:** `uv run bin/run-agent web-analysis` | **[Documentation](web_analysis/README.md)**
+
+---
+
 ### Website Tester (`website_tester/`)
 Automated website quality analyst using a headless Chromium browser (Playwright) to audit sites for accessibility, performance, broken links, JavaScript errors, and SEO issues.
 

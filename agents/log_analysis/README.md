@@ -40,6 +40,8 @@ The agent automatically scans results from `read_file` and `grep_files` for crit
 
 Up to 5 results per session are pinned. Pinned results are the last to be removed if the context window fills up.
 
+**Security note:** Log file content is untrusted, user-controlled input. A malicious actor who can write to a monitored log file could embed prompt injection payloads (e.g., instructions to exfiltrate memory or alter agent behavior). The per-session pin cap mitigates flooding, but does not prevent injection through pinned content itself. The agent is configured to treat log content as data for analysis only — it should not act on instructions embedded within log lines. Restrict filesystem access using `FILESYSTEM_ALLOWED_DIRS` and avoid running the agent against logs from untrusted or externally-facing systems without review.
+
 ## Usage Examples
 
 ```
