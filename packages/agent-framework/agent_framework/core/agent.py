@@ -48,6 +48,7 @@ from agent_framework.utils.errors import MissingAPIKeyError
 from .config import settings
 from .mcp_client import MCPClient
 from .remote_mcp_client import RemoteMCPClient
+from .session import SessionStore, generate_session_id
 
 # Import observability (optional - graceful degradation if unavailable)
 try:
@@ -445,6 +446,9 @@ class Agent(ABC):
         self.total_input_tokens = 0
         self.total_output_tokens = 0
 
+        # Session persistence
+        self._session_store = SessionStore()
+
         # Initialize observability (Langfuse)
         self._observability_enabled = False
         if OBSERVABILITY_AVAILABLE and init_observability is not None:
@@ -707,8 +711,14 @@ class Agent(ABC):
         # Return the concatenation of all the tool lists
         return [item for lst in self.tools.values() for item in lst]
 
-    async def start(self) -> None:
+    async def start(self, session_id: str | None = None) -> None:
         """Start an interactive session with the agent.
+
+        Args:
+            session_id: Optional session ID to resume. When provided, loads
+                the previous conversation history. When None, starts a new
+                session. Pass the special value ``"last"`` to resume the most
+                recent session for this agent.
 
         TODO: Refactor this method - cyclomatic complexity is 13.
         Consider extracting:
@@ -719,10 +729,31 @@ class Agent(ABC):
         - _handle_special_command(input) for exit/stats/reload commands
         See code optimizer report for detailed recommendations.
         """
-        import uuid
+        # ── Session setup ────────────────────────────────────────────
+        resumed = False
 
-        # Generate session ID for this CLI session (for observability tracing)
-        cli_session_id = f"cli-{uuid.uuid4().hex[:12]}"
+        if session_id == "last":
+            # Resume the most recent session for this agent
+            recent_id = self._session_store.get_most_recent_session_id(self.get_agent_name())
+            if recent_id:
+                session_id = recent_id
+            else:
+                print(
+                    f"No previous sessions found for {self.get_agent_name()}. Starting new session."
+                )
+                session_id = None
+
+        if session_id:
+            if self.load_session(session_id):
+                resumed = True
+            else:
+                print(f"Session '{session_id}' not found. Starting new session.")
+                session_id = None
+
+        if not session_id:
+            session_id = generate_session_id(self.get_agent_name())
+
+        cli_session_id = session_id
         logger.info(
             f"Starting {self.get_agent_name()} interactive session (session: {cli_session_id})"
         )
@@ -730,13 +761,16 @@ class Agent(ABC):
         print("\n" + "=" * 70)
         print(self.get_agent_name().upper())
         print("=" * 70)
-        print(self.get_greeting())
+        if resumed:
+            user_turns = sum(1 for m in self.messages if m.get("role") == "user")
+            print(f"Resumed session: {cli_session_id} ({user_turns} previous turns)")
+        else:
+            print(self.get_greeting())
+        print(f"\nSession: {cli_session_id}")
         print("\nType 'exit' or 'quit' to end the session.")
         print("Type 'stats' to see token usage statistics.")
         print("Type 'reload' to reconnect to MCP server and discover updated tools.")
-        print(f"\nLogs: {self.log_file}")
-        if self._observability_enabled:
-            print(f"Session: {cli_session_id}")
+        print(f"Logs: {self.log_file}")
         print("=" * 70 + "\n")
 
         # Discover available tools (will reconnect each time we need them)
@@ -798,7 +832,13 @@ class Agent(ABC):
 
                 # Handle special commands
                 if user_input.lower() in ["exit", "quit"]:
-                    print("\nGoodbye! 👋")
+                    if self.messages:
+                        self.save_session(cli_session_id)
+                        print(f"\nSession saved: {cli_session_id}")
+                        print(
+                            f"Resume with: uv run python bin/run-agent {self.get_agent_name()} --resume {cli_session_id}"
+                        )
+                    print("Goodbye! 👋")
                     break
 
                 if user_input.lower() == "stats":
@@ -849,8 +889,17 @@ class Agent(ABC):
                 else:
                     print(f"\nAssistant: {response}")
 
+                # Auto-save session after each turn
+                self.save_session(cli_session_id)
+
             except KeyboardInterrupt:
+                # Save on interrupt before exiting
+                self.save_session(cli_session_id)
                 print("\n\nSession interrupted. Goodbye! 👋")
+                print(f"Session saved: {cli_session_id}")
+                print(
+                    f"Resume with: uv run python bin/run-agent {self.get_agent_name()} --resume {cli_session_id}"
+                )
                 break
 
             except Exception as e:
@@ -1565,6 +1614,58 @@ class Agent(ABC):
         """Reset the conversation history."""
         self.messages = []
         logger.info("Conversation history reset")
+
+    # ── Session persistence ──────────────────────────────────────────
+
+    def save_session(self, session_id: str) -> Path:
+        """Save the current conversation to disk so it can be resumed later.
+
+        Args:
+            session_id: Unique session identifier.
+
+        Returns:
+            Path to the saved session file.
+        """
+        return self._session_store.save(
+            session_id=session_id,
+            agent_name=self.get_agent_name(),
+            messages=self.messages,
+            model=self.model,
+            total_input_tokens=self.total_input_tokens,
+            total_output_tokens=self.total_output_tokens,
+        )
+
+    def load_session(self, session_id: str) -> bool:
+        """Restore a previously saved session into this agent.
+
+        Args:
+            session_id: Session identifier to load.
+
+        Returns:
+            True if session was loaded successfully, False otherwise.
+        """
+        data = self._session_store.load(session_id)
+        if data is None:
+            logger.warning(f"Session not found: {session_id}")
+            return False
+
+        messages = data.get("messages", [])
+        if not isinstance(messages, list):
+            logger.error(f"Corrupt session {session_id}: 'messages' is not a list")
+            return False
+
+        # Note: individual message items are trusted from disk without integrity
+        # verification. Session files are protected by 0o600 permissions, which is
+        # sufficient for a single-user CLI tool. Multi-user deployments should add
+        # HMAC-based tamper detection.
+        self.messages = messages
+        self.total_input_tokens = data.get("total_input_tokens", 0)
+        self.total_output_tokens = data.get("total_output_tokens", 0)
+        logger.info(
+            f"Session restored: {session_id} ({len(self.messages)} messages, "
+            f"{self.total_input_tokens + self.total_output_tokens:,} tokens)"
+        )
+        return True
 
     def _trim_context_if_needed(self) -> bool:
         """Trim conversation context if it exceeds max_context_messages.

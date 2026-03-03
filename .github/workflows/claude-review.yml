@@ -4,7 +4,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
 
-# Cancel in-progress reviews when new commits are pushed
+# Cancel in-progress reviews when new commits are pushed to the PR
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
   cancel-in-progress: true
@@ -212,6 +212,36 @@ jobs:
 
           echo "=== Fetching CI reviewer comments ==="
 
+          # Check if a review body has real issues in "### New Issues" or "### Still Open"
+          # sections. Returns 0 (true) if real issues found, 1 (false) if clean.
+          # Handles reviewers that include these headers with "None." when clean.
+          has_real_issues() {
+            local body="$1"
+            local in_section=false
+            while IFS= read -r line; do
+              if echo "$line" | grep -qE '^### (New Issues|Still Open)'; then
+                in_section=true
+                continue
+              fi
+              if [ "$in_section" = true ]; then
+                [ -z "$line" ] && continue
+                # New heading ends the section
+                if echo "$line" | grep -qE '^#'; then
+                  in_section=false
+                  continue
+                fi
+                # "None" or "None." means no issues
+                if echo "$line" | grep -qiE '^none\.?'; then
+                  in_section=false
+                  continue
+                fi
+                # Any other non-empty line means real issues exist
+                return 0
+              fi
+            done <<< "$body"
+            return 1
+          }
+
           # Try marker-based lookup first (ideal case: Claude included the markers)
           CODE_REVIEW=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
             --paginate \
@@ -235,18 +265,7 @@ jobs:
               exit 1
             fi
 
-            # Check for actual issue content under "New Issues" / "Still Open" headers.
-            # Simply grepping for the header is insufficient — the reviewer includes
-            # the header even when the section content is "None" or "None found."
-            if echo "$REVIEW_BODIES" | awk '
-              /^### (New Issues|Still Open)/ { cap=1; next }
-              /^### / || /^---$/ { cap=0; next }
-              cap && /^$/ { next }
-              cap && /^None\.?$/ { next }
-              cap && /^None found\.?$/ { next }
-              cap && /./ { found=1; exit }
-              END { exit !found }
-            '; then
+            if has_real_issues "$REVIEW_BODIES"; then
               echo "::error::Review Gate FAILED — CI reviews have unresolved issues."
               exit 1
             fi
@@ -256,19 +275,6 @@ jobs:
           fi
 
           HAS_ISSUES=false
-
-          # Helper: check if review body has actual issues (not just "None" under headers)
-          has_real_issues() {
-            echo "$1" | awk '
-              /^### (New Issues|Still Open)/ { cap=1; next }
-              /^### / || /^---$/ { cap=0; next }
-              cap && /^$/ { next }
-              cap && /^None\.?$/ { next }
-              cap && /^None found\.?$/ { next }
-              cap && /./ { found=1; exit }
-              END { exit !found }
-            '
-          }
 
           # Check code review for unresolved issues
           if has_real_issues "$CODE_REVIEW"; then

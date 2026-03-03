@@ -6,6 +6,10 @@ Usage:
     uv run python bin/run-agent pr "Your message"    # Run once with message and exit
     uv run python bin/run-agent tasks                 # Run Task Manager agent
     uv run python bin/run-agent --list                # List available agents
+    uv run python bin/run-agent pr --resume last      # Resume most recent PR session
+    uv run python bin/run-agent pr --resume <id>      # Resume a specific session
+    uv run python bin/run-agent --sessions            # List all saved sessions
+    uv run python bin/run-agent --sessions pr         # List sessions for PR agent
 """
 
 import argparse
@@ -19,6 +23,7 @@ _project_root = str(Path(__file__).resolve().parent.parent)
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
+from agent_framework.core.session import SessionStore  # noqa: E402
 from agent_framework.permissions.context import ExecutionContext  # noqa: E402
 from agent_framework.permissions.identity import AgentIdentity  # noqa: E402
 from agent_framework.permissions.permissions import Permission, PermissionSet  # noqa: E402
@@ -39,6 +44,35 @@ def list_agents() -> None:
     print("Available agents:")
     for name, (_, _, desc) in AGENTS.items():
         print(f"  • {name:15s} {desc}")
+
+
+def list_sessions(agent_name: str | None = None) -> None:
+    """Print saved sessions, optionally filtered by agent name."""
+    store = SessionStore()
+    sessions = store.list_sessions(agent_name=agent_name, limit=30)
+
+    if not sessions:
+        if agent_name:
+            print(f"No saved sessions for '{agent_name}'.")
+        else:
+            print("No saved sessions.")
+        return
+
+    header = f"Saved sessions for '{agent_name}'" if agent_name else "All saved sessions"
+    print(f"\n{header}:")
+    print(f"  {'SESSION ID':<35s} {'AGENT':<18s} {'MSGS':<8s} {'TOKENS':<12s} {'UPDATED'}")
+    print(f"  {'-' * 35} {'-' * 18} {'-' * 8} {'-' * 12} {'-' * 20}")
+
+    for s in sessions:
+        total_tokens = s["total_input_tokens"] + s["total_output_tokens"]
+        updated = s.get("updated_at", "")[:19].replace("T", " ")
+        print(
+            f"  {s['session_id']:<35s} {s['agent_name']:<18s} "
+            f"{s['messages']:<8d} {total_tokens:<12,d} {updated}"
+        )
+
+    print("\nResume a session with: uv run python bin/run-agent <agent> --resume <session-id>")
+    print("Resume the latest with: uv run python bin/run-agent <agent> --resume last")
 
 
 def parse_permissions(raw: str) -> PermissionSet:
@@ -137,6 +171,12 @@ Examples:
     uv run python bin/run-agent chatbot "Hello!"         # Quick question
     uv run python bin/run-agent --list                    # List available agents
 
+Session management:
+    uv run python bin/run-agent --sessions               # List all saved sessions
+    uv run python bin/run-agent --sessions pr            # List PR agent sessions
+    uv run python bin/run-agent pr --resume last         # Resume most recent session
+    uv run python bin/run-agent pr --resume <session-id> # Resume specific session
+
 One-off mode:
     When a MESSAGE is provided, the agent processes it once and exits.
     This is useful for scripting, automation, and quick tasks.
@@ -166,6 +206,19 @@ One-off mode:
         help="List available agents",
     )
     parser.add_argument(
+        "--sessions",
+        nargs="?",
+        const="__all__",
+        metavar="AGENT",
+        help="List saved sessions. Optionally filter by agent name.",
+    )
+    parser.add_argument(
+        "--resume",
+        "-r",
+        metavar="SESSION_ID",
+        help="Resume a previous session by ID, or use 'last' to resume the most recent.",
+    )
+    parser.add_argument(
         "--quiet",
         "-q",
         action="store_true",
@@ -186,6 +239,11 @@ One-off mode:
 
     if args.list:
         list_agents()
+        return
+
+    if args.sessions is not None:
+        agent_filter = None if args.sessions == "__all__" else args.sessions
+        list_sessions(agent_filter)
         return
 
     if not args.agent:
@@ -214,6 +272,11 @@ One-off mode:
 
     if args.message:
         # One-off mode: process single message and exit
+        if args.resume:
+            print(
+                "Warning: --resume is not supported in one-off mode (with a message).",
+                file=sys.stderr,
+            )
         await run_once(
             agent_class,
             agent_kwargs,
@@ -229,7 +292,7 @@ One-off mode:
                 file=sys.stderr,
             )
         print(f"Starting {args.agent} agent...")
-        await run_agent(agent_class, agent_kwargs)
+        await run_agent(agent_class, agent_kwargs, session_id=args.resume)
 
 
 if __name__ == "__main__":
