@@ -68,7 +68,7 @@ class Agent(ABC):
 ```python
 Agent(
     api_key: str | None = None,           # Anthropic API key
-    model: str = "claude-sonnet-4-5-20250929",
+    model: str = "claude-sonnet-4-6",
     mcp_server_path: str = "mcp_server.server",
     mcp_urls: list[str] | None = None,    # Remote MCP server URLs
     enable_web_search: bool = True,
@@ -933,7 +933,7 @@ class DatabaseMemoryStore(MemoryStore):
 ```python
 class Settings(BaseSettings):
     anthropic_api_key: str  # Required
-    model_name: str = "claude-sonnet-4-5-20250929"  # Default
+    model_name: str = "claude-sonnet-4-6"  # Default
 
     class Config:
         env_file = ".env"
