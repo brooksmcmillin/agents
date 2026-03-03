@@ -15,6 +15,7 @@ def create_simple_agent(
     greeting: str,
     allowed_tools: list[str] | None = None,
     permissions: PermissionSet | None = None,
+    enable_delegation: bool = False,
 ) -> type[Agent]:
     """Factory function for creating simple agent classes.
 
@@ -29,6 +30,9 @@ def create_simple_agent(
         allowed_tools: Optional list of MCP tool names to allow
         permissions: Optional PermissionSet for the agent's default permissions.
             Defaults to PermissionSet.full_access() if not specified.
+        enable_delegation: If True, the agent gets a ``request_agent`` tool
+            that lets it consult other specialized agents. Default: False.
+            Can be overridden at instantiation time via kwargs.
 
     Returns:
         An Agent subclass configured with the provided settings
@@ -58,6 +62,7 @@ def create_simple_agent(
     """
     # Capture permissions in closure for get_default_permissions
     agent_permissions = permissions
+    default_delegation = enable_delegation
 
     class SimpleAgent(Agent):
         """Dynamically created agent class."""
@@ -69,6 +74,9 @@ def create_simple_agent(
             # Set correct MCP server path for this project structure
             if "mcp_server_path" not in kwargs:
                 kwargs["mcp_server_path"] = "mcp_server/server.py"
+            # Enable delegation unless explicitly overridden in kwargs
+            if "enable_delegation" not in kwargs:
+                kwargs["enable_delegation"] = default_delegation
             super().__init__(**kwargs)
 
         def get_system_prompt(self) -> str:

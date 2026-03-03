@@ -64,6 +64,9 @@ def build_agent_registry() -> dict[str, AgentEntry]:
     Imports are deferred to here so the module can be imported without
     triggering heavyweight side-effects (Anthropic client init, etc.).
 
+    Also configures agent-to-agent delegation on the Agent base class
+    via :func:`shared.delegation.setup_delegation`.
+
     Returns:
         Mapping of agent short name to (AgentClass, kwargs, description).
     """
@@ -79,6 +82,8 @@ def build_agent_registry() -> dict[str, AgentEntry]:
     from agents.system_admin.main import SystemAdminAgent
     from agents.task_manager.main import TaskManagerAgent
     from agents.website_tester.main import WebsiteTesterAgent
+
+    from shared.delegation import setup_delegation
 
     mcp_task_config: dict[str, Any] = {
         "mcp_urls": [os.getenv(ENV_MCP_SERVER_URL, DEFAULT_MCP_SERVER_URL)],
@@ -96,15 +101,23 @@ def build_agent_registry() -> dict[str, AgentEntry]:
         "mcp_client_config": {"prefer_device_flow": True},
     }
 
+    # Delegation: enable_delegation=True gives the agent a request_agent tool
+    # that lets it consult other agents in the registry. The delegated agent
+    # inherits the caller's permissions via ExecutionContext intersection.
+    delegation_config: dict[str, Any] = {"enable_delegation": True}
+
+    # Configure the Agent base class for delegation support
+    setup_delegation()
+
     return {
         "chatbot": (
             ChatbotAgent,
-            {**mcp_relay_config},
+            {**mcp_relay_config, **delegation_config},
             "General-purpose chatbot with full MCP tool access",
         ),
         "code-analysis": (
             CodeAnalysisAgent,
-            {**mcp_task_config},
+            {**mcp_task_config, **delegation_config},
             "Repository analysis agent for security, logic, performance, and architecture improvements",
         ),
         "events": (
@@ -119,7 +132,7 @@ def build_agent_registry() -> dict[str, AgentEntry]:
         ),
         "pr": (
             PRAgent,
-            None,
+            {**delegation_config},
             "PR and content strategy assistant",
         ),
         "red-team": (
@@ -129,7 +142,7 @@ def build_agent_registry() -> dict[str, AgentEntry]:
         ),
         "tasks": (
             TaskManagerAgent,
-            {**mcp_task_config},
+            {**mcp_task_config, **delegation_config},
             "Interactive task management agent",
         ),
         "security": (

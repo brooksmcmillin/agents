@@ -158,6 +158,10 @@ NETWORK_ADMIN_TOOLS = [
     "network_generate_report",
 ]
 
+DELEGATION_TOOLS = [
+    "request_agent",
+]
+
 # ---------------------------------------------------------------------------
 # Model aliases
 #
