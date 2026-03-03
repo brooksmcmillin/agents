@@ -45,7 +45,7 @@ if TYPE_CHECKING:
 import anthropic
 from agent_framework import Agent
 from agent_framework.logging import correlation_id_var
-from agent_framework.storage import DatabaseConversationStore
+from agent_framework.storage import Conversation, DatabaseConversationStore, Message
 from agent_framework.utils.sanitize import sanitize_log_input
 from anthropic.types import TextBlock
 from fastapi import (
@@ -772,7 +772,7 @@ async def delete_session(session_id: str, _: None = Depends(verify_api_key)) -> 
 # ---------------------------------------------------------------------------
 
 
-def _db_conv_to_info(conv: Any) -> ConversationInfo:
+def _db_conv_to_info(conv: Conversation) -> ConversationInfo:
     """Convert a database Conversation object to a ConversationInfo response model."""
     return ConversationInfo(
         id=conv.id,
@@ -785,7 +785,7 @@ def _db_conv_to_info(conv: Any) -> ConversationInfo:
     )
 
 
-def _db_msg_to_response(m: Any) -> ConversationMessage:
+def _db_msg_to_response(m: Message) -> ConversationMessage:
     """Convert a database Message object to a ConversationMessage response model."""
     return ConversationMessage(
         role=m.role,
