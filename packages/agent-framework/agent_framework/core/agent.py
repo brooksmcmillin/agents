@@ -779,21 +779,35 @@ class Agent(ABC):
                 the previous conversation history. When None, starts a new
                 session. Pass the special value ``"last"`` to resume the most
                 recent session for this agent.
-
-        TODO: Refactor this method - cyclomatic complexity is 13.
-        Consider extracting:
-        - _print_startup_banner() for the startup message
-        - _discover_and_test_tools() for tool discovery
-        - _test_remote_connection(url) for individual URL testing
-        - _run_interactive_loop() for the main REPL
-        - _handle_special_command(input) for exit/stats/reload commands
-        See code optimizer report for detailed recommendations.
         """
-        # ── Session setup ────────────────────────────────────────────
+        session_id, resumed = self._resolve_session(session_id)
+        logger.info(f"Starting {self.get_agent_name()} interactive session (session: {session_id})")
+        self._print_startup_banner(session_id, resumed)
+
+        # Discover available tools (will reconnect each time we need them)
+        try:
+            tools_list = await self._get_available_tools()
+            logger.info(f"Discovered MCP tools: {tools_list}")
+        except Exception as e:
+            logger.error(f"Failed to connect to MCP server: {e}")
+            print(f"\n⚠️  Warning: Could not connect to MCP server: {e}")
+            print("Make sure the MCP server is running and try again.\n")
+
+        # Test remote MCP connection(s)
+        if not await self._test_remote_connections():
+            return
+
+        await self._run_interactive_loop(session_id)
+
+    def _resolve_session(self, session_id: str | None) -> tuple[str, bool]:
+        """Resolve session ID: handle 'last', load existing, or generate new.
+
+        Returns:
+            Tuple of (resolved session_id, whether session was resumed).
+        """
         resumed = False
 
         if session_id == "last":
-            # Resume the most recent session for this agent
             recent_id = self._session_store.get_most_recent_session_id(self.get_agent_name())
             if recent_id:
                 session_id = recent_id
@@ -813,36 +827,32 @@ class Agent(ABC):
         if not session_id:
             session_id = generate_session_id(self.get_agent_name())
 
-        cli_session_id = session_id
-        logger.info(
-            f"Starting {self.get_agent_name()} interactive session (session: {cli_session_id})"
-        )
+        return session_id, resumed
 
+    def _print_startup_banner(self, session_id: str, resumed: bool) -> None:
+        """Print the agent startup banner with session info."""
         print("\n" + "=" * 70)
         print(self.get_agent_name().upper())
         print("=" * 70)
         if resumed:
             user_turns = sum(1 for m in self.messages if m.get("role") == "user")
-            print(f"Resumed session: {cli_session_id} ({user_turns} previous turns)")
+            print(f"Resumed session: {session_id} ({user_turns} previous turns)")
         else:
             print(self.get_greeting())
-        print(f"\nSession: {cli_session_id}")
+        print(f"\nSession: {session_id}")
         print("\nType 'exit' or 'quit' to end the session.")
         print("Type 'stats' to see token usage statistics.")
         print("Type 'reload' to reconnect to MCP server and discover updated tools.")
         print(f"Logs: {self.log_file}")
         print("=" * 70 + "\n")
 
-        # Discover available tools (will reconnect each time we need them)
-        try:
-            tools_list = await self._get_available_tools()
-            logger.info(f"Discovered MCP tools: {tools_list}")
-        except Exception as e:
-            logger.error(f"Failed to connect to MCP server: {e}")
-            print(f"\n⚠️  Warning: Could not connect to MCP server: {e}")
-            print("Make sure the MCP server is running and try again.\n")
+    async def _test_remote_connections(self) -> bool:
+        """Test remote MCP connections, removing failed URLs if configured to skip.
 
-        # Test remote MCP connection(s)
+        Returns:
+            True if all connections succeeded or were skipped, False if a fatal
+            connection failure occurred and the agent should stop.
+        """
         failed_urls: list[str] = []
         for url in self.mcp_urls:
             try:
@@ -860,7 +870,7 @@ class Agent(ABC):
                     continue
                 print(f"❌ Timeout while connecting to MCP server at {url}")
                 print("The connection was established but listing tools timed out.")
-                return
+                return False
             except (ConnectionError, OSError, ValueError, RuntimeError) as e:
                 if self.skip_failed_mcp_urls:
                     logger.warning(
@@ -875,16 +885,16 @@ class Agent(ABC):
                 print("1. The MCP server is running")
                 print("2. The URL is correct")
                 print("3. The server is accessible")
-                return
+                return False
 
-        # Remove failed URLs so they aren't retried in the main loop
         for url in failed_urls:
             self.mcp_urls.remove(url)
+        return True
 
-        # Main interaction loop
+    async def _run_interactive_loop(self, session_id: str) -> None:
+        """Run the main interactive REPL loop."""
         while True:
             try:
-                # Get user input (supports multiline paste)
                 user_input = _read_multiline_input("\nYou: ").strip()
 
                 if not user_input:
@@ -893,10 +903,10 @@ class Agent(ABC):
                 # Handle special commands
                 if user_input.lower() in ["exit", "quit"]:
                     if self.messages:
-                        self.save_session(cli_session_id)
-                        print(f"\nSession saved: {cli_session_id}")
+                        self.save_session(session_id)
+                        print(f"\nSession saved: {session_id}")
                         print(
-                            f"Resume with: uv run python bin/run-agent {self.get_agent_name()} --resume {cli_session_id}"
+                            f"Resume with: uv run python bin/run-agent {self.get_agent_name()} --resume {session_id}"
                         )
                     print("Goodbye! 👋")
                     break
@@ -927,18 +937,14 @@ class Agent(ABC):
 
                 def _show_tool_status(tool_name: str) -> None:
                     nonlocal first_token
-                    if not first_token:
-                        # Text was already streamed; move to a new line for the status
-                        sys.stdout.write("\n")
-                    else:
-                        sys.stdout.write("\n")
+                    sys.stdout.write("\n")
                     sys.stdout.write(f"  [calling {tool_name}...]\n")
                     sys.stdout.flush()
                     first_token = True  # reset so next text chunk prints "Assistant: "
 
                 response = await self.process_message(
                     user_input,
-                    session_id=cli_session_id,
+                    session_id=session_id,
                     on_text_delta=_stream_to_terminal,
                     on_tool_start=_show_tool_status,
                 )
@@ -950,15 +956,14 @@ class Agent(ABC):
                     print(f"\nAssistant: {response}")
 
                 # Auto-save session after each turn
-                self.save_session(cli_session_id)
+                self.save_session(session_id)
 
             except KeyboardInterrupt:
-                # Save on interrupt before exiting
-                self.save_session(cli_session_id)
+                self.save_session(session_id)
                 print("\n\nSession interrupted. Goodbye! 👋")
-                print(f"Session saved: {cli_session_id}")
+                print(f"Session saved: {session_id}")
                 print(
-                    f"Resume with: uv run python bin/run-agent {self.get_agent_name()} --resume {cli_session_id}"
+                    f"Resume with: uv run python bin/run-agent {self.get_agent_name()} --resume {session_id}"
                 )
                 break
 
