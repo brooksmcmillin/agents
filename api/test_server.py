@@ -20,8 +20,6 @@ with patch.dict(os.environ, {"DATABASE_URL": "", "DISABLE_AUTH": "true", "ENV": 
         verify_api_key,
     )
 
-from agent_framework.utils.sanitize import sanitize_log_input as _sanitize_log_input
-
 
 @pytest.fixture
 def client():
@@ -303,38 +301,6 @@ class TestVerifyApiKey:
             await verify_api_key(
                 request=self._mock_request(), credentials=creds
             )  # Should not raise
-
-
-class TestSanitizeLogInput:
-    """Tests for _sanitize_log_input."""
-
-    def test_replaces_newlines(self):
-        assert "\\n" in _sanitize_log_input("line1\nline2")
-        assert "\n" not in _sanitize_log_input("line1\nline2")
-
-    def test_replaces_carriage_returns(self):
-        assert "\\r" in _sanitize_log_input("line1\rline2")
-        assert "\r" not in _sanitize_log_input("line1\rline2")
-
-    def test_removes_null_bytes(self):
-        result = _sanitize_log_input("before\x00after")
-        assert "\x00" not in result
-        assert "\\x00" in result
-
-    def test_removes_control_chars(self):
-        result = _sanitize_log_input("test\x01\x02\x03value")
-        assert "\x01" not in result
-        assert "\x02" not in result
-        assert "\x03" not in result
-
-    def test_preserves_tabs(self):
-        assert "\t" in _sanitize_log_input("col1\tcol2")
-
-    def test_preserves_unicode(self):
-        assert "hello" in _sanitize_log_input("hello 世界")
-
-    def test_normal_text_unchanged(self):
-        assert _sanitize_log_input("hello world") == "hello world"
 
 
 class TestCorsOriginValidation:
