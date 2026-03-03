@@ -60,7 +60,7 @@ def list_sessions(agent_name: str | None = None) -> None:
 
     header = f"Saved sessions for '{agent_name}'" if agent_name else "All saved sessions"
     print(f"\n{header}:")
-    print(f"  {'SESSION ID':<35s} {'AGENT':<18s} {'TURNS':<8s} {'TOKENS':<12s} {'UPDATED'}")
+    print(f"  {'SESSION ID':<35s} {'AGENT':<18s} {'MSGS':<8s} {'TOKENS':<12s} {'UPDATED'}")
     print(f"  {'-' * 35} {'-' * 18} {'-' * 8} {'-' * 12} {'-' * 20}")
 
     for s in sessions:

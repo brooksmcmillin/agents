@@ -6,6 +6,7 @@ similar to Claude Code's --resume flag.
 
 import json
 import logging
+import secrets
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -26,7 +27,7 @@ class SessionStore:
 
     def __init__(self, sessions_dir: Path | None = None) -> None:
         self.sessions_dir = sessions_dir or DEFAULT_SESSIONS_DIR
-        self.sessions_dir.mkdir(parents=True, exist_ok=True)
+        self.sessions_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
 
     def _session_path(self, session_id: str) -> Path:
         """Get the file path for a session."""
@@ -38,7 +39,7 @@ class SessionStore:
         self,
         session_id: str,
         agent_name: str,
-        messages: list[dict[str, Any]],
+        messages: list[Any],
         model: str,
         total_input_tokens: int = 0,
         total_output_tokens: int = 0,
@@ -84,6 +85,7 @@ class SessionStore:
         # Atomic write: write to temp file then rename
         tmp_path = session_path.with_suffix(".tmp")
         tmp_path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
+        tmp_path.chmod(0o600)
         tmp_path.rename(session_path)
 
         logger.debug(f"Session saved: {session_id} ({len(messages)} messages)")
@@ -104,17 +106,13 @@ class SessionStore:
 
         try:
             data = json.loads(session_path.read_text(encoding="utf-8"))
-            logger.debug(
-                f"Session loaded: {session_id} ({len(data.get('messages', []))} messages)"
-            )
+            logger.debug(f"Session loaded: {session_id} ({len(data.get('messages', []))} messages)")
             return data
         except (json.JSONDecodeError, OSError) as e:
             logger.error(f"Failed to load session {session_id}: {e}")
             return None
 
-    def list_sessions(
-        self, agent_name: str | None = None, limit: int = 20
-    ) -> list[dict[str, Any]]:
+    def list_sessions(self, agent_name: str | None = None, limit: int = 20) -> list[dict[str, Any]]:
         """List available sessions, optionally filtered by agent name.
 
         Args:
@@ -131,16 +129,18 @@ class SessionStore:
                 data = json.loads(path.read_text(encoding="utf-8"))
                 if agent_name and data.get("agent_name") != agent_name:
                     continue
-                sessions.append({
-                    "session_id": data.get("session_id", path.stem),
-                    "agent_name": data.get("agent_name", "unknown"),
-                    "model": data.get("model", "unknown"),
-                    "messages": len(data.get("messages", [])),
-                    "total_input_tokens": data.get("total_input_tokens", 0),
-                    "total_output_tokens": data.get("total_output_tokens", 0),
-                    "created_at": data.get("created_at", ""),
-                    "updated_at": data.get("updated_at", ""),
-                })
+                sessions.append(
+                    {
+                        "session_id": data.get("session_id", path.stem),
+                        "agent_name": data.get("agent_name", "unknown"),
+                        "model": data.get("model", "unknown"),
+                        "messages": len(data.get("messages", [])),
+                        "total_input_tokens": data.get("total_input_tokens", 0),
+                        "total_output_tokens": data.get("total_output_tokens", 0),
+                        "created_at": data.get("created_at", ""),
+                        "updated_at": data.get("updated_at", ""),
+                    }
+                )
             except (json.JSONDecodeError, OSError):
                 continue
 
@@ -191,10 +191,11 @@ def generate_session_id(agent_name: str) -> str:
     Returns:
         Unique session identifier.
     """
-    # Use monotonic-ish timestamp for uniqueness, hex for brevity
+    # Timestamp for rough ordering + random suffix to avoid collisions
     timestamp_hex = hex(int(time.time() * 1000))[2:][-8:]
+    rand_suffix = secrets.token_hex(2)
     safe_name = "".join(c if c.isalnum() or c == "-" else "-" for c in agent_name.lower())
-    return f"{safe_name}-{timestamp_hex}"
+    return f"{safe_name}-{timestamp_hex}{rand_suffix}"
 
 
 def _make_serializable(obj: Any) -> Any:
@@ -214,7 +215,7 @@ def _make_serializable(obj: Any) -> Any:
 
     # Handle Pydantic models (Anthropic SDK types like TextBlock, ToolUseBlock)
     if hasattr(obj, "model_dump"):
-        return obj.model_dump()
+        return _make_serializable(obj.model_dump())
 
     # Handle objects with __dict__
     if hasattr(obj, "__dict__"):

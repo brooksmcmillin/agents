@@ -446,6 +446,9 @@ class Agent(ABC):
         self.total_input_tokens = 0
         self.total_output_tokens = 0
 
+        # Session persistence
+        self._session_store = SessionStore()
+
         # Initialize observability (Langfuse)
         self._observability_enabled = False
         if OBSERVABILITY_AVAILABLE and init_observability is not None:
@@ -728,15 +731,16 @@ class Agent(ABC):
         """
         # ── Session setup ────────────────────────────────────────────
         resumed = False
-        store = SessionStore()
 
         if session_id == "last":
             # Resume the most recent session for this agent
-            recent = store.get_most_recent_session(self.get_agent_name())
+            recent = self._session_store.get_most_recent_session(self.get_agent_name())
             if recent:
                 session_id = recent["session_id"]
             else:
-                print(f"No previous sessions found for {self.get_agent_name()}. Starting new session.")
+                print(
+                    f"No previous sessions found for {self.get_agent_name()}. Starting new session."
+                )
                 session_id = None
 
         if session_id:
@@ -831,7 +835,9 @@ class Agent(ABC):
                     if self.messages:
                         self.save_session(cli_session_id)
                         print(f"\nSession saved: {cli_session_id}")
-                        print(f"Resume with: uv run python bin/run-agent {self.get_agent_name()} --resume {cli_session_id}")
+                        print(
+                            f"Resume with: uv run python bin/run-agent {self.get_agent_name()} --resume {cli_session_id}"
+                        )
                     print("Goodbye! 👋")
                     break
 
@@ -891,7 +897,9 @@ class Agent(ABC):
                 self.save_session(cli_session_id)
                 print("\n\nSession interrupted. Goodbye! 👋")
                 print(f"Session saved: {cli_session_id}")
-                print(f"Resume with: uv run python bin/run-agent {self.get_agent_name()} --resume {cli_session_id}")
+                print(
+                    f"Resume with: uv run python bin/run-agent {self.get_agent_name()} --resume {cli_session_id}"
+                )
                 break
 
             except Exception as e:
@@ -1618,8 +1626,7 @@ class Agent(ABC):
         Returns:
             Path to the saved session file.
         """
-        store = SessionStore()
-        return store.save(
+        return self._session_store.save(
             session_id=session_id,
             agent_name=self.get_agent_name(),
             messages=self.messages,
@@ -1637,13 +1644,17 @@ class Agent(ABC):
         Returns:
             True if session was loaded successfully, False otherwise.
         """
-        store = SessionStore()
-        data = store.load(session_id)
+        data = self._session_store.load(session_id)
         if data is None:
             logger.warning(f"Session not found: {session_id}")
             return False
 
-        self.messages = data.get("messages", [])
+        messages = data.get("messages", [])
+        if not isinstance(messages, list):
+            logger.error(f"Corrupt session {session_id}: 'messages' is not a list")
+            return False
+
+        self.messages = messages
         self.total_input_tokens = data.get("total_input_tokens", 0)
         self.total_output_tokens = data.get("total_output_tokens", 0)
         logger.info(
