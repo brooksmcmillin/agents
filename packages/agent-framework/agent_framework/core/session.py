@@ -39,8 +39,11 @@ class SessionStore:
                 tmp.unlink()
 
     def _session_path(self, session_id: str) -> Path:
-        """Get the file path for a session."""
-        # Sanitize session_id for filesystem safety
+        """Get the file path for a session.
+
+        Sanitizes the session_id to ensure filesystem safety (dots become
+        underscores, only alphanumeric/hyphens/underscores are kept).
+        """
         safe_id = "".join(c if c.isalnum() or c in "-_" else "_" for c in session_id)
         return self.sessions_dir / f"{safe_id}.json"
 
