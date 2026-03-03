@@ -7,6 +7,7 @@ rotating log file.
 
 import json
 import logging
+import os
 import uuid
 from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
@@ -29,7 +30,9 @@ def configure_tool_logger(log_path: str) -> None:
     global _tool_logger
 
     resolved = Path(log_path).resolve()
-    if not any(str(resolved).startswith(str(Path(d).resolve())) for d in _ALLOWED_LOG_DIRS):
+    if not any(
+        str(resolved).startswith(str(Path(d).resolve()) + os.sep) for d in _ALLOWED_LOG_DIRS
+    ):
         raise ValueError(f"Tool log path must be within {_ALLOWED_LOG_DIRS}, got: {resolved}")
 
     resolved.parent.mkdir(parents=True, exist_ok=True)
