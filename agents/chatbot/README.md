@@ -43,7 +43,7 @@ Unlike specialized agents that are limited to specific tools, the chatbot has un
 
 ### Prerequisites
 
-1. **Python 3.11 or higher**
+1. **Python 3.12 or higher**
 2. **Anthropic API Key**: Set in `.env` file
    ```bash
    ANTHROPIC_API_KEY=your_key_here

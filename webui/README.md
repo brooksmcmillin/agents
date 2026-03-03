@@ -24,7 +24,7 @@ Modern React web interface for the multi-agent system with persistent conversati
 ## Prerequisites
 
 - Node.js 20.19+ or 22.12+ and npm (required for Vite 7+)
-- Python 3.11+ with `uv`
+- Python 3.12+ with `uv`
 - PostgreSQL database (for persistent conversations)
 
 ## Setup

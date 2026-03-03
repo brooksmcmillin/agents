@@ -4,7 +4,7 @@ This guide will walk you through installing the Agent Framework and building you
 
 ## Prerequisites
 
-- Python 3.11 or higher
+- Python 3.12 or higher
 - An Anthropic API key ([get one here](https://console.anthropic.com/))
 - **Optional:** PostgreSQL with pgvector extension (for RAG features)
 - **Optional:** OpenAI API key (for RAG embeddings)
