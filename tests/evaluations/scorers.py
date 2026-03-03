@@ -42,11 +42,17 @@ class LLMJudgeScorer(Scorer):
 
     JUDGE_PROMPT = """You are evaluating an AI agent's response. Rate it on a 1-5 scale.
 
-**User Input:** {input}
+<user_input>
+{input}
+</user_input>
 
-**Expected Behavior:** {expected}
+<expected_behavior>
+{expected}
+</expected_behavior>
 
-**Agent Response:** {response}
+<agent_response>
+{response}
+</agent_response>
 
 Rate the response:
 5 = Perfect — fully meets expected behavior
@@ -170,17 +176,8 @@ class CompositeScorer(Scorer):
     async def score(
         self, case: EvalCase, response: str, tools_called: list[str]
     ) -> tuple[float, str]:
-        scores: dict[str, float] = {}
-        for scorer in self.scorers:
-            value, name = await scorer.score(case, response, tools_called)
-            if value > 0:  # 0.0 means "not applicable"
-                scores[name] = value
-
-        if not scores:
-            return 3.0, "composite"
-
-        avg = sum(scores.values()) / len(scores)
-        return round(avg, 2), "composite"
+        avg, _ = await self.score_detailed(case, response, tools_called)
+        return avg, "composite"
 
     async def score_detailed(
         self, case: EvalCase, response: str, tools_called: list[str]

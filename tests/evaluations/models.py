@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -44,7 +45,6 @@ class EvalResult:
     input_tokens: int = 0
     output_tokens: int = 0
     latency_ms: float = 0.0
-    iterations: int = 0
     error: str | None = None
 
     def to_dict(self) -> dict:
@@ -59,7 +59,6 @@ class EvalResult:
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
             "latency_ms": self.latency_ms,
-            "iterations": self.iterations,
             "error": self.error,
         }
 
@@ -117,7 +116,8 @@ class EvalRun:
     def save(self, output_dir: Path) -> Path:
         """Save run results to a JSON file."""
         output_dir.mkdir(parents=True, exist_ok=True)
-        filename = f"{self.agent_name}_{self.variant}_{self.run_id}.json"
+        safe_variant = re.sub(r"[^\w\-]", "_", self.variant)
+        filename = f"{self.agent_name}_{safe_variant}_{self.run_id}.json"
         path = output_dir / filename
         data = {
             **self.summary(),

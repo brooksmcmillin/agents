@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import importlib
 import json
 import logging
 import time
@@ -113,8 +114,6 @@ def _load_prompts_module(agent_name: str):
     # Convert kebab-case to module path
     module_name = agent_name.replace("-", "_")
     try:
-        import importlib
-
         return importlib.import_module(f"agents.{module_name}.prompts")
     except (ImportError, ModuleNotFoundError):
         return None
@@ -149,16 +148,16 @@ async def evaluate_case(agent, case: EvalCase, scorer: Scorer) -> EvalResult:
     input_tokens = agent.total_input_tokens - tokens_before_in
     output_tokens = agent.total_output_tokens - tokens_before_out
 
-    # Score the response
-    if isinstance(scorer, CompositeScorer):
+    # Skip scoring on error to avoid wasting LLM judge API calls
+    if error:
+        score = 1.0
+        score_details: dict[str, float] = {}
+    elif isinstance(scorer, CompositeScorer):
         score, score_details = await scorer.score_detailed(case, response, tools_called)
     else:
         score_val, scorer_name = await scorer.score(case, response, tools_called)
         score = score_val
         score_details = {scorer_name: score_val}
-
-    if error:
-        score = min(score, 2.0)  # Cap score on errors
 
     return EvalResult(
         case=case,
@@ -192,6 +191,9 @@ async def run_evaluation(
     Returns:
         EvalRun with all results.
     """
+    # Validate agent name against registry before any file I/O
+    agent = _create_agent(agent_name, variant)
+
     path = _find_dataset(agent_name, dataset_path)
     cases = load_dataset(path)
 
@@ -202,7 +204,6 @@ async def run_evaluation(
             raise ValueError(f"No cases match tags: {tags_filter}")
 
     scorer = _get_scorer(scorer_name)
-    agent = _create_agent(agent_name, variant)
 
     run = EvalRun(
         agent_name=agent_name,
