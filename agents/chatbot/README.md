@@ -1,6 +1,6 @@
 # Chatbot Agent
 
-A general-purpose AI assistant powered by Claude Sonnet 4.5 with access to all 53 MCP tools. Unlike specialized agents, this chatbot can help with any task by leveraging the full suite of available tools including web analysis, memory, document search, email management, and communication.
+A general-purpose AI assistant powered by Claude Sonnet 4.6 with access to all 53 MCP tools. Unlike specialized agents, this chatbot can help with any task by leveraging the full suite of available tools including web analysis, memory, document search, email management, and communication.
 
 ## Features
 
@@ -359,7 +359,7 @@ cat .env | grep ANTHROPIC_API_KEY
 ## Architecture
 
 The chatbot uses:
-- **Claude Sonnet 4.5** for intelligent conversation and decision-making
+- **Claude Sonnet 4.6** for intelligent conversation and decision-making
 - **Local MCP Client** connecting to MCP server via stdio
 - **Anthropic SDK** for Claude API integration
 - **Hot reload** - edit tools while agent is running, changes picked up automatically

@@ -1,6 +1,6 @@
 # Business Advisor Agent
 
-A strategic business advisor powered by Claude Sonnet 4.5, specialized in technology entrepreneurship, software monetization, and consulting business models. Analyzes your existing work, skills, and assets to identify income opportunities with realistic assessments of effort, risk, and potential.
+A strategic business advisor powered by Claude Sonnet 4.6, specialized in technology entrepreneurship, software monetization, and consulting business models. Analyzes your existing work, skills, and assets to identify income opportunities with realistic assessments of effort, risk, and potential.
 
 ## Features
 
@@ -583,7 +583,7 @@ Always recommends customer discovery before execution:
 ## Architecture
 
 The business advisor uses:
-- **Claude Sonnet 4.5** for strategic analysis and planning
+- **Claude Sonnet 4.6** for strategic analysis and planning
 - **Local MCP Client** via stdio transport
 - **Optional GitHub MCP** for repository analysis
 - **Anthropic SDK** for Claude API integration

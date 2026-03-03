@@ -1,6 +1,6 @@
 # Security Researcher Agent
 
-An expert AI security research assistant powered by Claude Sonnet 4.5, specialized in AI/ML security, LLM vulnerabilities, and technical content fact-checking. Features RAG-backed knowledge base integration for querying security research papers and maintaining domain expertise.
+An expert AI security research assistant powered by Claude Sonnet 4.6, specialized in AI/ML security, LLM vulnerabilities, and technical content fact-checking. Features RAG-backed knowledge base integration for querying security research papers and maintaining domain expertise.
 
 ## Features
 
@@ -556,7 +556,7 @@ cat .env | grep -E '(ANTHROPIC|RAG|OPENAI)'
 ## Architecture
 
 The security researcher uses:
-- **Claude Sonnet 4.5** for security expertise and analysis
+- **Claude Sonnet 4.6** for security expertise and analysis
 - **PostgreSQL + pgvector** for RAG document storage and semantic search
 - **OpenAI Ada-002** for document embeddings
 - **Local MCP Client** via stdio transport

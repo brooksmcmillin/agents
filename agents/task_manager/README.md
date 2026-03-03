@@ -226,7 +226,7 @@ Shall I update these priorities in your task system?
 ## Architecture
 
 This agent uses:
-- **Claude Sonnet 4.5** for intelligent task analysis and decision-making
+- **Claude Sonnet 4.6** for intelligent task analysis and decision-making
 - **Remote MCP Client** to connect to your task management server via HTTP/SSE
 - **Anthropic SDK** for Claude API integration
 - **Async/await** for efficient I/O operations
