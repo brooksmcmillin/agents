@@ -47,6 +47,7 @@ enforces egress allowlists at the infrastructure level, independent of
 application-level checks.
 """
 
+import asyncio
 import ipaddress
 import socket
 import ssl
@@ -331,8 +332,6 @@ class _SSRFValidatingBackend(httpcore.AsyncNetworkBackend):
         # Run socket.getaddrinfo in a thread executor to avoid blocking
         # the async event loop (DNS can stall for several seconds on
         # slow or unresponsive resolvers).
-        import asyncio
-
         loop = asyncio.get_running_loop()
         try:
             addr_info = await loop.run_in_executor(None, socket.getaddrinfo, host, port)
