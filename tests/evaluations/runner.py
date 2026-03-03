@@ -120,9 +120,7 @@ def _load_prompts_module(agent_name: str):
         return None
 
 
-async def evaluate_case(
-    agent, case: EvalCase, scorer: Scorer
-) -> EvalResult:
+async def evaluate_case(agent, case: EvalCase, scorer: Scorer) -> EvalResult:
     """Run a single evaluation case against an agent."""
     tools_called: list[str] = []
 
@@ -245,11 +243,13 @@ def _print_results_table(run: EvalRun) -> None:
 
     summary = run.summary()
     print(f"\n{'─' * 70}")
-    print(f"  Cases: {summary['num_cases']}  |  "
-          f"Avg Score: {summary['avg_score']}  |  "
-          f"Pass Rate: {summary['pass_rate']}  |  "
-          f"Tokens: {summary['total_tokens']}  |  "
-          f"Avg Latency: {summary['avg_latency_ms']}ms")
+    print(
+        f"  Cases: {summary['num_cases']}  |  "
+        f"Avg Score: {summary['avg_score']}  |  "
+        f"Pass Rate: {summary['pass_rate']}  |  "
+        f"Tokens: {summary['total_tokens']}  |  "
+        f"Avg Latency: {summary['avg_latency_ms']}ms"
+    )
     print(f"{'─' * 70}\n")
 
 
@@ -286,7 +286,9 @@ async def _main() -> None:
         "--agent", required=True, help="Agent name from the registry (e.g., chatbot)"
     )
     parser.add_argument(
-        "--dataset", default=None, help="Path to JSONL dataset file (defaults to datasets/<agent>.jsonl)"
+        "--dataset",
+        default=None,
+        help="Path to JSONL dataset file (defaults to datasets/<agent>.jsonl)",
     )
     parser.add_argument(
         "--scorer",
@@ -343,10 +345,21 @@ async def _main() -> None:
         )
 
         if args.output == "json":
-            print(json.dumps({
-                "variant_a": {**run_a.summary(), "results": [r.to_dict() for r in run_a.results]},
-                "variant_b": {**run_b.summary(), "results": [r.to_dict() for r in run_b.results]},
-            }, indent=2))
+            print(
+                json.dumps(
+                    {
+                        "variant_a": {
+                            **run_a.summary(),
+                            "results": [r.to_dict() for r in run_a.results],
+                        },
+                        "variant_b": {
+                            **run_b.summary(),
+                            "results": [r.to_dict() for r in run_b.results],
+                        },
+                    },
+                    indent=2,
+                )
+            )
         else:
             _print_results_table(run_a)
             _print_results_table(run_b)
@@ -370,10 +383,12 @@ async def _main() -> None:
         )
 
         if args.output == "json":
-            print(json.dumps(
-                {**run.summary(), "results": [r.to_dict() for r in run.results]},
-                indent=2,
-            ))
+            print(
+                json.dumps(
+                    {**run.summary(), "results": [r.to_dict() for r in run.results]},
+                    indent=2,
+                )
+            )
         else:
             _print_results_table(run)
 
