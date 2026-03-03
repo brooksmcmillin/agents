@@ -199,8 +199,7 @@ async def handle_delegation(
 
     # Delegate the request
     logger.info(
-        f"Delegating from {calling_agent.get_agent_name()} to {agent_name}: "
-        f"{message[:100]}{'...' if len(message) > 100 else ''}"
+        f"Delegating from {calling_agent.get_agent_name()} to {agent_name} ({len(message)} chars)"
     )
 
     try:
