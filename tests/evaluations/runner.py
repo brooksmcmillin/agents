@@ -53,7 +53,7 @@ def _find_dataset(agent_name: str, dataset_path: str | None = None) -> Path:
         if not path.is_absolute():
             path = PROJECT_ROOT / path
         resolved = path.resolve()
-        if not str(resolved).startswith(str(PROJECT_ROOT.resolve())):
+        if not resolved.is_relative_to(PROJECT_ROOT.resolve()):
             raise ValueError(f"Dataset path must be within project root: {path}")
         if not resolved.exists():
             raise FileNotFoundError(f"Dataset not found: {resolved}")
@@ -414,7 +414,7 @@ async def _main() -> None:
     args = parser.parse_args()
 
     # Validate A/B variant flags: require both or neither
-    if bool(args.variant_a) != bool(args.variant_b) and args.variant_b:
+    if bool(args.variant_a) != bool(args.variant_b):
         parser.error("A/B testing requires both --variant-a and --variant-b")
 
     # A/B testing mode
