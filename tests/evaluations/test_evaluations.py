@@ -7,9 +7,8 @@ without calling the Anthropic API.
 from __future__ import annotations
 
 import json
-import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -20,7 +19,6 @@ from tests.evaluations.scorers import (
     LLMJudgeScorer,
     ToolUseScorer,
 )
-
 
 # ── EvalCase ──────────────────────────────────────────────────────────
 
@@ -36,14 +34,16 @@ class TestEvalCase:
         assert case.max_tokens is None
 
     def test_from_dict_full(self):
-        case = EvalCase.from_dict({
-            "input": "remember blue",
-            "expected": "save memory",
-            "tags": ["memory"],
-            "expected_tools": ["save_memory"],
-            "expected_keywords": ["blue", "saved"],
-            "max_tokens": 100,
-        })
+        case = EvalCase.from_dict(
+            {
+                "input": "remember blue",
+                "expected": "save memory",
+                "tags": ["memory"],
+                "expected_tools": ["save_memory"],
+                "expected_keywords": ["blue", "saved"],
+                "max_tokens": 100,
+            }
+        )
         assert case.tags == ["memory"]
         assert case.expected_tools == ["save_memory"]
         assert case.expected_keywords == ["blue", "saved"]
@@ -61,8 +61,7 @@ class TestLoadDataset:
     def test_load_valid_jsonl(self, tmp_path: Path):
         dataset = tmp_path / "test.jsonl"
         dataset.write_text(
-            '{"input": "hi", "expected": "greet"}\n'
-            '{"input": "bye", "expected": "farewell"}\n'
+            '{"input": "hi", "expected": "greet"}\n{"input": "bye", "expected": "farewell"}\n'
         )
         cases = load_dataset(dataset)
         assert len(cases) == 2
@@ -72,19 +71,14 @@ class TestLoadDataset:
     def test_load_skips_blank_lines(self, tmp_path: Path):
         dataset = tmp_path / "test.jsonl"
         dataset.write_text(
-            '{"input": "hi", "expected": "greet"}\n'
-            "\n"
-            '{"input": "bye", "expected": "farewell"}\n'
+            '{"input": "hi", "expected": "greet"}\n\n{"input": "bye", "expected": "farewell"}\n'
         )
         cases = load_dataset(dataset)
         assert len(cases) == 2
 
     def test_load_skips_comments(self, tmp_path: Path):
         dataset = tmp_path / "test.jsonl"
-        dataset.write_text(
-            "# This is a comment\n"
-            '{"input": "hi", "expected": "greet"}\n'
-        )
+        dataset.write_text('# This is a comment\n{"input": "hi", "expected": "greet"}\n')
         cases = load_dataset(dataset)
         assert len(cases) == 1
 
@@ -124,8 +118,11 @@ class TestEvalRun:
     def _make_result(self, score: float, tokens_in: int = 10, tokens_out: int = 5) -> EvalResult:
         case = EvalCase(input="test", expected="test")
         return EvalResult(
-            case=case, response="ok", score=score,
-            input_tokens=tokens_in, output_tokens=tokens_out,
+            case=case,
+            response="ok",
+            score=score,
+            input_tokens=tokens_in,
+            output_tokens=tokens_out,
             latency_ms=100.0,
         )
 
@@ -236,7 +233,8 @@ class TestToolUseScorer:
     @pytest.mark.asyncio
     async def test_partial_tools(self, scorer):
         case = EvalCase(
-            input="test", expected="test",
+            input="test",
+            expected="test",
             expected_tools=["save_memory", "get_memories"],
         )
         score, _ = await scorer.score(case, "done", ["save_memory"])
