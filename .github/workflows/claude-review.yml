@@ -235,7 +235,18 @@ jobs:
               exit 1
             fi
 
-            if echo "$REVIEW_BODIES" | grep -qE '### (New Issues|Still Open)'; then
+            # Check for actual issue content under "New Issues" / "Still Open" headers.
+            # Simply grepping for the header is insufficient — the reviewer includes
+            # the header even when the section content is "None" or "None found."
+            if echo "$REVIEW_BODIES" | awk '
+              /^### (New Issues|Still Open)/ { cap=1; next }
+              /^### / || /^---$/ { cap=0; next }
+              cap && /^$/ { next }
+              cap && /^None\.?$/ { next }
+              cap && /^None found\.?$/ { next }
+              cap && /./ { found=1; exit }
+              END { exit !found }
+            '; then
               echo "::error::Review Gate FAILED — CI reviews have unresolved issues."
               exit 1
             fi
@@ -246,8 +257,21 @@ jobs:
 
           HAS_ISSUES=false
 
+          # Helper: check if review body has actual issues (not just "None" under headers)
+          has_real_issues() {
+            echo "$1" | awk '
+              /^### (New Issues|Still Open)/ { cap=1; next }
+              /^### / || /^---$/ { cap=0; next }
+              cap && /^$/ { next }
+              cap && /^None\.?$/ { next }
+              cap && /^None found\.?$/ { next }
+              cap && /./ { found=1; exit }
+              END { exit !found }
+            '
+          }
+
           # Check code review for unresolved issues
-          if echo "$CODE_REVIEW" | grep -qE '### (New Issues|Still Open)'; then
+          if has_real_issues "$CODE_REVIEW"; then
             echo "::error::Code review has unresolved issues"
             HAS_ISSUES=true
           else
@@ -255,7 +279,7 @@ jobs:
           fi
 
           # Check security review for unresolved issues
-          if echo "$SECURITY_REVIEW" | grep -qE '### (New Issues|Still Open)'; then
+          if has_real_issues "$SECURITY_REVIEW"; then
             echo "::error::Security review has unresolved issues"
             HAS_ISSUES=true
           else
