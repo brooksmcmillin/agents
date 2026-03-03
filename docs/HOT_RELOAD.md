@@ -340,11 +340,8 @@ async def my_tool():
     result = new_function()  # ← Uses new code
 ```
 
-**MCP server tool registration**:
-```python
-# New tools registered in server.py
-server.register_tool(new_tool)  # ← Discovered on reload
-```
+**Tool auto-registration**:
+Tools are automatically registered via `ALL_TOOL_SCHEMAS` in `tools/__init__.py`. When you add `*_your_tool_schemas` to the list and export your tool, it's immediately discoverable on the next MCP connection — no manual server registration needed.
 
 ### ❌ Does NOT Hot Reload (Requires Agent Restart)
 
@@ -659,8 +656,8 @@ python -m py_compile packages/agent-framework/agent_framework/tools/my_tool.py
 **Cause**: Tool not properly exported or registered
 
 **Solution**:
-1. Check tool is exported in `tools/__init__.py`
-2. Check tool is registered in MCP server
+1. Check tool is exported in `tools/__init__.py` (in `__all__`)
+2. Check tool's `TOOL_SCHEMAS` is included in `ALL_TOOL_SCHEMAS` (add `*_your_tool_schemas` to the list)
 3. Type `reload` and check tool count
 4. List tools: Agent shows available tools in error messages
 
