@@ -443,13 +443,24 @@ class TestGetCalendarEvents:
             assert result["has_more"] is False
 
     @pytest.mark.asyncio
+    async def test_get_events_invalid_date(self):
+        """Test local validation rejects bad date formats."""
+        result = await get_calendar_events(
+            after="bad-date",
+            before="2025-03-15T23:59:59",
+        )
+
+        assert result["status"] == "error"
+        assert "Invalid after date format" in result["message"]
+
+    @pytest.mark.asyncio
     async def test_get_events_jmap_error(self):
         """Test JMAP error during event query."""
         mock_response = {
             "methodResponses": [
                 [
                     "error",
-                    {"type": "invalidArguments", "description": "Bad date format"},
+                    {"type": "serverFail", "description": "Internal error"},
                     "event-query",
                 ]
             ]
@@ -463,8 +474,8 @@ class TestGetCalendarEvents:
             mock_get_client.return_value = mock_client
 
             result = await get_calendar_events(
-                after="bad-date",
-                before="bad-date",
+                after="2025-03-15T00:00:00",
+                before="2025-03-15T23:59:59",
             )
 
             assert result["status"] == "error"

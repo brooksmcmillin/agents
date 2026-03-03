@@ -79,6 +79,10 @@ class JMAPClient:
         if not self._account_id or not self._api_url:
             raise ValueError("Could not determine FastMail account or API URL from session")
 
+        # Defense-in-depth: verify API URL is on the expected FastMail domain
+        if not self._api_url.startswith("https://api.fastmail.com/"):
+            raise ValueError("JMAP session returned unexpected API URL domain")
+
         logger.info(f"JMAP session established for account: {self._account_id}")
 
     async def _call(self, method_calls: list[list[Any]]) -> dict[str, Any]:

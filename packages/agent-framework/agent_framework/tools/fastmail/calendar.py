@@ -4,6 +4,7 @@ Contains list_calendars and get_calendar_events functions using JMAP CalendarEve
 """
 
 import logging
+from datetime import datetime
 from typing import Any
 
 from .client import _get_client
@@ -175,6 +176,16 @@ async def get_calendar_events(
             - total_count: Total matching events
             - message: Status message
     """
+    # Validate date parameters locally before sending to JMAP
+    for label, value in [("after", after), ("before", before)]:
+        try:
+            datetime.fromisoformat(value)
+        except (ValueError, TypeError):
+            return {
+                "status": "error",
+                "message": f"Invalid {label} date format. Use ISO 8601 (e.g. '2025-03-01T00:00:00').",
+            }
+
     logger.info(f"Getting calendar events: {after} to {before}")
 
     try:
