@@ -50,7 +50,7 @@ def _format_event(event: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "id": event.get("id"),
-        "calendar_id": event.get("calendarIds", {}),
+        "calendar_ids": list(event.get("calendarIds", {}).keys()),
         "title": event.get("title", "(no title)"),
         "description": event.get("description", ""),
         "start": event.get("start"),
@@ -117,9 +117,16 @@ async def list_calendars(
 
         result = method_responses[0]
         if result[0] == "error":
+            logger.error(f"JMAP error listing calendars: {result[1].get('description')}")
             return {
                 "status": "error",
-                "message": f"JMAP error: {result[1].get('description', 'Unknown error')}",
+                "message": "JMAP error: calendar query failed",
+            }
+
+        if result[0] != "Calendar/get":
+            return {
+                "status": "error",
+                "message": "Unexpected response from JMAP server",
             }
 
         calendars = result[1].get("list", [])
@@ -238,9 +245,10 @@ async def get_calendar_events(
             elif resp[0] == "CalendarEvent/get":
                 get_result = resp[1]
             elif resp[0] == "error":
+                logger.error(f"JMAP error getting events: {resp[1].get('description')}")
                 return {
                     "status": "error",
-                    "message": f"JMAP error: {resp[1].get('description', 'Unknown error')}",
+                    "message": "JMAP error: calendar event query failed",
                 }
 
         if not query_result or not get_result:

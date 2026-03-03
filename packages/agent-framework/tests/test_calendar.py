@@ -237,7 +237,7 @@ class TestListCalendars:
             result = await list_calendars()
 
             assert result["status"] == "error"
-            assert "No calendar access" in result["message"]
+            assert "calendar query failed" in result["message"]
 
     @pytest.mark.asyncio
     async def test_list_calendars_auth_error(self):
@@ -467,7 +467,7 @@ class TestGetCalendarEvents:
             )
 
             assert result["status"] == "error"
-            assert "Bad date format" in result["message"]
+            assert "event query failed" in result["message"]
 
     @pytest.mark.asyncio
     async def test_get_events_network_error(self):
