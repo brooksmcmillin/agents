@@ -65,6 +65,16 @@ async def plan_task(
         if task.metadata:
             user_message += f"\n\nAdditional context:\n{json.dumps(task.metadata, indent=2)}"
 
+        # Inject feedback from outcome store
+        try:
+            from shared.outcome_store import get_relevant_feedback
+
+            feedback = await get_relevant_feedback(task_category=task.category, limit=3)
+            if feedback:
+                user_message += f"\n\n{feedback}"
+        except Exception as e:
+            logger.debug(f"Could not fetch feedback for planner: {e}")
+
         logger.info(f"Planning task {task.id}: {task.title}")
 
         response = await client.messages.create(

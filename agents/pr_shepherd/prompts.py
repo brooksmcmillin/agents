@@ -16,6 +16,7 @@ Repository: {repo}
 {logs}
 ```
 {review_comments_section}
+{feedback_section}
 ## Instructions
 - Diagnose the failure from the CI logs above.
 - Fix the issue in the code. Common failures: lint errors, type errors,
@@ -23,6 +24,8 @@ Repository: {repo}
 - If there are review comments above, also address the feedback they raise.
   Review comments often flag real issues (flaky tests, anti-patterns, etc.)
   that are worth fixing alongside the CI failure.
+- If there are known patterns above from previous fixes, use them to guide
+  your approach.
 - IMPORTANT: When you are done, you MUST stage and commit ALL your changes:
   1. `git add -A`
   2. `git commit -m "fix: <describe what you fixed>"`
