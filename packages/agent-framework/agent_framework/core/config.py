@@ -20,6 +20,26 @@ class Settings(BaseSettings):
         default=None, repr=False, description="Anthropic API key for Claude"
     )
 
+    # Backup Model Fallback
+    backup_model: str | None = Field(
+        default=None,
+        description="LiteLLM model identifier for fallback when Anthropic API is unavailable. "
+        "Examples: 'openai/gpt-4o', 'gemini/gemini-2.0-flash', 'groq/llama-3.3-70b'. "
+        "See https://docs.litellm.ai/docs/providers for supported providers.",
+    )
+    backup_api_key: str | None = Field(
+        default=None,
+        repr=False,
+        description="API key for the backup model provider. "
+        "E.g., OpenAI API key if backup_model is 'openai/gpt-4o'.",
+    )
+    use_backup_model: bool = Field(
+        default=False,
+        description="When True, route ALL requests through the backup model instead of "
+        "Anthropic. Useful for testing full agent flows with the backup provider "
+        "before an actual outage. Requires BACKUP_MODEL to be set.",
+    )
+
     # MCP Server Configuration
     mcp_server_host: str = Field(default="localhost", description="MCP server host")
     mcp_server_port: int = Field(default=8000, description="MCP server port")

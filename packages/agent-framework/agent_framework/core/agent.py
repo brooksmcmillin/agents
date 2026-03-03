@@ -20,7 +20,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TextIO, cast
 
-from anthropic import AsyncAnthropic
+from anthropic import APIConnectionError, APIStatusError, AsyncAnthropic
 from anthropic.types import (
     Message,
     MessageParam,
@@ -394,6 +394,8 @@ class Agent(ABC):
         allowed_tools: list[str] | None = None,
         enable_security_checks: bool = True,
         skip_failed_mcp_urls: bool = False,
+        backup_model: str | None = None,
+        backup_api_key: str | None = None,
         enable_delegation: bool = False,
     ):
         """
@@ -432,6 +434,11 @@ class Agent(ABC):
             skip_failed_mcp_urls: If True, silently skip remote MCP URLs that fail
                 to connect (e.g., due to OAuth prompts) instead of blocking or
                 aborting. Useful for subprocess/demo contexts. Default: False
+            backup_model: LiteLLM model identifier for fallback when the Anthropic
+                API is unavailable (e.g. "openai/gpt-4o"). Defaults to
+                BACKUP_MODEL env var. If not set, no fallback is attempted.
+            backup_api_key: API key for the backup model provider. Defaults to
+                BACKUP_API_KEY env var.
             enable_delegation: If True and delegation is configured (via
                 shared.delegation.setup_delegation), adds a ``request_agent`` tool
                 that lets this agent consult other specialized agents. Default: False
@@ -462,6 +469,11 @@ class Agent(ABC):
 
         # Initialize Anthropic client
         self.client = AsyncAnthropic(api_key=self.api_key)
+
+        # Backup model fallback (resolved from args -> env -> settings)
+        self.backup_model = backup_model or settings.backup_model
+        self.backup_api_key = backup_api_key or settings.backup_api_key
+        self.use_backup_model = settings.use_backup_model
 
         # Initialize MCP client with stderr logging to agent's log file
         self.mcp_client = MCPClient(
@@ -1091,6 +1103,11 @@ class Agent(ABC):
     ) -> Message:
         """Call Claude API, using streaming when a text callback is provided.
 
+        If the Anthropic API is unreachable and a ``backup_model`` is configured,
+        the request is automatically retried via LiteLLM against the backup
+        provider. The response is converted back to an Anthropic ``Message`` so
+        downstream code is unaffected.
+
         Args:
             tools: Tool definitions in Anthropic format.
             on_text_delta: Optional callback for streaming text deltas.
@@ -1098,27 +1115,65 @@ class Agent(ABC):
                 blocking ``messages.create`` endpoint is called.
 
         Returns:
-            The final ``Message`` from the Claude API.
+            The final ``Message`` from the Claude API (or backup model).
         """
+        # USE_BACKUP_MODEL=true → skip Anthropic entirely and route through LiteLLM
+        if self.use_backup_model and self.backup_model:
+            logger.info("USE_BACKUP_MODEL is set, routing to backup model: %s", self.backup_model)
+            from .backup_model import call_backup_model
+
+            return await call_backup_model(
+                model=self.backup_model,
+                api_key=self.backup_api_key,
+                system_prompt=self.get_system_prompt(),
+                messages=self.messages,
+                tools=tools,
+                max_tokens=16000,
+                on_text_delta=on_text_delta,
+            )
+
         api_messages = self._messages_for_api()
-        if on_text_delta is not None:
-            async with self.client.messages.stream(
-                model=self.model,
+        try:
+            if on_text_delta is not None:
+                async with self.client.messages.stream(
+                    model=self.model,
+                    max_tokens=16000,
+                    system=self.get_system_prompt(),
+                    messages=api_messages,
+                    tools=cast(list[ToolParam], tools),
+                ) as stream:
+                    async for text in stream.text_stream:
+                        on_text_delta(text)
+                    return await stream.get_final_message()
+            else:
+                return await self.client.messages.create(
+                    model=self.model,
+                    max_tokens=16000,
+                    system=self.get_system_prompt(),
+                    messages=api_messages,
+                    tools=cast(list[ToolParam], tools),
+                )
+        except (APIConnectionError, APIStatusError) as exc:
+            # Only fall back on server-side / connectivity errors, not auth errors
+            if isinstance(exc, APIStatusError) and exc.status_code < 500:
+                raise
+            if not self.backup_model:
+                raise
+            logger.warning(
+                "Anthropic API unavailable (%s), falling back to backup model: %s",
+                exc,
+                self.backup_model,
+            )
+            from .backup_model import call_backup_model
+
+            return await call_backup_model(
+                model=self.backup_model,
+                api_key=self.backup_api_key,
+                system_prompt=self.get_system_prompt(),
+                messages=self.messages,
+                tools=tools,
                 max_tokens=16000,
-                system=self.get_system_prompt(),
-                messages=api_messages,
-                tools=cast(list[ToolParam], tools),
-            ) as stream:
-                async for text in stream.text_stream:
-                    on_text_delta(text)
-                return await stream.get_final_message()
-        else:
-            return await self.client.messages.create(
-                model=self.model,
-                max_tokens=16000,
-                system=self.get_system_prompt(),
-                messages=api_messages,
-                tools=cast(list[ToolParam], tools),
+                on_text_delta=on_text_delta,
             )
 
     def _make_tool_error_result(
