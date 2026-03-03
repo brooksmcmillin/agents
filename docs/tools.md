@@ -179,15 +179,40 @@ SMS_LOCK_TIMEOUT_MINUTES=30  # Optional, default 30
 ```python
 async def your_tool(param: str) -> dict[str, Any]:
     return {"result": "data"}
+
+TOOL_SCHEMAS = [
+    {
+        "name": "your_tool",
+        "description": "Description of your tool",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "param": {"type": "string"}
+            },
+            "required": ["param"]
+        },
+        "handler": your_tool,
+    }
+]
 ```
 
 2. Export from `packages/agent-framework/agent_framework/tools/__init__.py`:
 ```python
+from .your_tool import TOOL_SCHEMAS as _your_tool_schemas
 from .your_tool import your_tool
-__all__ = [..., "your_tool"]
+
+ALL_TOOL_SCHEMAS: list[dict] = [
+    # ... existing schemas
+    *_your_tool_schemas,  # ← Add your new tool
+]
+
+__all__ = [
+    # ... existing exports
+    "your_tool",  # ← Add your new tool
+]
 ```
 
-3. Register in `mcp_server/server.py`:
-   - Import the tool from `agent_framework.tools`
-   - Register with `server.register_tool()` in `setup_custom_tools()`
-   - Tool automatically available to all agents
+3. The tool is now auto-registered:
+   - The MCP server's `create_mcp_server()` function automatically discovers and registers all tools from `ALL_TOOL_SCHEMAS`
+   - No manual registration in `mcp_server/server.py` is needed
+   - Tool is immediately available to all agents on next MCP connection

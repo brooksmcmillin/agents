@@ -367,7 +367,17 @@ class Agent(ABC):
     - When called with an ExecutionContext, permissions are the intersection
       of the context permissions and the agent's defaults
     - Tools check permissions before execution
+
+    Delegation:
+    - Agents with enable_delegation=True get a ``request_agent`` virtual tool
+      that allows consulting other specialized agents.
+    - Delegation preserves the permission model via ExecutionContext intersection.
+    - _delegation_config is set at the class level by shared.delegation.setup_delegation().
     """
+
+    # Class-level delegation configuration, set by shared.delegation.setup_delegation().
+    # Contains "handler" (async callable) and "schema_builder" (callable) when configured.
+    _delegation_config: dict[str, Any] = {}
 
     def __init__(
         self,
@@ -386,6 +396,7 @@ class Agent(ABC):
         skip_failed_mcp_urls: bool = False,
         backup_model: str | None = None,
         backup_api_key: str | None = None,
+        enable_delegation: bool = False,
     ):
         """
         Initialize the agent.
@@ -428,6 +439,9 @@ class Agent(ABC):
                 BACKUP_MODEL env var. If not set, no fallback is attempted.
             backup_api_key: API key for the backup model provider. Defaults to
                 BACKUP_API_KEY env var.
+            enable_delegation: If True and delegation is configured (via
+                shared.delegation.setup_delegation), adds a ``request_agent`` tool
+                that lets this agent consult other specialized agents. Default: False
         """
         # Set up logging first (need agent name, so call get_agent_name early)
         self.log_dir = settings.log_dir
@@ -445,6 +459,8 @@ class Agent(ABC):
         self.web_search_config = web_search_config or {}
         self.mcp_client_config = mcp_client_config or {}
         self.skip_failed_mcp_urls = skip_failed_mcp_urls
+        self.enable_delegation = enable_delegation
+        self._cached_delegation_schema: dict[str, Any] | None = None
         self.tools: dict[str, list[str]] = {}
 
         # Context management
@@ -1263,11 +1279,26 @@ class Agent(ABC):
                 ).__enter__()
 
             try:
-                # Call MCP tool (reconnects to server each time)
-                result = await self._call_mcp_tool_with_reconnect(
-                    tool_call.name,
-                    tool_call.input,
-                )
+                # Handle delegation tool calls in-process (not via MCP)
+                if (
+                    tool_call.name == "request_agent"
+                    and self.enable_delegation
+                    and "handler" in self._delegation_config
+                ):
+                    self._check_tool_permissions("request_agent")
+                    handler = self._delegation_config["handler"]
+                    input_dict = tool_call.input if isinstance(tool_call.input, dict) else {}
+                    result = await handler(
+                        input_dict.get("agent_name", ""),
+                        input_dict.get("message", ""),
+                        self,
+                    )
+                else:
+                    # Call MCP tool (reconnects to server each time)
+                    result = await self._call_mcp_tool_with_reconnect(
+                        tool_call.name,
+                        tool_call.input,
+                    )
 
                 # End tool span with success
                 if tool_span is not None:
@@ -1575,6 +1606,17 @@ class Agent(ABC):
         # Remove failed URLs so they aren't retried on subsequent calls
         for url in failed_urls:
             self.mcp_urls.remove(url)
+
+        # Add delegation tool (request_agent) if enabled and configured
+        if self.enable_delegation and self._delegation_config:
+            if self._cached_delegation_schema is None:
+                schema_builder = self._delegation_config.get("schema_builder")
+                if schema_builder:
+                    self._cached_delegation_schema = schema_builder(
+                        exclude_class_name=self.__class__.__name__
+                    )
+            if self._cached_delegation_schema:
+                anthropic_tools.append(self._cached_delegation_schema)
 
         return anthropic_tools
 

@@ -16,7 +16,7 @@ The conversion handles:
 import json
 import logging
 import uuid
-from typing import Any
+from typing import Any, cast
 
 from anthropic.types import (
     Message,
@@ -52,9 +52,8 @@ def _convert_content_blocks_to_openai(content: list[Any] | str) -> str | list[di
             elif block.get("type") == "tool_result":
                 # Tool results are handled as separate messages
                 continue
-        elif hasattr(block, "type"):
-            if block.type == "text":
-                texts.append(block.text)
+        elif isinstance(block, TextBlock):
+            texts.append(block.text)
 
     return "\n".join(texts) if texts else ""
 
@@ -74,7 +73,7 @@ def _extract_tool_calls_from_content(content: list[Any]) -> list[dict[str, Any]]
                     },
                 }
             )
-        elif hasattr(block, "type") and block.type == "tool_use":
+        elif isinstance(block, ToolUseBlock):
             tool_calls.append(
                 {
                     "id": block.id,
@@ -90,7 +89,7 @@ def _extract_tool_calls_from_content(content: list[Any]) -> list[dict[str, Any]]
 
 def convert_messages_to_openai(
     system_prompt: str,
-    messages: list[dict[str, Any]],
+    messages: list[Any],
 ) -> list[dict[str, Any]]:
     """Convert Anthropic-format messages to OpenAI-format messages.
 
@@ -120,9 +119,7 @@ def convert_messages_to_openai(
             # Check if content contains tool_result blocks
             if isinstance(content, list):
                 tool_results = [
-                    b
-                    for b in content
-                    if (isinstance(b, dict) and b.get("type") == "tool_result")
+                    b for b in content if (isinstance(b, dict) and b.get("type") == "tool_result")
                 ]
                 if tool_results:
                     # Convert each tool_result to a separate tool message
@@ -284,7 +281,7 @@ def convert_response_to_anthropic(response: Any) -> Message:
         id=response.id or f"msg_{uuid.uuid4().hex[:24]}",
         type="message",
         role="assistant",
-        content=content,
+        content=cast(Any, content),
         model=response.model or "backup-model",
         stop_reason=stop_reason,
         stop_sequence=None,
@@ -302,8 +299,8 @@ async def call_backup_model(
     model: str,
     api_key: str | None,
     system_prompt: str,
-    messages: list[dict[str, Any]],
-    tools: list[dict[str, Any]],
+    messages: list[Any],
+    tools: list[Any],
     max_tokens: int = 16000,
     on_text_delta: Any | None = None,
 ) -> Message:
@@ -356,7 +353,7 @@ async def call_backup_model(
         response_model = model
 
         stream = await litellm.acompletion(**kwargs)
-        async for chunk in stream:
+        async for chunk in cast(Any, stream):
             if not chunk.choices:
                 continue
             delta = chunk.choices[0].delta
@@ -380,9 +377,9 @@ async def call_backup_model(
                         if tc.function.name:
                             collected_tool_calls[idx]["function"]["name"] = tc.function.name
                         if tc.function.arguments:
-                            collected_tool_calls[idx]["function"][
-                                "arguments"
-                            ] += tc.function.arguments
+                            collected_tool_calls[idx]["function"]["arguments"] += (
+                                tc.function.arguments
+                            )
 
             # Capture usage from the final chunk
             if hasattr(chunk, "usage") and chunk.usage:
@@ -422,7 +419,7 @@ async def call_backup_model(
             id=response_id,
             type="message",
             role="assistant",
-            content=content,
+            content=cast(Any, content),
             model=response_model,
             stop_reason=stop_reason,
             stop_sequence=None,

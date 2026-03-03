@@ -102,6 +102,12 @@ TOOL_PERMISSIONS: dict[str, set[Permission]] = {
     "create_claude_code_workspace": {Permission.WRITE},
     "delete_claude_code_workspace": {Permission.DELETE},
     "get_claude_code_workspace_status": {Permission.READ},
+    # =========================================================================
+    # Delegation Tools - consult other agents (READ only; the delegated
+    # agent's effective permissions are the intersection of the caller's
+    # permissions and the target agent's defaults)
+    # =========================================================================
+    "request_agent": {Permission.READ},
 }
 
 # =============================================================================

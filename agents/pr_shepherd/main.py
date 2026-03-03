@@ -246,6 +246,26 @@ class PRShepherd:
             review_section = REVIEW_COMMENTS_SECTION_TEMPLATE.format(
                 review_comments=_escape(review_comments),
             )
+
+        # Query feedback store for known patterns in this repo.
+        # Feedback originates from CI logs which could contain adversarial
+        # content, so we sanitize it with a character allowlist before
+        # injecting into the worker prompt.
+        feedback_section = ""
+        try:
+            from shared.outcome_store import get_relevant_feedback
+
+            feedback = await get_relevant_feedback(repo=pr.repo, limit=5)
+            if feedback:
+                # Strip chars outside the safe set (same approach as orchestrator workers)
+                import re as _re
+
+                _safe_re = _re.compile(r"[^a-zA-Z0-9 _.,'\"()\-:;!?@#/\n\r\t*`]+")
+                sanitized = _safe_re.sub("", feedback)[:5000]
+                feedback_section = f"\n{_escape(sanitized)}\n"
+        except Exception as e:
+            logger.debug(f"Could not fetch feedback for PR fix: {e}")
+
         instructions = FIX_CI_INSTRUCTIONS_TEMPLATE.format(
             title=_escape(pr.title),
             branch=_escape(pr.head_branch),
@@ -253,6 +273,7 @@ class PRShepherd:
             failing_checks=_escape(", ".join(failing_checks)),
             logs=_escape(logs),
             review_comments_section=review_section,
+            feedback_section=feedback_section,
         )
 
         # Run Claude Code worker
