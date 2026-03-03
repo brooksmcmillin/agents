@@ -734,9 +734,9 @@ class Agent(ABC):
 
         if session_id == "last":
             # Resume the most recent session for this agent
-            recent = self._session_store.get_most_recent_session(self.get_agent_name())
-            if recent:
-                session_id = recent["session_id"]
+            recent_id = self._session_store.get_most_recent_session_id(self.get_agent_name())
+            if recent_id:
+                session_id = recent_id
             else:
                 print(
                     f"No previous sessions found for {self.get_agent_name()}. Starting new session."
@@ -1654,6 +1654,10 @@ class Agent(ABC):
             logger.error(f"Corrupt session {session_id}: 'messages' is not a list")
             return False
 
+        # Note: individual message items are trusted from disk without integrity
+        # verification. Session files are protected by 0o600 permissions, which is
+        # sufficient for a single-user CLI tool. Multi-user deployments should add
+        # HMAC-based tamper detection.
         self.messages = messages
         self.total_input_tokens = data.get("total_input_tokens", 0)
         self.total_output_tokens = data.get("total_output_tokens", 0)

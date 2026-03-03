@@ -4,6 +4,7 @@ Provides save/load functionality so CLI agent sessions can be resumed,
 similar to Claude Code's --resume flag.
 """
 
+import contextlib
 import json
 import logging
 import os
@@ -32,6 +33,10 @@ class SessionStore:
         # Fix permissions on directories created by older versions
         if self.sessions_dir.stat().st_mode & 0o777 != 0o700:
             self.sessions_dir.chmod(0o700)
+        # Clean up orphaned .tmp files from interrupted saves
+        for tmp in self.sessions_dir.glob("*.tmp"):
+            with contextlib.suppress(OSError):
+                tmp.unlink()
 
     def _session_path(self, session_id: str) -> Path:
         """Get the file path for a session."""
@@ -153,19 +158,19 @@ class SessionStore:
         sessions.sort(key=lambda s: s.get("updated_at", ""), reverse=True)
         return sessions[:limit]
 
-    def get_most_recent_session(self, agent_name: str) -> dict[str, Any] | None:
-        """Get the most recently updated session for a given agent.
+    def get_most_recent_session_id(self, agent_name: str) -> str | None:
+        """Get the session ID of the most recently updated session for an agent.
 
         Args:
             agent_name: Name of the agent to find sessions for.
 
         Returns:
-            Session data dict, or None if no sessions exist.
+            Session ID string, or None if no sessions exist.
         """
         sessions = self.list_sessions(agent_name=agent_name, limit=1)
         if not sessions:
             return None
-        return self.load(sessions[0]["session_id"])
+        return sessions[0]["session_id"]
 
     def delete(self, session_id: str) -> bool:
         """Delete a session file.
@@ -226,5 +231,6 @@ def _make_serializable(obj: Any) -> Any:
     if hasattr(obj, "__dict__"):
         return {k: _make_serializable(v) for k, v in obj.__dict__.items() if not k.startswith("_")}
 
-    # Fallback: convert to string
+    # Fallback: convert to string (log a warning for debugging unexpected types)
+    logger.warning(f"Unexpected type in session data: {type(obj).__name__}, converting to str")
     return str(obj)
