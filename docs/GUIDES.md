@@ -540,18 +540,14 @@ For notifier agent:
 Deploy MCP server separately from agents:
 
 ```bash
-# Server machine
-cd mcp_server/
-uvicorn server_http:app --host 0.0.0.0 --port 8080 --workers 4
+# Server machine - run the MCP server (stdio transport by default)
+uv run python -m mcp_server.server
 
-# Or with gunicorn
-gunicorn mcp_server.server_http:app \
-  --workers 4 \
-  --worker-class uvicorn.workers.UvicornWorker \
-  --bind 0.0.0.0:8080
+# For HTTP/network access, use a reverse proxy (nginx/Apache) or HTTP wrapper
+# See REMOTE_MCP.md for advanced deployment options
 ```
 
-Configure agents:
+Configure agents to connect to remote MCP server:
 ```bash
 # Agent machines (can be different servers)
 MCP_SERVER_URL=https://mcp.company.com/mcp

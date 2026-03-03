@@ -384,9 +384,6 @@ See [HOT_RELOAD.md](../../docs/HOT_RELOAD.md) for details.
 ```bash
 # Test specific tool
 uv run python scripts/testing/test_memory.py
-
-# Run demo script to test all tools
-uv run python demo.py
 ```
 
 ### Adding New Capabilities

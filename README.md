@@ -414,7 +414,7 @@ LINKEDIN_CLIENT_SECRET=...
 
 ```bash
 # Check logs
-tail -f pr_agent.log
+tail -f ~/.agents/logs/agent_$(date +%Y-%m-%d).log
 
 # Enable debug logging
 # In .env: LOG_LEVEL=DEBUG

@@ -132,42 +132,14 @@ Local MCP for fast tools, remote MCP for secure/shared tools:
 
 #### Option 1: Using agent-framework MCP Server
 
+The agent-framework provides a built-in MCP server with all 53 tools already registered:
+
 ```bash
-# 1. Create server configuration
-# File: mcp_server/server_http.py
+# Start the MCP server (stdio transport)
+uv run python -m mcp_server.server
 
-from agent_framework.server import create_mcp_server
-from agent_framework.tools import (
-    fetch_web_content,
-    save_memory,
-    get_memories,
-    send_slack_message,
-)
-
-# Create server
-server = create_mcp_server("my-tools")
-
-# Register tools
-server.register_tool(
-    name="fetch_web_content",
-    description="Fetch web content as markdown",
-    handler=fetch_web_content,
-    input_schema={
-        "type": "object",
-        "properties": {
-            "url": {"type": "string"},
-            "max_length": {"type": "integer", "default": 50000},
-        },
-        "required": ["url"],
-    },
-)
-
-# Register additional tools...
-# (memory, slack, etc.)
-
-# 2. Run with HTTP transport
-# Start server on port 8080
-uvicorn mcp_server.server_http:server --host 0.0.0.0 --port 8080
+# Note: For HTTP transport with remote agents, see Option 2 below
+# or deploy mcp_server.server on a network-accessible host with reverse proxy (nginx/Apache)
 ```
 
 #### Option 2: Using Existing MCP Server
