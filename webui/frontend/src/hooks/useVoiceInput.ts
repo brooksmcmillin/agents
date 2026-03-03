@@ -140,6 +140,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
       };
       setError(messages[event.error] || 'Speech recognition failed. Please try again.');
       setIsListening(false);
+      setInterimTranscript('');
     };
 
     recognition.onend = () => {

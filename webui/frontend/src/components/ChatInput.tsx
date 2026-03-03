@@ -49,6 +49,15 @@ export function ChatInput({
     }
   }, [isListening, interimTranscript]);
 
+  // Restore base message when listening stops without a final result (e.g. error)
+  const prevListeningRef = useRef(false);
+  useEffect(() => {
+    if (prevListeningRef.current && !isListening && !interimTranscript) {
+      setMessage(voiceBaseRef.current);
+    }
+    prevListeningRef.current = isListening;
+  }, [isListening, interimTranscript]);
+
   const handleSend = () => {
     if (message.trim() && !disabled) {
       onSend(message.trim());
