@@ -39,6 +39,8 @@ dependencies = [
     # Observability
     "langfuse>=3.0.0",
     "opentelemetry-instrumentation-anthropic>=0.38.0",
+    # Backup model fallback (multi-provider LLM gateway)
+    "litellm>=1.30.0",
 ]
 
 [project.urls]
