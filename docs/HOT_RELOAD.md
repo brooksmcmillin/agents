@@ -288,19 +288,8 @@ __all__ = [
 ]
 ```
 
-**Step 3**: Register in MCP server (if needed)
-```python
-# mcp_server/server.py
-from agent_framework.tools import my_new_tool
-
-# Register tool
-server.register_tool(
-    name="my_new_tool",
-    description="Description of new tool",
-    handler=my_new_tool,
-    input_schema={...}
-)
-```
+**Step 3**: Auto-registration (no manual steps needed)
+The MCP server's `create_mcp_server()` function automatically discovers and registers all tools from `ALL_TOOL_SCHEMAS`. No manual registration in `mcp_server/server.py` is required.
 
 **Step 4**: Reload in agent
 ```
