@@ -151,6 +151,7 @@ class RemoteMCPClient:
         token_storage_dir: str | None = None,
         prefer_device_flow: bool = False,
         device_authorization_callback: DeviceAuthorizationCallback | None = None,
+        non_interactive: bool = False,
     ):
         """Initialize remote MCP client.
 
@@ -168,6 +169,7 @@ class RemoteMCPClient:
                                required. Use this to notify users via Slack, email, etc. about
                                pending authorizations. The callback receives DeviceAuthorizationInfo
                                with the user code and verification URLs.
+            non_interactive: If True, skip interactive OAuth flows (for scripting/automation).
         """
         # MCP server expects trailing slash - ensure it's present
         if not base_url.endswith("/"):
@@ -180,6 +182,7 @@ class RemoteMCPClient:
         self.oauth_scopes = oauth_scopes
         self.prefer_device_flow = prefer_device_flow
         self.device_authorization_callback = device_authorization_callback
+        self.non_interactive = non_interactive
 
         # Manual token from parameter or environment
         self.manual_token = auth_token or os.getenv("MCP_AUTH_TOKEN")
@@ -297,6 +300,11 @@ class RemoteMCPClient:
 
         # If no valid token, run OAuth flow
         if not self.current_token:
+            if self.non_interactive:
+                raise RuntimeError(
+                    "OAuth token required but running in non-interactive mode. "
+                    "Authenticate manually first."
+                )
             if flow_handler is None:
                 raise OAuthNotInitializedError()
 

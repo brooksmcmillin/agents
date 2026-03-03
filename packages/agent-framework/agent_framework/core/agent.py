@@ -91,6 +91,7 @@ MAX_AGENT_ITERATIONS = 10  # Maximum iterations in agentic loop to prevent infin
 WEB_SEARCH_MAX_USES = 10  # Maximum web searches allowed per turn (Anthropic API limit)
 HIGH_IMPORTANCE_THRESHOLD = 9  # Minimum importance level for memory injection
 MAX_INJECTED_MEMORIES = 10  # Maximum memories to inject after context trimming
+MAX_TOOL_RESULT_CHARS = 80_000  # Safety net for tool results (~20K tokens)
 
 # Memory tools that should have agent_name auto-injected for isolation
 MEMORY_TOOLS = frozenset(
@@ -119,6 +120,36 @@ logger = logging.getLogger(__name__)
 _execution_context_var: contextvars.ContextVar[ExecutionContext | None] = contextvars.ContextVar(
     "execution_context", default=None
 )
+
+
+def _truncate_tool_result(content: str, max_chars: int = MAX_TOOL_RESULT_CHARS) -> str:
+    """Truncate a tool result string if it exceeds max_chars.
+
+    This is a safety net to prevent oversized tool results from blowing
+    out the context window.  Individual tools should limit their own
+    output, but this catches anything that slips through.
+
+    Args:
+        content: The stringified tool result.
+        max_chars: Maximum allowed characters (default MAX_TOOL_RESULT_CHARS).
+
+    Returns:
+        The original content if within limits, otherwise a truncated version
+        with a note explaining what happened.
+    """
+    if len(content) <= max_chars:
+        return content
+    truncated_len = len(content) - max_chars
+    logger.warning(
+        "Tool result truncated: %d chars exceeded limit of %d (removed %d chars)",
+        len(content),
+        max_chars,
+        truncated_len,
+    )
+    return (
+        content[:max_chars] + f"\n\n[TRUNCATED: result was {len(content):,} chars, "
+        f"limit is {max_chars:,}. {truncated_len:,} chars removed.]"
+    )
 
 
 def _read_multiline_input(prompt: str) -> str:
@@ -560,6 +591,7 @@ class Agent(ABC):
             device_authorization_callback=self.mcp_client_config.get(
                 "device_authorization_callback"
             ),
+            non_interactive=self.mcp_client_config.get("non_interactive", False),
         )
 
     _TOOL_NOT_FOUND = object()  # Sentinel to distinguish "local" from "not found"
@@ -1196,7 +1228,7 @@ class Agent(ABC):
                     {
                         "type": "tool_result",
                         "tool_use_id": tool_call.id,
-                        "content": str(result),
+                        "content": _truncate_tool_result(str(result)),
                     }
                 )
 

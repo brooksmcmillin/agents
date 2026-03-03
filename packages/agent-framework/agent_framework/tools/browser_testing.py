@@ -103,14 +103,25 @@ async def browser_screenshot(
         finally:
             await browser.close()
 
-    return {
+    result: dict[str, Any] = {
         "url": url,
         "title": title,
         "viewport": f"{viewport_width}x{viewport_height}",
         "full_page": full_page,
-        "screenshot_base64": encoded,
         "screenshot_size_bytes": len(screenshot_bytes),
     }
+
+    # Omit base64 data if it would be too large (truncated base64 is useless)
+    if len(encoded) > 50_000:
+        result["screenshot_base64"] = None
+        result["note"] = (
+            f"Screenshot base64 omitted ({len(encoded):,} chars). "
+            "Image too large to include in tool result."
+        )
+    else:
+        result["screenshot_base64"] = encoded
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -269,12 +280,20 @@ async def browser_accessibility_audit(url: str) -> dict[str, Any]:
     # Simple score: 100 minus 5 per issue, floor at 0
     score = max(0, 100 - total_issues * 5)
 
+    # Cap each findings category to prevent oversized results
+    _MAX_FINDINGS_PER_CATEGORY = 25
+    findings = results["findings"]
+    for category, items in findings.items():
+        if isinstance(items, list) and len(items) > _MAX_FINDINGS_PER_CATEGORY:
+            omitted = len(items) - _MAX_FINDINGS_PER_CATEGORY
+            findings[category] = items[:_MAX_FINDINGS_PER_CATEGORY] + [f"... and {omitted} more"]
+
     return {
         "url": url,
         "title": title,
         "accessibility_score": score,
         "total_issues": total_issues,
-        "findings": results["findings"],
+        "findings": findings,
         "heading_outline": results["headingOutline"],
     }
 
@@ -452,15 +471,20 @@ async def browser_console_errors(url: str) -> dict[str, Any]:
         finally:
             await browser.close()
 
+    # Cap lists to prevent oversized results; preserve true counts
+    _MAX_CONSOLE_ENTRIES = 50
     return {
         "url": url,
         "title": title,
-        "errors": errors,
+        "errors": errors[:_MAX_CONSOLE_ENTRIES],
         "error_count": len(errors),
-        "warnings": warnings,
+        "errors_omitted": max(0, len(errors) - _MAX_CONSOLE_ENTRIES),
+        "warnings": warnings[:_MAX_CONSOLE_ENTRIES],
         "warning_count": len(warnings),
-        "uncaught_exceptions": exceptions,
+        "warnings_omitted": max(0, len(warnings) - _MAX_CONSOLE_ENTRIES),
+        "uncaught_exceptions": exceptions[:_MAX_CONSOLE_ENTRIES],
         "exception_count": len(exceptions),
+        "exceptions_omitted": max(0, len(exceptions) - _MAX_CONSOLE_ENTRIES),
     }
 
 
@@ -570,6 +594,8 @@ async def browser_check_links(url: str, same_origin_only: bool = True) -> dict[s
                     }
                 )
 
+    # Cap redirected list (broken links are typically few, redirects can be many)
+    _MAX_REDIRECTED = 20
     return {
         "url": url,
         "title": title,
@@ -579,8 +605,9 @@ async def browser_check_links(url: str, same_origin_only: bool = True) -> dict[s
         "healthy_count": healthy,
         "broken": broken,
         "broken_count": len(broken),
-        "redirected": redirected,
+        "redirected": redirected[:_MAX_REDIRECTED],
         "redirected_count": len(redirected),
+        "redirected_omitted": max(0, len(redirected) - _MAX_REDIRECTED),
     }
 
 
