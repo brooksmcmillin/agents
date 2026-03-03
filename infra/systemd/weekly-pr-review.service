@@ -1,0 +1,18 @@
+[Unit]
+Description=Weekly PR Review - automated merged PR analysis
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=brooks
+WorkingDirectory=/home/brooks/build/agents
+ExecStart=/home/brooks/build/agents/bin/weekly-pr-review /home/brooks/build/agents -c "PR Review"
+EnvironmentFile=/home/brooks/build/agents/.env
+Environment=PATH=/home/brooks/.local/bin:/usr/local/bin:/usr/bin:/bin
+TimeoutStartSec=1800
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
