@@ -4,7 +4,7 @@ Modern React web interface for the multi-agent system with persistent conversati
 
 ## Features
 
-- **Multiple Agents** - Choose from 8 interactive agents (chatbot, PR, tasks, security, business, code analysis, events, red team)
+- **Multiple Agents** - Choose from 12 interactive agents (chatbot, PR, tasks, security, business, code analysis, events, red team, log analysis, security audit, sysadmin, website tester)
 - **Persistent Conversations** - Database-backed conversations that survive server restarts
 - **Conversation Management** - Create, rename, delete, and switch between conversations
 - **Real-time Chat** - Send messages and view responses with role-based message bubbles
@@ -124,7 +124,7 @@ webui/
 ### Creating a Conversation
 
 1. Click "New Conversation" button
-2. Select an agent (chatbot, PR, tasks, security, or business)
+2. Select an agent (chatbot, PR, tasks, security, business, and more)
 3. Optionally provide a title
 4. Click "Create"
 
