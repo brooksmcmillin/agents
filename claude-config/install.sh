@@ -8,7 +8,6 @@ CLAUDE_DIR="${HOME}/.claude"
 install_dir() {
     local src="$1"
     local dest="$2"
-    local label="$3"
 
     if [[ ! -d "$src" ]]; then
         return
@@ -28,7 +27,7 @@ install_dir() {
 
         cp "$file" "$dest/$name"
         echo "  $name"
-        ((count++))
+        ((++count))
     done
 
     if [[ $count -eq 0 ]]; then
@@ -40,11 +39,11 @@ echo "Installing Claude Code config to ${CLAUDE_DIR}"
 echo ""
 
 echo "Agents:"
-install_dir "$SCRIPT_DIR/agents" "$CLAUDE_DIR/agents" "agents"
+install_dir "$SCRIPT_DIR/agents" "$CLAUDE_DIR/agents"
 echo ""
 
 echo "Commands:"
-install_dir "$SCRIPT_DIR/commands" "$CLAUDE_DIR/commands" "commands"
+install_dir "$SCRIPT_DIR/commands" "$CLAUDE_DIR/commands"
 echo ""
 
 echo "Done."
