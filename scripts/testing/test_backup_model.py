@@ -30,7 +30,7 @@ project_root = Path(__file__).parent.parent.parent
 os.chdir(project_root)
 sys.path.insert(0, str(project_root))
 
-from dotenv import load_dotenv
+from dotenv import load_dotenv  # noqa: E402
 
 load_dotenv()
 
@@ -107,7 +107,9 @@ async def test_streaming(model: str, api_key: str | None) -> bool:
         # Verify the final Message matches
         msg_text = result.content[0].text if result.content else ""
         if msg_text != full_text:
-            print(f"  WARNING: Message text doesn't match chunks ({len(msg_text)} vs {len(full_text)} chars)")
+            print(
+                f"  WARNING: Message text doesn't match chunks ({len(msg_text)} vs {len(full_text)} chars)"
+            )
 
         print("  PASS")
         return True
@@ -119,9 +121,8 @@ async def test_streaming(model: str, api_key: str | None) -> bool:
 
 async def test_tool_calling(model: str, api_key: str | None) -> bool:
     """Test that the backup model can generate tool calls."""
-    from anthropic.types import ToolUseBlock
-
     from agent_framework.core.backup_model import call_backup_model
+    from anthropic.types import ToolUseBlock
 
     print(f"\n--- Test 3: Tool calling ({model}) ---")
     tools = [
@@ -195,7 +196,9 @@ async def test_simulate_fallback(model: str, api_key: str | None) -> bool:
                     backup_model=model,
                     backup_api_key=api_key,
                 )
-                agent.messages = [{"role": "user", "content": "Say 'fallback works' if you can read this."}]
+                agent.messages = [
+                    {"role": "user", "content": "Say 'fallback works' if you can read this."}
+                ]
 
                 # Force Anthropic to fail
                 mock_client = mock_cls.return_value
