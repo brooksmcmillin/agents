@@ -36,14 +36,9 @@ from pydantic import BaseModel
 
 from agent_framework.security import mask_phone_number
 from agent_framework.utils.errors import DatabaseNotInitializedError
+from agent_framework.utils.sanitize import sanitize_log_input
 
 logger = logging.getLogger(__name__)
-
-
-def _sanitize_log_input(value: str) -> str:
-    """Sanitize user input for safe logging."""
-    sanitized = value.replace("\n", "\\n").replace("\r", "\\r")
-    return "".join(c if c == "\t" or (ord(c) >= 0x20) else f"\\x{ord(c):02x}" for c in sanitized)
 
 
 class PhonePoolEntry(BaseModel):
@@ -265,15 +260,15 @@ class SMSPhonePoolManager:
 
             if row is None:
                 logger.warning(
-                    f"Phone pool exhausted for conversation {_sanitize_log_input(conversation_id)}"
+                    f"Phone pool exhausted for conversation {sanitize_log_input(conversation_id)}"
                 )
                 return None
 
             logger.info(
                 "Acquired phone %s for conversation %s (agent: %s)",
                 mask_phone_number(row["phone_number"]),
-                _sanitize_log_input(conversation_id),
-                _sanitize_log_input(agent_name),
+                sanitize_log_input(conversation_id),
+                sanitize_log_input(agent_name),
             )
 
             return self._row_to_entry(row)

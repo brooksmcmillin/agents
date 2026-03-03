@@ -7,6 +7,7 @@ from .errors import (
     ToolExecutionError,
     ValidationError,
 )
+from .sanitize import sanitize_log_input
 from .tool_decorators import handle_tool_errors
 
 __all__ = [
@@ -16,4 +17,5 @@ __all__ = [
     "ToolExecutionError",
     "ValidationError",
     "handle_tool_errors",
+    "sanitize_log_input",
 ]
