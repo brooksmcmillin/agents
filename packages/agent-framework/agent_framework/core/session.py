@@ -1,7 +1,7 @@
 """Session persistence for agent conversations.
 
-Provides save/load functionality so CLI agent sessions can be resumed,
-similar to Claude Code's --resume flag.
+Provides save/load functionality so CLI agent sessions can be saved
+and resumed later, similar to Claude Code's --resume flag.
 """
 
 import contextlib
