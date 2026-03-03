@@ -772,6 +772,30 @@ async def delete_session(session_id: str, _: None = Depends(verify_api_key)) -> 
 # ---------------------------------------------------------------------------
 
 
+def _db_conv_to_info(conv: Any) -> ConversationInfo:
+    """Convert a database Conversation object to a ConversationInfo response model."""
+    return ConversationInfo(
+        id=conv.id,
+        agent=conv.agent_name,
+        title=conv.title,
+        created_at=conv.created_at,
+        updated_at=conv.updated_at,
+        message_count=conv.message_count,
+        metadata=conv.metadata,
+    )
+
+
+def _db_msg_to_response(m: Any) -> ConversationMessage:
+    """Convert a database Message object to a ConversationMessage response model."""
+    return ConversationMessage(
+        role=m.role,
+        content=m.content,
+        turn_number=m.turn_number,
+        created_at=m.created_at,
+        token_count=m.token_count,
+    )
+
+
 @app.get("/conversations", response_model=ConversationListResponse)
 async def list_conversations(
     agent: str | None = Query(None, description="Filter by agent name"),
@@ -794,18 +818,7 @@ async def list_conversations(
         total = stats["conversations_by_agent"].get(agent, 0)
 
     return ConversationListResponse(
-        conversations=[
-            ConversationInfo(
-                id=c.id,
-                agent=c.agent_name,
-                title=c.title,
-                created_at=c.created_at,
-                updated_at=c.updated_at,
-                message_count=c.message_count,
-                metadata=c.metadata,
-            )
-            for c in conversations
-        ],
+        conversations=[_db_conv_to_info(c) for c in conversations],
         total=total,
         limit=limit,
         offset=offset,
@@ -839,15 +852,7 @@ async def create_conversation(
         metadata=body.metadata,
     )
 
-    return ConversationInfo(
-        id=conv.id,
-        agent=conv.agent_name,
-        title=conv.title,
-        created_at=conv.created_at,
-        updated_at=conv.updated_at,
-        message_count=conv.message_count,
-        metadata=conv.metadata,
-    )
+    return _db_conv_to_info(conv)
 
 
 @app.get("/conversations/stats", response_model=ConversationStatsResponse)
@@ -877,23 +882,8 @@ async def get_conversation(
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     return ConversationDetail(
-        id=conv.id,
-        agent=conv.agent_name,
-        title=conv.title,
-        created_at=conv.created_at,
-        updated_at=conv.updated_at,
-        message_count=conv.message_count,
-        metadata=conv.metadata,
-        messages=[
-            ConversationMessage(
-                role=m.role,
-                content=m.content,
-                turn_number=m.turn_number,
-                created_at=m.created_at,
-                token_count=m.token_count,
-            )
-            for m in conv.messages
-        ],
+        **_db_conv_to_info(conv).model_dump(),
+        messages=[_db_msg_to_response(m) for m in conv.messages],
     )
 
 
@@ -997,15 +987,7 @@ async def update_conversation(
     if conv is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    return ConversationInfo(
-        id=conv.id,
-        agent=conv.agent_name,
-        title=conv.title,
-        created_at=conv.created_at,
-        updated_at=conv.updated_at,
-        message_count=conv.message_count,
-        metadata=conv.metadata,
-    )
+    return _db_conv_to_info(conv)
 
 
 @app.delete("/conversations/{conversation_id}", status_code=204)
@@ -1044,25 +1026,8 @@ async def export_conversation(
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     return ConversationExport(
-        conversation=ConversationInfo(
-            id=conv.id,
-            agent=conv.agent_name,
-            title=conv.title,
-            created_at=conv.created_at,
-            updated_at=conv.updated_at,
-            message_count=conv.message_count,
-            metadata=conv.metadata,
-        ),
-        messages=[
-            ConversationMessage(
-                role=m.role,
-                content=m.content,
-                turn_number=m.turn_number,
-                created_at=m.created_at,
-                token_count=m.token_count,
-            )
-            for m in conv.messages
-        ],
+        conversation=_db_conv_to_info(conv),
+        messages=[_db_msg_to_response(m) for m in conv.messages],
         exported_at=datetime.now(UTC),
     )
 
