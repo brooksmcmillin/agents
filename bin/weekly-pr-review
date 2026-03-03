@@ -481,6 +481,8 @@ if $DRY_RUN; then
   echo "Repository: $REPO_FULL"
   echo "Period: $SINCE_DATE to $TODAY ($DAYS days)"
   echo "PRs found: $PR_COUNT"
+  echo "Wiki slug:  ${WIKI_ROOT_SLUG}/${WIKI_CAT_SLUG}/${WIKI_DATE_SLUG}"
+  echo "Wiki title: ${WIKI_DATE_TITLE}"
   echo ""
   echo "Prompt length: $(echo "$PROMPT" | wc -c) bytes"
   printf "  %q" "${CMD_ARGS[@]}"
