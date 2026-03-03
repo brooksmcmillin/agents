@@ -13,7 +13,7 @@ from typing import Any, Literal
 import httpx
 from bs4 import BeautifulSoup
 
-from ..security import SSRFValidator
+from ..security import SSRFTransport, SSRFValidator
 from ..utils.tool_decorators import handle_tool_errors
 
 logger = logging.getLogger(__name__)
@@ -548,7 +548,13 @@ async def _validate_and_fetch(url: str) -> str:
         raise ValueError(f"URL rejected for security reasons: {result}")
     final_url = result
 
-    async with httpx.AsyncClient(timeout=HTTP.timeout_seconds) as client:
+    # Use SSRFTransport for connect-time SSRF validation (prevents TOCTOU
+    # DNS rebinding between the pre-check above and the actual connection).
+    async with httpx.AsyncClient(
+        transport=SSRFTransport(),
+        timeout=HTTP.timeout_seconds,
+        follow_redirects=False,
+    ) as client:
         response = await client.get(final_url)
         response.raise_for_status()
         return response.text

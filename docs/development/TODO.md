@@ -287,54 +287,9 @@ uv run pytest --cov=. --cov-report=html
 
 ### High Priority
 
-#### SSRF Protection for Web Tools
-**Files:** `packages/agent-framework/agent_framework/tools/web_analyzer.py`, `packages/agent-framework/agent_framework/tools/web_reader.py`
-
-Add IP/hostname validation to prevent Server-Side Request Forgery:
-- Block private IP ranges (10.x, 172.16-31.x, 192.168.x)
-- Block localhost (127.0.0.1, ::1)
-- Block link-local (169.254.x.x)
-- Block cloud metadata endpoints (169.254.169.254)
-- Validate DNS resolution before request
-
-```python
-import ipaddress
-from urllib.parse import urlparse
-
-def validate_url_for_ssrf(url: str) -> None:
-    parsed = urlparse(url)
-    hostname = parsed.hostname
-
-    # Block dangerous hostnames
-    dangerous = ["localhost", "127.0.0.1", "0.0.0.0", "169.254.169.254"]
-    if hostname.lower() in dangerous:
-        raise ValueError(f"Access to {hostname} is not allowed")
-
-    # Resolve and check IP
-    import socket
-    resolved_ip = socket.gethostbyname(hostname)
-    ip = ipaddress.ip_address(resolved_ip)
-    if ip.is_private or ip.is_loopback or ip.is_link_local:
-        raise ValueError(f"Access to private IP is not allowed")
-```
-
-#### Encrypt oauth_tokens.py Token Storage
-**File:** `shared/oauth_tokens.py`
-
-Currently stores tokens in plaintext JSON. Add Fernet encryption like `token_store.py`:
-1. Add encryption key parameter to TokenStorage
-2. Encrypt tokens before writing
-3. Decrypt tokens when loading
-4. Set file permissions to 600
-
-#### Fix Directory Permissions
-**Locations:** `tokens/`, `memories/`
-
-Set directory permissions to 700 (owner only):
-```python
-self.storage_path.mkdir(parents=True, exist_ok=True)
-self.storage_path.chmod(0o700)
-```
+- [x] **SSRF Protection for Web Tools** — Implemented in `security/ssrf.py` with SSRFValidator + SSRFTransport (TOCTOU-safe). Applied to `web_reader.py`, `web_analyzer.py`, and `browser_testing.py`.
+- [x] **Encrypt oauth_tokens.py Token Storage** — Both `oauth_tokens.py` and `token_store.py` use Fernet encryption with auto-generated keys and 0o600 file permissions.
+- [x] **Fix Directory Permissions** — Storage classes (`token_store.py`, `memory_store.py`, `session.py`) and `config.py` all set 0o700 on sensitive directories.
 
 ### Medium Priority
 

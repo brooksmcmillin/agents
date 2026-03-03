@@ -47,6 +47,7 @@ enforces egress allowlists at the infrastructure level, independent of
 application-level checks.
 """
 
+import asyncio
 import ipaddress
 import socket
 import ssl
@@ -328,11 +329,12 @@ class _SSRFValidatingBackend(httpcore.AsyncNetworkBackend):
                 policy or if DNS resolution fails.
         """
         # Resolve DNS at connect time (fetch time).
-        # socket.getaddrinfo is called in a thread executor to avoid blocking
-        # the event loop; this is safe because it is the last sync DNS call
-        # before the connect.
+        # Run socket.getaddrinfo in a thread executor to avoid blocking
+        # the async event loop (DNS can stall for several seconds on
+        # slow or unresponsive resolvers).
+        loop = asyncio.get_running_loop()
         try:
-            addr_info = socket.getaddrinfo(host, port)
+            addr_info = await loop.run_in_executor(None, socket.getaddrinfo, host, port)
         except socket.gaierror as exc:
             raise httpcore.ConnectError(
                 f"SSRF transport: DNS resolution failed for {host!r}: {exc}"

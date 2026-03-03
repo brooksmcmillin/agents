@@ -231,12 +231,18 @@ class Settings(BaseSettings):
     def __init__(self, **kwargs) -> None:
         """Initialize settings and create necessary directories."""
         super().__init__(**kwargs)
-        # Ensure storage directories exist
-        self.token_storage_path.mkdir(parents=True, exist_ok=True)
+        # Ensure storage directories exist with restrictive permissions.
+        # The storage classes (TokenStore, MemoryStore) also enforce 0o700 on
+        # init, but setting it here closes the race-condition window between
+        # directory creation and first use.
+        self.token_storage_path.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.token_storage_path.chmod(0o700)
         # Only create memory_storage_path if using file backend
         if os.environ.get("MEMORY_BACKEND", "file").lower() == "file":
-            self.memory_storage_path.mkdir(parents=True, exist_ok=True)
-        self.log_dir.mkdir(parents=True, exist_ok=True)
+            self.memory_storage_path.mkdir(parents=True, exist_ok=True, mode=0o700)
+            self.memory_storage_path.chmod(0o700)
+        self.log_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.log_dir.chmod(0o700)
 
     def get_log_file(self, component_name: str = "agent") -> Path:
         """Get a log file path for a specific component.
