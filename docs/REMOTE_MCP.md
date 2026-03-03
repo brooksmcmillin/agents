@@ -167,7 +167,7 @@ server.register_tool(
 
 # 2. Run with HTTP transport
 # Start server on port 8080
-uvicorn mcp_server.server_http:server --host 0.0.0.0 --port 8080
+uv run python -m mcp_server.server
 ```
 
 #### Option 2: Using Existing MCP Server
