@@ -15,6 +15,7 @@ NTFY_URL="https://ntfy.brooksmcmillin.com/mcp-alerts"
 AGENTS_DIR="${HOME}/.claude/agents"
 HOSTNAME="$(hostname 2>/dev/null || cat /etc/hostname 2>/dev/null || echo 'unknown')"
 TODAY=$(date +%Y-%m-%d)
+NOW_TIME=$(date +%H:%M)
 
 # Load NTFY_TOKEN from .env if not already set (co-located with the script)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -263,8 +264,8 @@ WIKI_ROOT_SLUG="automation-log"
 WIKI_ROOT_TITLE="Automation Log"
 WIKI_CAT_SLUG="${CATEGORY_SLUG}"
 WIKI_CAT_TITLE="${CATEGORY}"
-WIKI_DATE_SLUG="${CATEGORY_SLUG}-${TODAY}"
-WIKI_DATE_TITLE="${CATEGORY} (${TODAY})"
+WIKI_DATE_SLUG="${CATEGORY_SLUG}-${TODAY}-${NOW_TIME//:}"
+WIKI_DATE_TITLE="${CATEGORY} (${TODAY} ${NOW_TIME})"
 
 # --- Set up worktree from latest default branch ---
 if ! git -C "$TARGET_DIR" rev-parse --is-inside-work-tree &>/dev/null; then
