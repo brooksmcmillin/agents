@@ -1,0 +1,18 @@
+[Unit]
+Description=Sprint-or-Review - automated sprint/code-review cycle
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=brooks
+WorkingDirectory=/home/brooks/build/agents
+ExecStart=/home/brooks/build/agents/bin/sprint-or-review /home/brooks/build/agents -c "Code Quality"
+EnvironmentFile=/home/brooks/build/agents/.env
+Environment=PATH=/home/brooks/.local/bin:/usr/local/bin:/usr/bin:/bin
+TimeoutStartSec=3600
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

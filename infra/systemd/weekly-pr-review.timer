@@ -1,0 +1,9 @@
+[Unit]
+Description=Run weekly-pr-review every Monday at 9:05am
+
+[Timer]
+OnCalendar=Mon *-*-* 09:05:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
