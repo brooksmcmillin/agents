@@ -10,7 +10,7 @@ A multi-agent system built with Claude (Anthropic SDK) and Model Context Protoco
 
 This project demonstrates production-ready patterns for building LLM-powered agents with external tool integrations. It includes:
 
-- **Multiple Agents** - 8 interactive CLI agents (chatbot, PR, security, business, tasks, code analysis, events, red team) and 6 standalone services (code reviewer, email intake, notifier, orchestrator, PR shepherd, task queue)
+- **Multiple Agents** - 13 interactive CLI agents (chatbot, PR, security, business, tasks, code analysis, events, red team, log analysis, security audit, sysadmin, web analysis, website tester) and 6 standalone services (code reviewer, email intake, notifier, orchestrator, PR shepherd, task queue)
 - **Web UI** - Modern React interface for chatting with agents via persistent conversations
 - **Shared MCP Tools** - 53 tools including web analysis, memory, RAG document search, email management, HTTP client, filesystem, Claude Code, and communication
 - **Hot Reload** - Edit tools without restarting agents
@@ -152,6 +152,11 @@ Run via `uv run bin/run-agent <name>`. These are registered in `shared/registry.
 | **Code Analysis** | `code-analysis` | Repository review for security, logic, performance | [docs](agents/code_analysis/README.md) |
 | **Events** | `events` | Local events discovery with preference learning | [docs](agents/events/README.md) |
 | **Red Team** | `red-team` | Authorized penetration testing via HTTP tools | [docs](agents/red_team/README.md) |
+| **Log Analysis** | `log-analysis` | Log file investigation with automatic pinning of critical findings | [docs](agents/log_analysis/README.md) |
+| **Security Audit** | `security-audit` | Analyzes JSON security audit reports from the non-LLM collector | [docs](agents/security_audit/README.md) |
+| **Sysadmin** | `sysadmin` | Network discovery, port scanning, and system security assessment | [docs](agents/system_admin/README.md) |
+| **Web Analysis** | `web-analysis` | Website auditing with automatic task creation for issues found | [docs](agents/web_analysis/README.md) |
+| **Website Tester** | `website-tester` | Automated website auditing with headless Playwright browser | [docs](agents/website_tester/README.md) |
 
 ### Standalone Services
 
@@ -167,7 +172,7 @@ Run directly — these are not in the agent registry and don't use `bin/run-agen
 
 ### REST API Server
 
-HTTP/REST interface for accessing all 8 interactive agents:
+HTTP/REST interface for accessing all 13 interactive agents:
 - Stateless single-shot requests and stateful multi-turn sessions
 - Automatic session management with TTL
 - Token usage tracking per request
@@ -179,7 +184,7 @@ HTTP/REST interface for accessing all 8 interactive agents:
 A modern React web interface for interacting with agents via persistent conversations.
 
 **Features:**
-- Choose from 8 interactive agents (chatbot, PR, tasks, security, business, code analysis, events, red team)
+- Choose from 13 interactive agents (chatbot, PR, tasks, security, business, code analysis, events, red team, log analysis, security audit, sysadmin, web analysis, website tester)
 - Database-backed conversations that survive server restarts
 - Create, rename, delete, and switch between conversations
 - Real-time chat with token usage tracking
@@ -276,6 +281,11 @@ agents/                    # Agent implementations
 ├── code_analysis/         # Repository analysis (interactive)
 ├── events/                # Local events discovery (interactive)
 ├── red_team/              # Penetration testing (interactive)
+├── log_analysis/          # Log file investigation (interactive)
+├── security_audit/        # Security audit report analysis (interactive)
+├── system_admin/          # Network and system security assessment (interactive)
+├── web_analysis/          # Website auditing with task creation (interactive)
+├── website_tester/        # Automated website testing (interactive)
 ├── email_intake/          # Email inbox monitor (standalone)
 ├── notifier/              # Slack notifications (standalone)
 ├── orchestrator/          # Task decomposition + workers (standalone)
@@ -355,7 +365,7 @@ See [CLAUDE.md](CLAUDE.md#adding-new-agents) for detailed instructions.
 
 **Working Now:**
 - Full agentic loop with Claude Sonnet 4.6
-- 8 interactive agents + 6 standalone services
+- 13 interactive agents + 6 standalone services
 - 53 MCP tools (web, memory, RAG, email, HTTP client, filesystem, Claude Code, communication)
 - Real web scraping and content analysis
 - RAG document search with semantic similarity

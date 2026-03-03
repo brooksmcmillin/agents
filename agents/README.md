@@ -55,6 +55,55 @@ Interactive task management assistant that connects to remote MCP server for tas
 
 ---
 
+### Log Analysis (`log_analysis/`)
+Log file investigation agent that reads application and system logs, automatically pinning tool results containing critical findings (errors, exceptions, stack traces, security events) so they survive context trimming during long investigations.
+
+**Use for**: Error diagnosis, performance analysis, security event detection, incident investigation
+
+**Run:** `uv run bin/run-agent log-analysis` | **[Documentation](log_analysis/README.md)**
+
+---
+
+### Security Audit (`security_audit/`)
+Security audit analyzer that reads structured JSON reports produced by the non-LLM security audit collector. Provides prioritized findings, actionable remediation steps, and trend analysis across multiple audits.
+
+**Use for**: Analyzing system security audit reports, tracking remediation progress, cross-host comparison
+
+**Run:** `uv run bin/run-agent security-audit` | **[Documentation](security_audit/README.md)**
+
+---
+
+### System Admin (`system_admin/`)
+Network and system security assessment agent with tools for host discovery, port scanning, TLS inspection, SSH config auditing, and default credential detection.
+
+**Requirements**: Set `SYSADMIN_ALLOWED_SUBNETS` in `.env` to enable network scans
+
+**Use for**: Network mapping, host hardening, default credential sweeps, security reporting
+
+**Run:** `uv run bin/run-agent sysadmin` | **[Documentation](system_admin/README.md)**
+
+---
+
+### Web Analysis (`web_analysis/`)
+Website auditing agent that crawls sites with a headless Chromium browser and creates tracked tasks in TaskManager for every significant finding (accessibility, performance, broken links, JavaScript errors, SEO).
+
+**Use for**: Automated site audits with tracked remediation tasks, CI-integrated quality checks
+
+**Requirements**: Remote MCP server for task creation (configured via `MCP_SERVER_URL`)
+
+**Run:** `uv run bin/run-agent web-analysis` | **[Documentation](web_analysis/README.md)**
+
+---
+
+### Website Tester (`website_tester/`)
+Automated website quality analyst using a headless Chromium browser (Playwright) to audit sites for accessibility, performance, broken links, JavaScript errors, and SEO issues.
+
+**Use for**: Automated site audits, accessibility testing, performance benchmarking, broken link detection
+
+**Run:** `uv run bin/run-agent website-tester` | **[Documentation](website_tester/README.md)**
+
+---
+
 ### REST API Server (`api/`)
 HTTP/REST interface providing stateless and stateful access to agents via API endpoints.
 
