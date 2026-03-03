@@ -82,7 +82,7 @@ def build_agent_registry() -> dict[str, AgentEntry]:
     from agents.system_admin.main import SystemAdminAgent
     from agents.task_manager.main import TaskManagerAgent
     from agents.website_tester.main import WebsiteTesterAgent
-    from shared.delegation import setup_delegation
+    from shared.delegation import seed_registry_cache, setup_delegation
 
     mcp_task_config: dict[str, Any] = {
         "mcp_urls": [os.getenv(ENV_MCP_SERVER_URL, DEFAULT_MCP_SERVER_URL)],
@@ -108,7 +108,7 @@ def build_agent_registry() -> dict[str, AgentEntry]:
     # Configure the Agent base class for delegation support
     setup_delegation()
 
-    return {
+    registry = {
         "chatbot": (
             ChatbotAgent,
             {**mcp_relay_config, **delegation_config},
@@ -170,3 +170,9 @@ def build_agent_registry() -> dict[str, AgentEntry]:
             "Automated website testing with headless Playwright browser",
         ),
     }
+
+    # Seed the delegation module's cache so the first delegation call
+    # doesn't trigger another build_agent_registry() call
+    seed_registry_cache(registry)
+
+    return registry

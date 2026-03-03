@@ -18,6 +18,7 @@ Architecture:
       intersection semantics.
 """
 
+import asyncio
 import logging
 from typing import Any
 
@@ -25,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 MAX_DELEGATION_DEPTH = 3
 DELEGATION_TOOL_NAME = "request_agent"
+DELEGATION_TIMEOUT_SECONDS = 120
 
 # Module-level registry cache to avoid rebuilding on every delegation call
 _registry_cache: dict[str, Any] | None = None
@@ -40,10 +42,10 @@ def _get_registry() -> dict[str, Any]:
     return _registry_cache
 
 
-def invalidate_registry_cache() -> None:
-    """Clear the cached registry (call after registry changes)."""
+def seed_registry_cache(registry: dict[str, Any]) -> None:
+    """Pre-populate the registry cache (called by build_agent_registry)."""
     global _registry_cache
-    _registry_cache = None
+    _registry_cache = registry
 
 
 def build_delegation_tool_schema(exclude_class_name: str | None = None) -> dict[str, Any]:
@@ -132,9 +134,8 @@ async def handle_delegation(
     agent_class, kwargs, description = entry
 
     # Prevent self-delegation
-    for name, (cls, _, _) in registry.items():
-        if type(calling_agent) is cls and name == agent_name:
-            return {"error": f"Cannot delegate to yourself ('{agent_name}')"}
+    if type(calling_agent) is agent_class:
+        return {"error": f"Cannot delegate to yourself ('{agent_name}')"}
 
     # Check delegation depth and cycles
     context = calling_agent.get_execution_context()
@@ -203,15 +204,23 @@ async def handle_delegation(
     )
 
     try:
-        response = await target_agent.process_message(
-            message,
-            execution_context=delegated_context,
+        response = await asyncio.wait_for(
+            target_agent.process_message(
+                message,
+                execution_context=delegated_context,
+            ),
+            timeout=DELEGATION_TIMEOUT_SECONDS,
         )
         return {
             "agent": agent_name,
             "agent_description": description,
             "response": response,
         }
+    except TimeoutError:
+        logger.error(
+            f"Agent '{agent_name}' timed out during delegation after {DELEGATION_TIMEOUT_SECONDS}s"
+        )
+        return {"error": f"Agent '{agent_name}' timed out."}
     except Exception as e:
         logger.error(f"Agent '{agent_name}' failed during delegation: {e}")
         return {"error": f"Agent '{agent_name}' encountered an error during processing."}
