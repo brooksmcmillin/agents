@@ -937,10 +937,7 @@ class Agent(ABC):
 
                 def _show_tool_status(tool_name: str) -> None:
                     nonlocal first_token
-                    if not first_token:
-                        sys.stdout.write("\n")
-                    else:
-                        sys.stdout.write("\n")
+                    sys.stdout.write("\n")
                     sys.stdout.write(f"  [calling {tool_name}...]\n")
                     sys.stdout.flush()
                     first_token = True  # reset so next text chunk prints "Assistant: "
