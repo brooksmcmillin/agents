@@ -75,7 +75,7 @@ Agent: [maps all internal pages, reports site structure]
 ANTHROPIC_API_KEY=sk-ant-...
 
 # Required for task creation
-MCP_SERVER_URL=https://mcp.brooksmcmillin.com/mcp
+MCP_SERVER_URL=https://your-mcp-server.example.com/mcp
 
 # Playwright requires a Chromium installation:
 # uv run playwright install chromium
