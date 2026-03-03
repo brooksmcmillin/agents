@@ -36,7 +36,11 @@ export function ChatInput({
     toggleListening();
   }, [isListening, message, toggleListening]);
 
-  // Show interim transcript as live preview
+  // Show interim transcript as live preview.
+  // Note: manual typing during active listening will be overwritten by the next
+  // interim update since we reconstruct from voiceBaseRef. This is an intentional
+  // trade-off — distinguishing programmatic vs user edits would add significant
+  // complexity for a rare usage pattern (typing while simultaneously dictating).
   useEffect(() => {
     if (isListening && interimTranscript) {
       const base = voiceBaseRef.current.trim();
