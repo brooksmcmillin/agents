@@ -19,6 +19,7 @@ JMAP_CAPABILITIES = {
     "core": "urn:ietf:params:jmap:core",
     "mail": "urn:ietf:params:jmap:mail",
     "submission": "urn:ietf:params:jmap:submission",
+    "calendars": "urn:ietf:params:jmap:calendars",
 }
 
 
@@ -77,6 +78,10 @@ class JMAPClient:
 
         if not self._account_id or not self._api_url:
             raise ValueError("Could not determine FastMail account or API URL from session")
+
+        # Defense-in-depth: verify API URL is on the expected FastMail domain
+        if not self._api_url.startswith("https://api.fastmail.com/"):
+            raise ValueError("JMAP session returned unexpected API URL domain")
 
         logger.info(f"JMAP session established for account: {self._account_id}")
 

@@ -1,6 +1,6 @@
 # MCP Tools Reference
 
-The MCP server exposes **53 tools** across 13 categories (defined in `packages/agent-framework/agent_framework/tools/`).
+The MCP server exposes **55 tools** across 14 categories (defined in `packages/agent-framework/agent_framework/tools/`).
 
 ## Web Analysis Tools (2 tools)
 - `fetch_web_content` - Fetch web content as clean markdown for LLM reading and analysis
@@ -34,6 +34,11 @@ The MCP server exposes **53 tools** across 13 categories (defined in `packages/a
 - `move_email` - Move email to different mailbox
 - `update_email_flags` - Update email flags (seen, flagged)
 - `delete_email` - Delete an email
+
+## FastMail Calendar Tools (2 tools)
+*Requires FastMail API token (same as email tools)*
+- `list_calendars` - List all calendars (name, color, visibility)
+- `get_calendar_events` - Query events by date range with optional calendar/title filters
 
 ## Communication Tools (1 tool)
 - `send_slack_message` - Send Slack notification via webhook

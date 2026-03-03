@@ -1,11 +1,14 @@
-"""FastMail JMAP email tools.
+"""FastMail JMAP email and calendar tools.
 
-This package provides email functionality using FastMail's JMAP API.
-Supports reading, searching, sending, and organizing emails.
+This package provides email and calendar functionality using FastMail's JMAP API.
+Supports reading, searching, sending, and organizing emails, plus calendar queries.
 
 FastMail uses the JMAP (JSON Meta Application Protocol) standard (RFC 8620, RFC 8621).
 API documentation: https://www.fastmail.com/dev/
 """
+
+# Calendar operations
+from .calendar import get_calendar_events, list_calendars
 
 # Client and constants
 from .client import JMAP_CAPABILITIES, JMAP_SESSION_URL, JMAPClient, _get_client
@@ -52,7 +55,7 @@ __all__ = [
     "_validate_email_list",
     "_is_recipient_allowed",
     "_sanitize_html",
-    # Public tool functions
+    # Public tool functions - Email
     "list_mailboxes",
     "get_emails",
     "get_email",
@@ -62,6 +65,9 @@ __all__ = [
     "move_email",
     "update_email_flags",
     "delete_email",
+    # Public tool functions - Calendar
+    "list_calendars",
+    "get_calendar_events",
     # Schemas
     "TOOL_SCHEMAS",
 ]

@@ -67,6 +67,11 @@ TOOL_PERMISSIONS: dict[str, set[Permission]] = {
     "update_email_flags": {Permission.WRITE},
     "delete_email": {Permission.DELETE},
     # =========================================================================
+    # FastMail Calendar Tools - READ only (query calendars and events)
+    # =========================================================================
+    "list_calendars": {Permission.READ},
+    "get_calendar_events": {Permission.READ},
+    # =========================================================================
     # Communication Tools - SEND required
     # =========================================================================
     "send_slack_message": {Permission.SEND},
@@ -284,6 +289,7 @@ def get_tool_permissions_by_category() -> dict[str, dict[str, set[Permission]]]:
         "memory": {},
         "rag": {},
         "email": {},
+        "calendar": {},
         "communication": {},
         "social_media": {},
         "content": {},
@@ -319,6 +325,10 @@ def get_tool_permissions_by_category() -> dict[str, dict[str, set[Permission]]]:
             "move_email",
             "update_email_flags",
             "delete_email",
+        ],
+        "calendar": [
+            "list_calendars",
+            "get_calendar_events",
         ],
         "communication": ["send_slack"],
         "social_media": ["get_social_media"],

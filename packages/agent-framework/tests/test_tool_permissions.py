@@ -107,6 +107,8 @@ class TestToolPermissionMappings:
             "search_emails",
             "get_social_media_stats",
             "suggest_content_topics",
+            "list_calendars",
+            "get_calendar_events",
             "list_claude_code_workspaces",
             "get_claude_code_workspace_status",
         ]
@@ -315,6 +317,7 @@ class TestGetToolPermissionsByCategory:
             "memory",
             "rag",
             "email",
+            "calendar",
             "communication",
             "social_media",
             "content",

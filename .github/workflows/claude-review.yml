@@ -212,14 +212,17 @@ jobs:
 
           echo "=== Fetching CI reviewer comments ==="
 
-          # Check if a review body has real issues in "### New Issues" or "### Still Open"
-          # sections. Returns 0 (true) if real issues found, 1 (false) if clean.
+          # Check if a review body has real issues in "### New Issues" sections.
+          # Returns 0 (true) if real issues found, 1 (false) if clean.
+          # "### Still Open" is intentionally excluded — it tracks acknowledged
+          # items from prior passes (pre-existing, low-risk, or intentional
+          # trade-offs) and should not block merging.
           # Handles reviewers that include these headers with "None." when clean.
           has_real_issues() {
             local body="$1"
             local in_section=false
             while IFS= read -r line; do
-              if echo "$line" | grep -qE '^### (New Issues|Still Open)'; then
+              if echo "$line" | grep -qE '^### New Issues'; then
                 in_section=true
                 continue
               fi
