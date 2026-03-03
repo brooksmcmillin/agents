@@ -65,7 +65,7 @@ User Input -> Agent (agents/*/main.py) -> Claude API -> agent-framework (MCP Cli
 
 **MANDATORY RULES:**
 1. **Subclass `Agent`** from `agent_framework`, or use `create_simple_agent()` from `shared/agent_factory.py`
-2. **Register in `bin/run-agent`** in the `AGENTS` dict
+2. **Register in `shared/registry.py`** inside `build_agent_registry()`
 3. **Export agent class** from `main.py` at module level
 
 **Steps:**
@@ -86,11 +86,15 @@ User Input -> Agent (agents/*/main.py) -> Claude API -> agent-framework (MCP Cli
        greeting=USER_GREETING_PROMPT, allowed_tools=["fetch_web_content"],
    )
    ```
-3. Register in `bin/run-agent`:
+3. Register in `shared/registry.py` inside `build_agent_registry()`:
    ```python
    from agents.your_agent.main import YourAgent
-   AGENTS = { ..., "your-agent": (YourAgent, None), }
+   return {
+       ...,
+       "your-agent": (YourAgent, None, "Short description of your agent"),
+   }
    ```
+   Each entry is a 3-tuple: `(AgentClass, kwargs_or_None, "description")`.
 
 ## Development Workflow
 
