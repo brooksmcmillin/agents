@@ -96,6 +96,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
 
     setError(null);
     setTranscript('');
+    setInterimTranscript('');
 
     const recognition = new SpeechRecognition();
     recognition.continuous = continuous;
