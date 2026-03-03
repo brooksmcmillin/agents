@@ -1,0 +1,351 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Web Analysis: Audit a website and create TaskManager tasks for issues found.
+# Uses the web-analysis agent in one-off mode via run-agent.
+#
+# Usage:
+#   web-analysis https://example.com -c "Website QA"
+#
+# Designed for cron. Sends ntfy alerts on failure.
+
+SCRIPT_NAME="web-analysis"
+CREDENTIALS_FILE="${HOME}/.claude/.credentials.json"
+NTFY_URL="https://ntfy.brooksmcmillin.com/mcp-alerts"
+HOSTNAME="$(hostname 2>/dev/null || cat /etc/hostname 2>/dev/null || echo 'unknown')"
+TODAY=$(date +%Y-%m-%d)
+NOW_TIME=$(date +%H:%M)
+
+# Load NTFY_TOKEN from .env if not already set
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+PROJECT_ENV="${PROJECT_DIR}/.env"
+if [[ -z "${NTFY_TOKEN:-}" && -f "$PROJECT_ENV" ]]; then
+  NTFY_TOKEN=$(grep -m1 '^NTFY_TOKEN=' "$PROJECT_ENV" | cut -d= -f2-)
+fi
+
+# --- Alert helper: send push notification on failure ---
+send_alert() {
+  local title="$1" message="$2" priority="${3:-high}"
+  if [[ -z "${NTFY_TOKEN:-}" ]]; then
+    echo "Warning: NTFY_TOKEN not set, cannot send alert: $title" >&2
+    return 0
+  fi
+  curl -sf --max-time 10 \
+    -H "Authorization: Bearer ${NTFY_TOKEN}" \
+    -H "Title: $title" \
+    -H "Priority: $priority" \
+    -H "Tags: warning" \
+    -d "$message" \
+    "$NTFY_URL" >/dev/null 2>&1 || echo "Warning: failed to send ntfy alert" >&2
+}
+
+usage() {
+  cat <<'EOF'
+Usage: web-analysis <url> [options]
+
+Audit a website and create TaskManager tasks for issues found.
+Uses the web-analysis agent with headless Playwright browser.
+
+Options:
+  -c, --category NAME   TaskManager project/category (required)
+  -d, --dry-run         Print command without running
+  -h, --help            Show this help
+
+Examples:
+  web-analysis https://example.com -c "Website QA"
+  web-analysis https://mysite.com -c "Accessibility" --dry-run
+EOF
+  exit 0
+}
+
+# --- Preflight: verify required commands ---
+check_prerequisites() {
+  local missing=()
+  for cmd in python3 curl uv; do
+    if ! command -v "$cmd" &>/dev/null; then
+      missing+=("$cmd")
+    fi
+  done
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    local msg="Missing required commands: ${missing[*]}"
+    send_alert "$SCRIPT_NAME: Missing Dependencies [$HOSTNAME]" "$msg"
+    echo "Error: $msg" >&2
+    exit 1
+  fi
+}
+
+# --- Preflight: verify TaskManager MCP OAuth token ---
+check_mcp_token() {
+  if [[ ! -f "$CREDENTIALS_FILE" ]]; then
+    send_alert "$SCRIPT_NAME: Credentials Missing [$HOSTNAME]" \
+      "Credentials file not found at $CREDENTIALS_FILE on $HOSTNAME."
+    echo "Error: credentials file not found at $CREDENTIALS_FILE" >&2
+    return 1
+  fi
+
+  local token_info
+  token_info=$(python3 - "$CREDENTIALS_FILE" <<'PYEOF'
+import json, sys
+creds = json.load(open(sys.argv[1]))
+for key, val in creds.get("mcpOAuth", {}).items():
+    if val.get("serverName") == "taskmanager":
+        print(val.get("accessToken", ""))
+        print(val.get("expiresAt", "0"))
+        sys.exit(0)
+sys.exit(1)
+PYEOF
+  ) || {
+    send_alert "$SCRIPT_NAME: No Token [$HOSTNAME]" \
+      "No taskmanager OAuth token found in credentials on $HOSTNAME. Run mcp-device-auth.sh."
+    echo "Error: no taskmanager token in credentials" >&2
+    return 1
+  }
+
+  local access_token expires_at now_ms buffer_ms
+  access_token=$(echo "$token_info" | sed -n '1p')
+  expires_at=$(echo "$token_info" | sed -n '2p')
+  now_ms=$(($(date +%s) * 1000))
+
+  if [[ -z "$access_token" ]]; then
+    send_alert "$SCRIPT_NAME: Empty Token [$HOSTNAME]" \
+      "TaskManager access token is empty on $HOSTNAME. Re-authenticate."
+    echo "Error: taskmanager access token is empty" >&2
+    return 1
+  fi
+
+  buffer_ms=$((5 * 60 * 1000))
+  if (( now_ms + buffer_ms > expires_at )); then
+    send_alert "$SCRIPT_NAME: Token Expired [$HOSTNAME]" \
+      "TaskManager OAuth token expired or expiring within 5 min on $HOSTNAME. Re-authenticate at https://mcp-auth.brooksmcmillin.com/" "urgent"
+    echo "Error: taskmanager OAuth token is expired or expiring within 5 minutes" >&2
+    return 1
+  fi
+
+  # Validate token against introspection endpoint
+  local introspect_result active
+  introspect_result=$(printf 'token=%s' "$access_token" | \
+    curl -sf --max-time 10 \
+    -X POST "https://mcp-auth.brooksmcmillin.com/introspect" \
+    --data-binary @- 2>/dev/null) || {
+    echo "Warning: could not reach introspection endpoint, trusting local expiry" >&2
+    return 0
+  }
+
+  active=$(echo "$introspect_result" | python3 -c "import json,sys; print(json.load(sys.stdin).get('active', False))" 2>/dev/null)
+  if [[ "$active" != "True" ]]; then
+    send_alert "$SCRIPT_NAME: Token Revoked [$HOSTNAME]" \
+      "TaskManager OAuth token is revoked or invalid on $HOSTNAME (introspection: active=false). Re-authenticate." "urgent"
+    echo "Error: taskmanager OAuth token is revoked or invalid" >&2
+    return 1
+  fi
+
+  return 0
+}
+
+# --- Parse args ---
+[[ $# -eq 0 ]] && usage
+[[ "$1" == "-h" || "$1" == "--help" ]] && usage
+
+TARGET_URL="$1"; shift
+
+CATEGORY=""
+DRY_RUN=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -c|--category)  CATEGORY="$2"; shift 2 ;;
+    -d|--dry-run)   DRY_RUN=true; shift ;;
+    -h|--help)      usage ;;
+    *)              echo "Unknown option: $1" >&2; usage ;;
+  esac
+done
+
+if [[ -z "$CATEGORY" ]]; then
+  echo "Error: --category is required" >&2
+  exit 1
+fi
+
+# Validate URL format (basic check)
+if ! [[ "$TARGET_URL" =~ ^https?:// ]]; then
+  echo "Error: URL must start with http:// or https://, got '$TARGET_URL'" >&2
+  exit 1
+fi
+
+# --- Preflight checks ---
+check_prerequisites
+
+if ! $DRY_RUN; then
+  if ! check_mcp_token; then
+    exit 1
+  fi
+fi
+
+# --- Build one-off message ---
+CATEGORY_SLUG=$(echo "$CATEGORY" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/--*/-/g; s/^-//; s/-$//')
+
+# Wiki page hierarchy: automation-log / <category> / <date>
+WIKI_ROOT_SLUG="automation-log"
+WIKI_ROOT_TITLE="Automation Log"
+WIKI_CAT_SLUG="${CATEGORY_SLUG}"
+WIKI_CAT_TITLE="${CATEGORY}"
+WIKI_DATE_SLUG="web-analysis-${CATEGORY_SLUG}-${TODAY}-${NOW_TIME//:}"
+WIKI_DATE_TITLE="Web Analysis: ${CATEGORY} (${TODAY} ${NOW_TIME})"
+
+read -r -d '' MESSAGE <<MSG_EOF || true
+Perform a full website audit of ${TARGET_URL}.
+
+## Instructions
+
+1. **Crawl** the site to discover all pages
+2. **Audit each important page** for:
+   - Accessibility (WCAG 2.1)
+   - Performance (Core Web Vitals)
+   - Broken links
+   - JavaScript errors
+   - SEO and content quality
+3. **Check for duplicate tasks** — search TaskManager for existing issues related to this site before creating new ones
+4. **Create tasks** for every significant finding:
+   - Category: ${CATEGORY}
+   - Use appropriate priority (critical 9-10, high 7-8, medium 5-6, low 1-4)
+   - Tag by issue type: accessibility, performance, seo, broken-links, javascript-errors, content-quality
+   - Include the specific URL, what's wrong, and suggested fix in each task description
+5. **Output a summary** with:
+   - Executive summary of site health
+   - Table of all tasks created (ID, title, priority, tags)
+   - Top recommendations
+
+Be thorough but avoid creating duplicate tasks for issues that already exist in TaskManager.
+MSG_EOF
+
+CMD=(uv run python bin/run-agent web-analysis "$MESSAGE" -q --skip-failed-mcp)
+
+if $DRY_RUN; then
+  echo "Would run:"
+  echo ""
+  echo "Wiki slug:  ${WIKI_ROOT_SLUG}/${WIKI_CAT_SLUG}/${WIKI_DATE_SLUG}"
+  echo "Wiki title: ${WIKI_DATE_TITLE}"
+  echo ""
+  printf "  %q" "${CMD[@]}"
+  echo ""
+  exit 0
+fi
+
+echo "$(date -Iseconds) Starting $SCRIPT_NAME: url=${TARGET_URL}, category=${CATEGORY}"
+
+# --- Run the agent ---
+cd "$PROJECT_DIR"
+
+EXIT_CODE=0
+CAPTURED_OUTPUT=$("${CMD[@]}" 2>&1) || EXIT_CODE=$?
+
+if [[ $EXIT_CODE -ne 0 ]]; then
+  send_alert "$SCRIPT_NAME: Agent Failed [$HOSTNAME]" \
+    "web-analysis agent exited with code $EXIT_CODE for URL '${TARGET_URL}', category '${CATEGORY}' on $HOSTNAME. Check logs."
+  echo "$(date -Iseconds) Error: agent exited with code $EXIT_CODE" >&2
+fi
+
+# --- Create wiki page from captured output ---
+if [[ -z "$CAPTURED_OUTPUT" ]]; then
+  send_alert "$SCRIPT_NAME: No Output [$HOSTNAME]" \
+    "No output captured from web-analysis agent for URL '${TARGET_URL}' on $HOSTNAME. Wiki page not created."
+  echo "$(date -Iseconds) Warning: no output captured, skipping wiki page creation" >&2
+else
+  echo "$(date -Iseconds) Creating wiki page: ${WIKI_ROOT_SLUG}/${WIKI_CAT_SLUG}/${WIKI_DATE_SLUG}"
+
+  # Sanitize captured output: strip any line that matches the heredoc delimiter
+  CAPTURED_OUTPUT=$(echo "$CAPTURED_OUTPUT" | grep -vxF '_WIKI_PROMPT_END_')
+
+  read -r -d '' WIKI_PROMPT <<_WIKI_PROMPT_END_ || true
+Create a hierarchical wiki page in TaskManager to log the results of a web analysis run.
+
+The page structure is: automation-log / <category> / <date>
+
+Follow these steps IN ORDER:
+
+### Step 1: Ensure the root page exists
+Look up the wiki page by slug using get_wiki_page with slug_or_id="${WIKI_ROOT_SLUG}".
+- If the page exists (returns page data), note its ID and move on.
+- If it does NOT exist (returns an error / not found), create it:
+  - title: "${WIKI_ROOT_TITLE}"
+  - slug: "${WIKI_ROOT_SLUG}"
+  - content: "Index of automated sprint and code review runs."
+- Note its page ID (from the get or create response).
+
+### Step 2: Ensure the category page exists
+Look up the wiki page by slug using get_wiki_page with slug_or_id="${WIKI_CAT_SLUG}".
+- If the page exists, note its ID and move on.
+- If it does NOT exist, create it:
+  - title: "${WIKI_CAT_TITLE}"
+  - slug: "${WIKI_CAT_SLUG}"
+  - parent_id: (the root page ID from step 1)
+  - content: "Automation logs for ${WIKI_CAT_TITLE}."
+- Note its page ID.
+
+### Step 3: Create or update the date page
+Look up the wiki page by slug using get_wiki_page with slug_or_id="${WIKI_DATE_SLUG}".
+- If it exists, update it with update_wiki_page.
+- If it does NOT exist, create it:
+  - title: "${WIKI_DATE_TITLE}"
+  - slug: "${WIKI_DATE_SLUG}"
+  - parent_id: (the category page ID from step 2)
+
+### Step 4: Page content
+Set the date page content based on the web analysis output below.
+
+Here is the raw output from the web analysis run:
+
+---
+${CAPTURED_OUTPUT}
+---
+
+Format the page content as clean markdown:
+
+# Web Analysis: ${CATEGORY} (${TODAY} ${NOW_TIME})
+
+**URL:** ${TARGET_URL}
+
+## Executive Summary
+(extract from output)
+
+## Issues Found
+
+| Task ID | Title | Priority | Tags |
+|---------|-------|----------|------|
+| [#ID](https://todo.brooksmcmillin.com/task/ID) | title | priority | tags |
+
+## Recommendations
+(extract from output)
+
+Extract the actual data from the output above and fill in the tables. Do not use placeholder values.
+_WIKI_PROMPT_END_
+
+  WIKI_TOOLS=(
+    "mcp__taskmanager__get_wiki_page"
+    "mcp__taskmanager__create_wiki_page"
+    "mcp__taskmanager__update_wiki_page"
+  )
+
+  WIKI_EXIT=0
+  WIKI_ERR=$(mktemp "${TMPDIR:-/tmp}/${SCRIPT_NAME}-wiki-err.XXXXXX")
+  claude -p "$WIKI_PROMPT" --model claude-haiku-4-5-20251001 --allowedTools "${WIKI_TOOLS[@]}" >/dev/null 2>"$WIKI_ERR" || WIKI_EXIT=$?
+
+  if [[ $WIKI_EXIT -ne 0 ]]; then
+    send_alert "$SCRIPT_NAME: Wiki Page Failed [$HOSTNAME]" \
+      "Failed to create wiki page '${WIKI_ROOT_SLUG}/${WIKI_CAT_SLUG}/${WIKI_DATE_SLUG}' for URL '${TARGET_URL}' on $HOSTNAME. Analysis ran but results were not logged to wiki."
+    echo "$(date -Iseconds) Warning: wiki page creation failed (exit $WIKI_EXIT)" >&2
+    if [[ -s "$WIKI_ERR" ]]; then
+      echo "$(date -Iseconds) Wiki stderr (last 20 lines):" >&2
+      tail -20 "$WIKI_ERR" >&2
+    fi
+  else
+    echo "$(date -Iseconds) Wiki page created: ${WIKI_ROOT_SLUG}/${WIKI_CAT_SLUG}/${WIKI_DATE_SLUG}"
+  fi
+  rm -f "$WIKI_ERR"
+fi
+
+if [[ $EXIT_CODE -ne 0 ]]; then
+  exit $EXIT_CODE
+fi
+
+echo "$(date -Iseconds) $SCRIPT_NAME completed successfully"
