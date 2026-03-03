@@ -454,6 +454,17 @@ class TestGetCalendarEvents:
         assert "Invalid after date format" in result["message"]
 
     @pytest.mark.asyncio
+    async def test_get_events_invalid_before_date(self):
+        """Test local validation rejects bad before date format."""
+        result = await get_calendar_events(
+            after="2025-03-15T00:00:00",
+            before="not-a-date",
+        )
+
+        assert result["status"] == "error"
+        assert "Invalid before date format" in result["message"]
+
+    @pytest.mark.asyncio
     async def test_get_events_jmap_error(self):
         """Test JMAP error during event query."""
         mock_response = {

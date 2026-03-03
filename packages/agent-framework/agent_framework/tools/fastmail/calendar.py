@@ -31,7 +31,7 @@ def _format_event(event: dict[str, Any]) -> dict[str, Any]:
     # Extract participants list
     participants_raw = event.get("participants") or {}
     participants = []
-    for participant_id, participant in participants_raw.items():
+    for _, participant in participants_raw.items():
         participants.append(
             {
                 "name": participant.get("name", ""),
@@ -44,7 +44,7 @@ def _format_event(event: dict[str, Any]) -> dict[str, Any]:
     # Build locations list
     locations_raw = event.get("locations") or {}
     locations = []
-    for loc_id, loc in locations_raw.items():
+    for _, loc in locations_raw.items():
         name = loc.get("name", "")
         if name:
             locations.append(name)
