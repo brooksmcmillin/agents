@@ -317,7 +317,7 @@ See [docs/tools.md](docs/tools.md#adding-a-new-tool) for the complete guide on c
 2. Create `main.py` extending `Agent` class from `agent-framework`
 3. Create `prompts.py` with system prompt and greeting
 4. Create `__init__.py` with version info
-5. Register in `bin/run-agent` and run: `uv run bin/run-agent your-agent`
+5. Register in `shared/registry.py` inside `build_agent_registry()` as a 3-tuple `(AgentClass, kwargs_or_None, "description")` and run: `uv run bin/run-agent your-agent`
 
 All agents automatically have access to the shared MCP tools.
 
