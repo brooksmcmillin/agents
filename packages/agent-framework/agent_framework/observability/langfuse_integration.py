@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 _langfuse_client = None
 _instrumentor = None
 _initialized = False
+_last_trace_id: str | None = None
 
 
 def init_observability() -> bool:
@@ -134,6 +135,18 @@ def get_langfuse() -> Any:
     return _langfuse_client
 
 
+def get_last_trace_id() -> str | None:
+    """Get the trace ID of the most recently created Langfuse trace.
+
+    This is set when a TraceContext is entered and can be used to
+    attach scores or other metadata to traces after they complete.
+
+    Returns:
+        Trace ID string, or None if no trace has been created
+    """
+    return _last_trace_id
+
+
 class TraceContext:
     """Context manager for Langfuse traces using v3 SDK."""
 
@@ -174,6 +187,13 @@ class TraceContext:
 
             self._context_manager = _langfuse_client.start_as_current_observation(**obs_kwargs)
             self.observation = self._context_manager.__enter__()
+
+            # Store trace ID for external access (e.g., eval score attachment)
+            global _last_trace_id
+            if self.observation is not None:
+                _last_trace_id = getattr(self.observation, "trace_id", None) or getattr(
+                    self.observation, "id", None
+                )
         except Exception as e:
             logger.debug(f"Failed to create Langfuse observation: {e}")
 

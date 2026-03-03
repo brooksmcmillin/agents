@@ -109,17 +109,74 @@ def _create_agent(agent_name: str, variant: str | None = None):
     return agent
 
 
+# Registry names that don't match their module directory names
+_AGENT_MODULE_ALIASES: dict[str, str] = {
+    "business": "business_advisor",
+    "security": "security_researcher",
+    "sysadmin": "system_admin",
+    "tasks": "task_manager",
+    "pr": "pr_agent",
+}
+
+
 def _load_prompts_module(agent_name: str):
     """Try to import the prompts module for an agent."""
-    # Convert kebab-case to module path
-    module_name = agent_name.replace("-", "_")
+    module_name = _AGENT_MODULE_ALIASES.get(agent_name, agent_name.replace("-", "_"))
     try:
         return importlib.import_module(f"agents.{module_name}.prompts")
     except (ImportError, ModuleNotFoundError):
         return None
 
 
-async def evaluate_case(agent, case: EvalCase, scorer: Scorer) -> EvalResult:
+def _get_langfuse_client():
+    """Get the Langfuse client if available, without requiring the package."""
+    try:
+        from agent_framework.observability import get_langfuse
+
+        return get_langfuse()
+    except Exception:
+        return None
+
+
+def _push_langfuse_score(result: EvalResult, variant: str, dataset_path: str) -> None:
+    """Push an eval score to Langfuse if available."""
+    langfuse = _get_langfuse_client()
+    if langfuse is None:
+        return
+
+    try:
+        from agent_framework.observability import get_last_trace_id
+
+        trace_id = get_last_trace_id()
+        if trace_id is None:
+            return
+
+        langfuse.score(
+            trace_id=trace_id,
+            name="eval_score",
+            value=result.score,
+            data_type="NUMERIC",
+            comment=json.dumps(
+                {
+                    "variant": variant,
+                    "dataset": dataset_path,
+                    "score_details": result.score_details,
+                    "tags": result.case.tags,
+                }
+            ),
+        )
+    except Exception as e:
+        logger.debug(f"Failed to push score to Langfuse: {e}")
+
+
+async def evaluate_case(
+    agent,
+    case: EvalCase,
+    scorer: Scorer,
+    run_id: str = "",
+    variant: str = "default",
+    dataset_path: str = "",
+) -> EvalResult:
     """Run a single evaluation case against an agent."""
     tools_called: list[str] = []
 
@@ -137,6 +194,8 @@ async def evaluate_case(agent, case: EvalCase, scorer: Scorer) -> EvalResult:
     try:
         response = await agent.process_message(
             case.input,
+            user_id="eval-runner",
+            session_id=f"eval-{run_id}" if run_id else None,
             on_tool_start=on_tool_start,
         )
     except Exception as e:
@@ -159,7 +218,7 @@ async def evaluate_case(agent, case: EvalCase, scorer: Scorer) -> EvalResult:
         score = score_val
         score_details = {scorer_name: score_val}
 
-    return EvalResult(
+    result = EvalResult(
         case=case,
         response=response,
         score=score,
@@ -170,6 +229,11 @@ async def evaluate_case(agent, case: EvalCase, scorer: Scorer) -> EvalResult:
         latency_ms=elapsed_ms,
         error=error,
     )
+
+    # Push score to Langfuse for dashboard visibility
+    _push_langfuse_score(result, variant, dataset_path)
+
+    return result
 
 
 async def run_evaluation(
@@ -218,13 +282,29 @@ async def run_evaluation(
         # Reset conversation history between test cases for isolation
         agent.messages.clear()
 
-        result = await evaluate_case(agent, case, scorer)
+        result = await evaluate_case(
+            agent,
+            case,
+            scorer,
+            run_id=run.run_id,
+            variant=variant,
+            dataset_path=str(path),
+        )
         run.results.append(result)
 
         status = "OK" if result.score >= 3 else "FAIL"
         print(f" -> {result.score}/5 [{status}]")
 
     run.completed_at = datetime.now(UTC).isoformat()
+
+    # Flush Langfuse to ensure all scores are sent
+    langfuse = _get_langfuse_client()
+    if langfuse is not None:
+        try:
+            langfuse.flush()
+        except Exception:
+            pass
+
     return run
 
 

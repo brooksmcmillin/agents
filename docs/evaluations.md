@@ -20,6 +20,10 @@ tests/evaluations/
 ├── models.py          # Data models (EvalCase, EvalResult, EvalRun)
 ├── datasets/          # JSONL test cases per agent
 │   ├── chatbot.jsonl
+│   ├── business.jsonl
+│   ├── security.jsonl
+│   ├── code-analysis.jsonl
+│   ├── log-analysis.jsonl
 │   └── README.md
 └── results/           # Stored eval run results (gitignored)
 ```
@@ -90,20 +94,39 @@ All scorers normalize to a 1-5 scale:
 
 ## A/B Testing Prompt Variants
 
-To compare prompt variants, define them in the agent's `prompts.py`:
+To compare prompt variants, define `PROMPT_VARIANTS` in the agent's `prompts.py`:
 
 ```python
-# agents/chatbot/prompts.py
+# agents/business_advisor/prompts.py
 
 SYSTEM_PROMPT = "..."  # Default prompt (variant "default")
 
 PROMPT_VARIANTS = {
-    "concise": "You are a concise assistant. Keep responses under 2 sentences...",
-    "detailed": "You are a detailed assistant. Provide thorough explanations...",
+    "concise": "...",         # Same guardrails, shorter response style
+    "no-guardrails": "...",   # Full prompt without guardrails section
 }
 ```
 
 The runner creates a temporary agent with the variant prompt and runs the same dataset against both variants. Results are compared side-by-side.
+
+### Example: Verifying guardrails work
+
+The business advisor has a `no-guardrails` variant that deliberately omits the guardrails section. Compare it against the default to verify guardrails are effective:
+
+```bash
+# Run A/B comparison on guardrail-tagged test cases
+uv run python -m tests.evaluations.runner --agent business \
+    --variant-a default --variant-b no-guardrails \
+    --tags guardrails
+
+# If both variants score the same on guardrail tests, the guardrails aren't working
+```
+
+### Agents with prompt variants
+
+| Agent | Variants | Purpose |
+|-------|----------|---------|
+| business | `concise`, `no-guardrails` | Test response brevity vs quality, verify guardrail effectiveness |
 
 ## Metrics Collected
 
@@ -117,12 +140,19 @@ Each evaluation run captures:
 
 ## Langfuse Integration
 
-When Langfuse is configured, eval runs are automatically tagged with:
-- `eval_run_id`: Unique identifier for the run
-- `eval_dataset`: Dataset file used
-- `eval_variant`: Prompt variant (if A/B testing)
+When Langfuse is configured (`LANGFUSE_ENABLED=true`), the eval runner automatically:
 
-This lets you view eval traces in the Langfuse dashboard alongside production traces.
+1. **Groups traces by run** — Each eval case's `process_message()` call uses `session_id=eval-{run_id}` and `user_id=eval-runner`, so eval traces are grouped and filterable in the Langfuse dashboard.
+2. **Pushes scores** — After each case is scored, the score is attached to the Langfuse trace via `langfuse.score()`. This makes scores visible directly on traces in the dashboard.
+3. **Flushes on completion** — The Langfuse client is flushed at the end of each eval run to ensure all data is sent.
+
+All Langfuse integration is optional and degrades gracefully — the runner works identically without Langfuse configured.
+
+### Filtering eval traces in Langfuse
+
+- Filter by `user_id = eval-runner` to see only eval traces
+- Filter by `session_id` starting with `eval-` to find specific runs
+- Scores appear on traces with name `eval_score` and include variant/dataset metadata in the comment field
 
 ## Adding Evaluations for a New Agent
 
