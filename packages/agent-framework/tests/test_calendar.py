@@ -90,6 +90,7 @@ class TestFormatEvent:
         result = _format_event(event)
 
         assert result["id"] == "evt-123"
+        assert result["calendar_ids"] == ["cal-123"]
         assert result["title"] == "Team Standup"
         assert result["description"] == "Daily standup meeting"
         assert result["start"] == "2025-03-15T09:00:00"
