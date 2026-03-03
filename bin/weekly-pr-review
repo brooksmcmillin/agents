@@ -357,7 +357,7 @@ WIKI_ROOT_TITLE="Automation Log"
 WIKI_CAT_SLUG="${CATEGORY_SLUG}"
 WIKI_CAT_TITLE="${CATEGORY}"
 WIKI_DATE_SLUG="${CATEGORY_SLUG}-week-${TODAY}-${NOW_TIME//:}"
-WIKI_DATE_TITLE="${CATEGORY} Week of ${TODAY} ${NOW_TIME}"
+WIKI_DATE_TITLE="${CATEGORY} (Week of ${TODAY} ${NOW_TIME})"
 
 # --- Build prompt ---
 # Sanitize PR details: strip any line matching heredoc delimiters to prevent early termination
@@ -586,7 +586,7 @@ ${CAPTURED_OUTPUT}
 
 Format the page content as clean markdown:
 
-# Weekly PR Review: ${CATEGORY} (Week of ${TODAY})
+# Weekly PR Review: ${CATEGORY} (Week of ${TODAY} ${NOW_TIME})
 
 ## Summary
 - Repository: ${REPO_FULL}

@@ -594,7 +594,7 @@ Format the page content as clean markdown. Use one of these structures:
 
 **If it was a sprint run (tasks implemented, PRs created):**
 
-# Sprint Results: ${CATEGORY} (${TODAY})
+# Sprint Results: ${CATEGORY} (${TODAY} ${NOW_TIME})
 
 ## Summary
 - Tasks attempted: (count from output)
@@ -610,7 +610,7 @@ Format the page content as clean markdown. Use one of these structures:
 
 **If it was a code review run (findings reported, tasks created):**
 
-# Code Review Results: ${CATEGORY} (${TODAY})
+# Code Review Results: ${CATEGORY} (${TODAY} ${NOW_TIME})
 
 ## Summary
 - Agents run: (list from output)
