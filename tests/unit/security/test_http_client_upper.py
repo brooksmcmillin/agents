@@ -350,6 +350,13 @@ class TestHttpInspectHeaders:
             with pytest.raises(ValueError, match="not in REDTEAM_ALLOWED_TARGETS"):
                 await http_inspect_headers(AGENT, BASE_URL)
 
+    async def test_raises_when_redteam_targets_not_set(self) -> None:
+        """Fail-secure: denies all requests when REDTEAM_ALLOWED_TARGETS is not configured."""
+        env = {k: v for k, v in os.environ.items() if k != "REDTEAM_ALLOWED_TARGETS"}
+        with patch.dict(os.environ, env, clear=True):
+            with pytest.raises(ValueError, match="REDTEAM_ALLOWED_TARGETS is not set"):
+                await http_inspect_headers(AGENT, BASE_URL)
+
     async def test_real_allowlist_acceptance_path(self) -> None:
         """Real _check_target_allowed accepts BASE_URL when correctly configured."""
         mock_resp = _make_response(200, headers={})
@@ -557,6 +564,19 @@ class TestHttpFuzzParameter:
                     delay_ms=0,
                 )
 
+    async def test_raises_when_redteam_targets_not_set(self) -> None:
+        """Fail-secure: denies all requests when REDTEAM_ALLOWED_TARGETS is not configured."""
+        env = {k: v for k, v in os.environ.items() if k != "REDTEAM_ALLOWED_TARGETS"}
+        with patch.dict(os.environ, env, clear=True):
+            with pytest.raises(ValueError, match="REDTEAM_ALLOWED_TARGETS is not set"):
+                await http_fuzz_parameter(
+                    AGENT,
+                    BASE_URL,
+                    parameter="q",
+                    payloads=["x"],
+                    delay_ms=0,
+                )
+
     async def test_real_allowlist_acceptance_path(self) -> None:
         """Real _check_target_allowed accepts BASE_URL when correctly configured."""
         mock_resp = _make_response(200, content=b"ok")
@@ -751,6 +771,13 @@ class TestHttpCheckRateLimit:
     async def test_raises_on_disallowed_url(self) -> None:
         with patch.dict(os.environ, {"REDTEAM_ALLOWED_TARGETS": "http://other.com/api"}):
             with pytest.raises(ValueError, match="not in REDTEAM_ALLOWED_TARGETS"):
+                await http_check_rate_limit(AGENT, BASE_URL, num_requests=1)
+
+    async def test_raises_when_redteam_targets_not_set(self) -> None:
+        """Fail-secure: denies all requests when REDTEAM_ALLOWED_TARGETS is not configured."""
+        env = {k: v for k, v in os.environ.items() if k != "REDTEAM_ALLOWED_TARGETS"}
+        with patch.dict(os.environ, env, clear=True):
+            with pytest.raises(ValueError, match="REDTEAM_ALLOWED_TARGETS is not set"):
                 await http_check_rate_limit(AGENT, BASE_URL, num_requests=1)
 
     async def test_real_allowlist_acceptance_path(self) -> None:
