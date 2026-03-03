@@ -36,8 +36,10 @@ export interface UseVoiceInputReturn {
   isSupported: boolean;
   /** Whether we're actively listening for speech */
   isListening: boolean;
-  /** Interim transcript (updates live while speaking) */
+  /** Current transcript (final or interim) */
   transcript: string;
+  /** Interim-only transcript (empty when a final result arrives) */
+  interimTranscript: string;
   /** Last error message, if any */
   error: string | null;
   /** Start listening for speech */
@@ -64,6 +66,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
 
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState('');
+  const [interimTranscript, setInterimTranscript] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
@@ -104,23 +107,24 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
     };
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
-      let finalTranscript = '';
-      let interimTranscript = '';
+      let finalText = '';
+      let interimText = '';
 
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
         if (result.isFinal) {
-          finalTranscript += result[0].transcript;
+          finalText += result[0].transcript;
         } else {
-          interimTranscript += result[0].transcript;
+          interimText += result[0].transcript;
         }
       }
 
-      const currentTranscript = finalTranscript || interimTranscript;
+      const currentTranscript = finalText || interimText;
       setTranscript(currentTranscript);
+      setInterimTranscript(interimText);
 
-      if (finalTranscript && onResult) {
-        onResult(finalTranscript);
+      if (finalText && onResult) {
+        onResult(finalText);
       }
     };
 
@@ -133,13 +137,15 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
         'no-speech': 'No speech detected. Try again.',
         'network': 'Network error. Check your connection.',
       };
-      setError(messages[event.error] || `Speech recognition error: ${event.error}`);
+      setError(messages[event.error] || 'Speech recognition failed. Please try again.');
       setIsListening(false);
     };
 
     recognition.onend = () => {
       setIsListening(false);
-      recognitionRef.current = null;
+      if (recognitionRef.current === recognition) {
+        recognitionRef.current = null;
+      }
     };
 
     recognitionRef.current = recognition;
@@ -168,6 +174,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
 
   const clear = useCallback(() => {
     setTranscript('');
+    setInterimTranscript('');
     setError(null);
   }, []);
 
@@ -175,6 +182,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
     isSupported,
     isListening,
     transcript,
+    interimTranscript,
     error,
     startListening,
     stopListening,

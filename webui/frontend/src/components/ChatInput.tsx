@@ -1,4 +1,4 @@
-import { useState, useEffect, KeyboardEvent } from 'react';
+import { useState, useEffect, useRef, useCallback, KeyboardEvent } from 'react';
 import { PaperAirplaneIcon, MicrophoneIcon } from '@heroicons/react/24/solid';
 import { Button } from './Button';
 import { useVoiceInput } from '@/hooks/useVoiceInput';
@@ -15,27 +15,35 @@ export function ChatInput({
   placeholder = 'Type your message...',
 }: ChatInputProps) {
   const [message, setMessage] = useState('');
+  const voiceBaseRef = useRef('');
 
-  const { isSupported, isListening, transcript, error, toggleListening } = useVoiceInput({
-    onResult: (finalTranscript) => {
-      setMessage((prev) => {
-        const separator = prev.trim() ? ' ' : '';
-        return prev.trim() + separator + finalTranscript;
-      });
-    },
+  const handleVoiceResult = useCallback((finalTranscript: string) => {
+    const base = voiceBaseRef.current.trim();
+    const separator = base ? ' ' : '';
+    const newMessage = base + separator + finalTranscript;
+    setMessage(newMessage);
+    voiceBaseRef.current = newMessage;
+  }, []);
+
+  const { isSupported, isListening, interimTranscript, error, toggleListening } = useVoiceInput({
+    onResult: handleVoiceResult,
   });
 
-  // Update textarea with interim transcript while speaking
-  useEffect(() => {
-    if (isListening && transcript) {
-      setMessage((prev) => {
-        // Show interim text after any existing content
-        const base = prev.replace(/\s*\[\.{3}\]$/, '').trim();
-        const separator = base ? ' ' : '';
-        return base + separator + transcript;
-      });
+  const handleToggleListening = useCallback(() => {
+    if (!isListening) {
+      voiceBaseRef.current = message;
     }
-  }, [isListening, transcript]);
+    toggleListening();
+  }, [isListening, message, toggleListening]);
+
+  // Show interim transcript as live preview
+  useEffect(() => {
+    if (isListening && interimTranscript) {
+      const base = voiceBaseRef.current.trim();
+      const separator = base ? ' ' : '';
+      setMessage(base + separator + interimTranscript);
+    }
+  }, [isListening, interimTranscript]);
 
   const handleSend = () => {
     if (message.trim() && !disabled) {
@@ -72,10 +80,11 @@ export function ChatInput({
         <div className="flex flex-col gap-2 self-end">
           {isSupported && (
             <Button
-              onClick={toggleListening}
+              onClick={handleToggleListening}
               disabled={disabled}
               variant={isListening ? 'danger' : 'ghost'}
-              title={isListening ? 'Stop listening' : 'Voice input'}
+              title={isListening ? 'Stop listening' : 'Voice input (audio processed by your browser\'s speech service)'}
+              aria-label={isListening ? 'Stop listening' : 'Start voice input'}
               className={`relative min-w-[44px] min-h-[44px] ${isListening ? 'animate-pulse' : ''}`}
             >
               <MicrophoneIcon className="h-5 w-5" />
