@@ -158,6 +158,7 @@ NETWORK_ADMIN_TOOLS = [
     "network_generate_report",
 ]
 
+
 # ---------------------------------------------------------------------------
 # Model aliases
 #
