@@ -6,6 +6,7 @@ similar to Claude Code's --resume flag.
 
 import json
 import logging
+import os
 import secrets
 import time
 from datetime import UTC, datetime
@@ -28,6 +29,9 @@ class SessionStore:
     def __init__(self, sessions_dir: Path | None = None) -> None:
         self.sessions_dir = sessions_dir or DEFAULT_SESSIONS_DIR
         self.sessions_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        # Fix permissions on directories created by older versions
+        if self.sessions_dir.stat().st_mode & 0o777 != 0o700:
+            self.sessions_dir.chmod(0o700)
 
     def _session_path(self, session_id: str) -> Path:
         """Get the file path for a session."""
@@ -82,10 +86,11 @@ class SessionStore:
         else:
             data["created_at"] = data["updated_at"]
 
-        # Atomic write: write to temp file then rename
+        # Atomic write: create temp file with restricted permissions, then rename
         tmp_path = session_path.with_suffix(".tmp")
-        tmp_path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
-        tmp_path.chmod(0o600)
+        fd = os.open(str(tmp_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(json.dumps(data, indent=2, default=str))
         tmp_path.rename(session_path)
 
         logger.debug(f"Session saved: {session_id} ({len(messages)} messages)")
@@ -182,8 +187,8 @@ class SessionStore:
 def generate_session_id(agent_name: str) -> str:
     """Generate a unique session ID for a new session.
 
-    Format: {agent_name}-{timestamp_hex}
-    Example: chatbot-1a2b3c4d
+    Format: {agent_name}-{timestamp_hex}{rand_suffix}
+    Example: chatbot-1a2b3c4dabcd
 
     Args:
         agent_name: Name of the agent.
