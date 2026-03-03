@@ -10,6 +10,7 @@ of agent actions including:
 
 from .langfuse_integration import (
     get_langfuse,
+    get_last_trace_id,
     init_observability,
     observe_tool_call,
     shutdown_observability,
@@ -20,6 +21,7 @@ __all__ = [
     "init_observability",
     "shutdown_observability",
     "get_langfuse",
+    "get_last_trace_id",
     "start_trace",
     "observe_tool_call",
 ]

@@ -10,7 +10,11 @@ Each file is a JSONL dataset (one JSON object per line) used by the evaluation r
 
 ## Files
 
-- `chatbot.jsonl` — General chatbot agent test cases
+- `chatbot.jsonl` — General chatbot agent test cases (greetings, memory, safety, self-awareness)
+- `business.jsonl` — Business advisor guardrail enforcement (unvalidated claims, fictional social proof, legal flags, employment compliance, timelines, validation-before-building)
+- `security.jsonl` — AI security research knowledge (RAG attacks, prompt injection, adversarial ML, deployment security, safety boundaries)
+- `code-analysis.jsonl` — Code analysis methodology (security prioritization, SSRF, error handling, performance reasoning)
+- `log-analysis.jsonl` — Log diagnostic reasoning (error investigation, pattern recognition, brute force, memory leaks, scope boundaries)
 
 ## Adding a Dataset
 

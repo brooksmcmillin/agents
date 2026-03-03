@@ -8,11 +8,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from tests.evaluations.models import EvalCase, EvalResult, EvalRun, load_dataset
+from tests.evaluations.runner import DATASETS_DIR, _load_prompts_module
 from tests.evaluations.scorers import (
     CompositeScorer,
     KeywordScorer,
@@ -309,3 +310,130 @@ class TestCompositeScorer:
         score, details = await scorer.score_detailed(case, "Hello!", ["save_memory"])
         assert score == 4.5
         assert details == {"llm_judge": 4.0, "tool_use": 5.0}
+
+
+# ── Dataset validation ───────────────────────────────────────────────
+
+
+class TestAllDatasets:
+    """Verify all JSONL dataset files are valid and well-formed."""
+
+    @pytest.mark.parametrize(
+        "agent_name",
+        ["chatbot", "business", "security", "code-analysis", "log-analysis"],
+    )
+    def test_dataset_loads_and_has_cases(self, agent_name: str):
+        path = DATASETS_DIR / f"{agent_name}.jsonl"
+        assert path.exists(), f"Dataset missing for {agent_name}"
+        cases = load_dataset(path)
+        assert len(cases) >= 5, f"Dataset for {agent_name} should have at least 5 cases"
+
+    @pytest.mark.parametrize(
+        "agent_name",
+        ["chatbot", "business", "security", "code-analysis", "log-analysis"],
+    )
+    def test_dataset_cases_have_required_fields(self, agent_name: str):
+        path = DATASETS_DIR / f"{agent_name}.jsonl"
+        cases = load_dataset(path)
+        for case in cases:
+            assert case.input, f"Case in {agent_name} must have non-empty input"
+            assert case.expected, f"Case in {agent_name} must have non-empty expected"
+            assert isinstance(case.tags, list), f"Tags must be a list in {agent_name}"
+
+    @pytest.mark.parametrize(
+        "agent_name",
+        ["chatbot", "business", "security", "code-analysis", "log-analysis"],
+    )
+    def test_dataset_cases_have_tags(self, agent_name: str):
+        """Every case should have at least one tag for filtering."""
+        path = DATASETS_DIR / f"{agent_name}.jsonl"
+        cases = load_dataset(path)
+        for case in cases:
+            label = case.input[:40] + ("..." if len(case.input) > 40 else "")
+            assert len(case.tags) >= 1, (
+                f"Case '{label}' in {agent_name} should have at least one tag"
+            )
+
+
+# ── Prompt variants ──────────────────────────────────────────────────
+
+
+class TestPromptVariants:
+    def test_business_variants_exist(self):
+        from agents.business_advisor.prompts import PROMPT_VARIANTS
+
+        assert "concise" in PROMPT_VARIANTS
+        assert "no-guardrails" in PROMPT_VARIANTS
+
+    def test_business_variants_are_nonempty_strings(self):
+        from agents.business_advisor.prompts import PROMPT_VARIANTS
+
+        for name, prompt in PROMPT_VARIANTS.items():
+            assert isinstance(prompt, str), f"Variant {name} must be a string"
+            assert len(prompt) > 100, f"Variant {name} seems too short"
+
+    def test_load_prompts_module_business(self):
+        mod = _load_prompts_module("business")
+        assert mod is not None
+        assert hasattr(mod, "PROMPT_VARIANTS")
+
+    def test_load_prompts_module_unknown_returns_none(self):
+        mod = _load_prompts_module("nonexistent-agent-xyz")
+        assert mod is None
+
+
+# ── Langfuse integration ─────────────────────────────────────────────
+
+
+class TestLangfuseIntegration:
+    def test_get_last_trace_id_initially_none(self):
+        from agent_framework.observability.langfuse_integration import get_last_trace_id
+
+        # When no trace has been created, should return None (or whatever the current state is)
+        # This just verifies the function is importable and callable
+        result = get_last_trace_id()
+        assert result is None or isinstance(result, str)
+
+    def test_push_langfuse_score_noop_without_langfuse(self):
+        """Score push should silently do nothing when Langfuse is not configured."""
+        from tests.evaluations.runner import _push_langfuse_score
+
+        case = EvalCase(input="test", expected="test", tags=["basic"])
+        result = EvalResult(
+            case=case,
+            response="ok",
+            score=4.0,
+            score_details={"llm_judge": 4.0},
+        )
+        # Should not raise even when Langfuse is not available
+        _push_langfuse_score(result, "default", "test.jsonl")
+
+    @patch("tests.evaluations.runner._get_langfuse_client")
+    @patch("tests.evaluations.runner.json.dumps", return_value="{}")
+    def test_push_langfuse_score_calls_langfuse(self, mock_dumps, mock_get_client):
+        """When Langfuse is available and trace_id exists, score should be pushed."""
+        from tests.evaluations.runner import _push_langfuse_score
+
+        mock_langfuse = MagicMock()
+        mock_get_client.return_value = mock_langfuse
+
+        case = EvalCase(input="test", expected="test", tags=["basic"])
+        result = EvalResult(
+            case=case,
+            response="ok",
+            score=4.0,
+            score_details={"llm_judge": 4.0},
+        )
+
+        with patch(
+            "agent_framework.observability.langfuse_integration._last_trace_id",
+            "trace-123",
+        ):
+            _push_langfuse_score(result, "default", "test.jsonl")
+
+        mock_langfuse.score.assert_called_once()
+        call_kwargs = mock_langfuse.score.call_args[1]
+        assert call_kwargs["trace_id"] == "trace-123"
+        assert call_kwargs["name"] == "eval_score"
+        assert call_kwargs["value"] == 4.0
+        mock_dumps.assert_called_once()
