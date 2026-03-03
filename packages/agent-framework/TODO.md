@@ -4,10 +4,9 @@
 
 ### Medium Priority
 
-- [ ] **Secure Token File Permissions** (`agent_framework/oauth/oauth_tokens.py:122`)
-  - OAuth tokens are written without explicitly setting secure file permissions
-  - Fix: Use `os.open()` with `0o600` permissions when writing token files
-  - Reference: CWE-732
+- [x] **Secure Token File Permissions** (`agent_framework/oauth/oauth_tokens.py`)
+  - Token files created with `os.open()` and `0o600` permissions
+  - Token directories set to `0o700`
 
 - [ ] **Add OAuth State Parameter** (`agent_framework/oauth/oauth_flow.py`)
   - Add state parameter validation in OAuth callback to prevent CSRF attacks
