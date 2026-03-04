@@ -46,6 +46,7 @@ import anthropic
 from agent_framework import Agent
 from agent_framework.logging import correlation_id_var
 from agent_framework.storage import Conversation, DatabaseConversationStore, Message
+from agent_framework.utils.errors import PromptInjectionError
 from agent_framework.utils.sanitize import sanitize_log_input
 from anthropic.types import TextBlock
 from fastapi import (
@@ -661,6 +662,11 @@ async def stateless_message(
         async with _TokenSnapshot(agent) as snap:
             # ⚠️ UNTRUSTED: body.message is user-supplied input
             response_text = await agent.process_message(body.message)
+    except PromptInjectionError as e:
+        logger.warning(
+            "Agent %s blocked message: prompt injection detected", sanitize_log_input(agent_name)
+        )
+        raise HTTPException(status_code=400, detail="Message blocked by security policy") from e
     except Exception as e:
         logger.exception("Agent %s failed processing message", sanitize_log_input(agent_name))
         raise HTTPException(status_code=500, detail="Internal server error") from e
@@ -732,6 +738,11 @@ async def session_message(
                 body.message,
                 session_id=session_id,  # For Langfuse tracing
             )
+    except PromptInjectionError as e:
+        logger.warning(
+            "Session %s blocked message: prompt injection detected", sanitize_log_input(session_id)
+        )
+        raise HTTPException(status_code=400, detail="Message blocked by security policy") from e
     except Exception as e:
         logger.exception("Session %s failed processing message", sanitize_log_input(session_id))
         raise HTTPException(status_code=500, detail="Internal server error") from e
@@ -937,6 +948,12 @@ async def conversation_message(
                 body.message,
                 session_id=conversation_id,  # For Langfuse tracing
             )
+    except PromptInjectionError as e:
+        logger.warning(
+            "Conversation %s blocked message: prompt injection detected",
+            sanitize_log_input(conversation_id),
+        )
+        raise HTTPException(status_code=400, detail="Message blocked by security policy") from e
     except Exception as e:
         logger.exception(
             "Conversation %s failed processing message", sanitize_log_input(conversation_id)
@@ -1577,6 +1594,11 @@ async def handle_incoming_sms(request: Request) -> Response:
                 message_body,
                 session_id=conversation_id,
             )
+        except PromptInjectionError:
+            logger.warning(
+                f"SMS reply for conversation {conversation_id} blocked: prompt injection detected"
+            )
+            response_text = "Your message was blocked by our security policy."
         except Exception as e:
             logger.exception(f"Error processing SMS reply for conversation {conversation_id}")
             response_text = f"Error processing your reply: {str(e)[:100]}"

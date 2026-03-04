@@ -73,7 +73,7 @@ if TYPE_CHECKING:
 # Import security components (optional - for Lakera Guard integration)
 try:
     from ..security import LakeraGuard as _LakeraGuard
-    from ..security import LakeraSecurityResult
+    from ..security import LakeraSecurityResult, SecurityCheckError
     from ..utils.errors import PromptInjectionError
 
     SECURITY_AVAILABLE = True
@@ -82,6 +82,7 @@ except ImportError:
     _LakeraGuard = None
     LakeraSecurityResult = None  # type: ignore[misc]
     PromptInjectionError = None  # type: ignore[misc]
+    SecurityCheckError = None  # type: ignore[misc]
 
 # Load environment variables
 load_dotenv()
@@ -496,7 +497,7 @@ class Agent(ABC):
                 )
                 logger.info("Lakera Guard security checks enabled")
             else:
-                logger.debug("Lakera Guard not enabled: LAKERA_API_KEY not configured")
+                logger.warning("Prompt injection detection is DISABLED")
 
         # Conversation history
         self.messages: list[MessageParam] = []
@@ -1389,8 +1390,20 @@ class Agent(ABC):
 
         # Security check: Screen user input for prompt injection and other threats
         if self.security_guard is not None:
-            security_result = await self.security_guard.check_input(user_message)
-            if security_result.flagged:
+            try:
+                security_result = await self.security_guard.check_input(user_message)
+            except Exception as e:
+                if SecurityCheckError is not None and isinstance(e, SecurityCheckError):
+                    # Lakera API is unreachable and fail_open=False: block the request
+                    logger.warning(f"Lakera Guard API error (fail-closed): {e}")
+                    return (
+                        "I'm sorry, but the security check service is temporarily unavailable. "
+                        "Please try again later."
+                    )
+                raise
+            if security_result.skipped:
+                logger.debug("Lakera Guard check was skipped (no API key or disabled)")
+            elif security_result.flagged:
                 logger.warning(
                     f"Security threat detected in user input: {security_result.categories}"
                 )
