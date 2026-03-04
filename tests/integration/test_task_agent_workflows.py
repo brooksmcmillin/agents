@@ -146,9 +146,9 @@ class TestTaskCreationIntegration:
     def test_create_task_priority_normalization(self) -> None:
         """Task priority values in various formats are normalized correctly."""
         cases = [
+            ("critical", 10),
             ("urgent", 9),
-            ("high", 9),
-            ("critical", 9),
+            ("high", 8),
             ("medium", 5),
             ("normal", 5),
             ("low", 2),

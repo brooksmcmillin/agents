@@ -57,7 +57,13 @@ from .gh import REPO_RE, run_gh, validate_repo
 from .json_parsing import strip_and_parse_json, strip_markdown_fences
 from .logging_config import setup_logging
 from .registry import GITHUB_MCP_AGENTS, build_agent_registry, github_mcp_config
-from .task_utils import format_priority_emoji, parse_json_result, parse_priority, parse_task_result
+from .task_utils import (
+    PRIORITY_TEXT_TO_INT,
+    format_priority_emoji,
+    parse_json_result,
+    parse_priority,
+    parse_task_result,
+)
 
 __all__ = [
     "BatchAgent",
@@ -91,6 +97,7 @@ __all__ = [
     "check_env_vars",
     "create_simple_agent",
     "env_file_exists",
+    "PRIORITY_TEXT_TO_INT",
     "format_priority_emoji",
     "get_anthropic_client",
     "get_valid_token_for_mcp",

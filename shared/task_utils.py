@@ -10,6 +10,17 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Canonical mapping from priority text labels to integer values (1-10 scale).
+# All priority text→int conversions across the codebase must use this dict.
+PRIORITY_TEXT_TO_INT: dict[str, int] = {
+    "critical": 10,
+    "urgent": 9,
+    "high": 8,
+    "medium": 5,
+    "normal": 5,
+    "low": 2,
+}
+
 
 def parse_json_result(result: str | dict) -> dict:
     """Parse MCP tool result JSON into a dict.
@@ -87,16 +98,9 @@ def parse_priority(priority_value: str | int | None) -> int:
     except (ValueError, TypeError):
         pass
 
-    # Handle text priorities
+    # Handle text priorities using canonical mapping
     text_priority = str(priority_value).lower()
-    if text_priority in ("urgent", "high", "critical"):
-        return 9
-    elif text_priority in ("medium", "normal"):
-        return 5
-    elif text_priority in ("low",):
-        return 2
-
-    return 5  # Default
+    return PRIORITY_TEXT_TO_INT.get(text_priority, 5)
 
 
 def format_priority_emoji(priority: int) -> str:
