@@ -70,7 +70,11 @@ jobs:
       - run: uv sync
 
       - name: Audit all dependencies with pip-audit
-        run: uv run pip-audit --format json
+        run: uv run pip-audit
+
+      - name: Audit all dependencies with safety
+        run: uv run safety check --continue-on-error
+        continue-on-error: true
 
   unit-tests:
     name: Unit Tests (${{ matrix.python-version }})
