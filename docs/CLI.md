@@ -131,7 +131,7 @@ uv run python bin/run-agent pr -q "Summarize this doc" | head -20
 
 ### `-r, --resume <SESSION_ID>`
 
-Resume a previous session. Only works in interactive mode (without a message).
+Resume a previous session. Only works in interactive mode (without a message). If a message is provided, the flag is ignored with a warning.
 
 ```bash
 uv run python bin/run-agent pr --resume last

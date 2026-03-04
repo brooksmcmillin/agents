@@ -60,8 +60,8 @@ sprint-or-review ~/build/agents -c "Code Quality" -m 2
 # Code review with custom agents
 sprint-or-review ~/build/agents -c "Code Review" -a security-code-reviewer,test-coverage-checker
 
-# Create 3 tasks per day starting March 10
-sprint-or-review ~/build/agents -c "Code Quality" -n 3 -s 2025-03-10
+# Create 3 tasks per day starting March 15
+sprint-or-review ~/build/agents -c "Code Quality" -n 3 -s 2026-03-15
 
 # Preview what would run
 sprint-or-review ~/build/agents -c "Code Quality" --dry-run
@@ -93,14 +93,14 @@ sprint-or-review ~/build/agents -c "Code Quality" --dry-run
 - Bash 4.0+
 - Git
 - GitHub CLI (`gh`)
-- Python 3.7+
+- Python 3.12+
 - `claude` CLI installed
 - TaskManager OAuth token in `~/.claude/.credentials.json`
 - `NTFY_TOKEN` in `.env` (for alerts on failure)
 
 **Output:**
 
-- Creates wiki pages at: `automation-log/<category>/<category>-YYYY-MM-DD-HHMM>`
+- Creates wiki pages at: `automation-log/<category>/<category>-YYYY-MM-DD-HHMM`
 - Sends ntfy push notifications on errors
 - Logs to stdout (captures full output in session JSONL)
 
@@ -161,7 +161,7 @@ weekly-pr-review ~/build/agents -c "PR Review" --dry-run
 - Bash 4.0+
 - Git
 - GitHub CLI (`gh`) with repository access
-- Python 3.7+
+- Python 3.12+
 - `claude` CLI installed
 - TaskManager OAuth token in `~/.claude/.credentials.json`
 - `NTFY_TOKEN` in `.env` (for alerts on failure)
@@ -222,8 +222,10 @@ crontab -l | grep sprint-or-review
 **Remove a job:**
 
 ```bash
-crontab -l | grep -v '<directory>' | crontab -
+crontab -l | grep -v '/path/to/directory' | crontab -
 ```
+
+Note: Replace `/path/to/directory` with the actual directory path (quoted if it contains spaces or special characters).
 
 **View logs:**
 
@@ -290,8 +292,10 @@ crontab -l | grep weekly-pr-review
 **Remove a job:**
 
 ```bash
-crontab -l | grep -v '<directory>' | grep -v 'weekly-pr-review' | crontab -
+crontab -l | grep -v '/path/to/directory' | grep -v 'weekly-pr-review' | crontab -
 ```
+
+Note: Replace `/path/to/directory` with the actual directory path (quoted if it contains spaces or special characters).
 
 **View logs:**
 
@@ -377,18 +381,22 @@ claude --init
 If cron installer says commands are missing:
 
 ```bash
-# Install claude CLI
-curl -LsSf https://claude.sh/install.sh | sh
+# Install claude CLI (npm)
+npm install -g @anthropic-ai/claude-code
 
-# Or with Homebrew
-brew install claude
-
-# Install uv
+# Install uv (macOS/Linux with checksums)
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Install GitHub CLI
 brew install gh  # macOS
 sudo apt-get install gh  # Ubuntu/Debian
+```
+
+**Security note:** The `curl | sh` pattern pipes remote script directly to the shell. For production systems, consider verifying the script before execution:
+```bash
+curl -LsSf https://astral.sh/uv/install.sh -o uv-install.sh
+# Verify the script contents, then:
+sh uv-install.sh
 ```
 
 ### Logs not found
