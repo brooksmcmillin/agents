@@ -321,6 +321,17 @@ You are running an automated sprint-or-review cycle for the project "${CATEGORY}
 Your working directory is a fresh worktree checked out at the latest origin/${DEFAULT_BRANCH}.
 All work (reading code, running agents, creating sub-worktrees) should happen relative to this directory.
 
+## Blocked commands
+
+NEVER run interactive database CLIs (psql, mysql, sqlite3, mongosh, redis-cli) or any command that may prompt for a password or wait on stdin. These will hang indefinitely in headless mode and block the entire session.
+
+If a task requires direct database access to verify or implement, do NOT attempt it. Instead:
+1. Add a comment on the task explaining it needs manual database verification
+2. Update the task with tag "needs-human"
+3. Skip it and move on to the next task
+
+Pass these same restrictions to all sub-agents you spawn.
+
 ## Phase 1: Check for open tasks
 
 Query TaskManager for open (pending) tasks in category "${CATEGORY}" using get_tasks with status="pending" and category="${CATEGORY}".
@@ -347,6 +358,8 @@ For each task (up to ${MAX_TASKS}):
    \`\`\`
 5. Spawn a sub-agent (Agent tool, subagent_type: "general-purpose", with chosen model) to:
    - Work in: ${WORKTREES_BASE}/feat/<slug>
+   - NEVER run psql, mysql, sqlite3, mongosh, redis-cli, or any interactive DB CLI (they hang in headless mode)
+   - If the task requires direct database access, add a "needs-human" tag and skip it
    - Implement the fix/feature in the worktree
    - Run tests, fix failures
    - Commit with: \`feat(scope): description (task #<ID>)\` and Co-Authored-By
