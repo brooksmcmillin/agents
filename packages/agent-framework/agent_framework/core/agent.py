@@ -744,8 +744,13 @@ class Agent(ABC):
     async def _collect_remote_tools(self, url: str) -> list[dict[str, Any]]:
         """Connect to a single remote MCP server and collect its tools.
 
-        Populates ``self.tools[url]`` with the list of tool names and returns the
-        raw tool list as returned by the remote server.
+        Side-effect: populates ``self.tools[url]`` with a list of tool *name*
+        strings (used by the tool-routing logic in ``_find_tool_server``).
+
+        Return value: the raw tool definitions list (name + description +
+        input_schema dicts) needed to convert to Anthropic format. The two
+        representations differ intentionally — routing only requires names
+        while Anthropic format conversion requires the full dict.
 
         Args:
             url: The URL of the remote MCP server.
@@ -767,8 +772,9 @@ class Agent(ABC):
 
         Returns:
             Mapping of URL to raw tool list for each successfully connected server.
+            Callers that only need the side-effect (``self.tools`` population) may
+            discard the return value.
         """
-        logger.debug("Getting available remote tools.")
         failed_urls: list[str] = []
         results: dict[str, list[dict[str, Any]]] = {}
         for url in self.mcp_urls:
@@ -795,8 +801,11 @@ class Agent(ABC):
         async with self.mcp_client.connect():
             self.tools["local"] = self.mcp_client.get_available_tools()
 
-        # Get tools from remote MCP server(s) if applicable
-        await self._update_remote_tools()
+        # Get tools from remote MCP server(s) if applicable; return value not
+        # needed here — _update_remote_tools populates self.tools[url] as a
+        # side effect, and the concatenation below reads from self.tools.
+        logger.debug("Getting available remote tools.")
+        _ = await self._update_remote_tools()
 
         # Return the concatenation of all the tool lists
         return [item for lst in self.tools.values() for item in lst]
