@@ -73,7 +73,7 @@ jobs:
         run: uv run pip-audit
 
       - name: Audit all dependencies with safety
-        run: uv run safety scan --output json
+        run: uv run safety scan
         continue-on-error: true
 
   unit-tests:
