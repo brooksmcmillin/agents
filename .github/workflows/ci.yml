@@ -263,7 +263,6 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            ~/.cargo/bin
             agents/security_audit/collector-rs/target
           key: ${{ runner.os }}-cargo-${{ hashFiles('agents/security_audit/collector-rs/Cargo.lock') }}
           restore-keys: |
