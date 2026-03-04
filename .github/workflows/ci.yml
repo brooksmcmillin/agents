@@ -278,10 +278,10 @@ jobs:
         run: cargo test
 
       - name: Audit dependencies
-        working-directory: agents/security_audit/collector-rs
-        run: |
-          cargo install cargo-audit --locked
-          cargo audit
+        uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          working-directory: agents/security_audit/collector-rs
 
   integration-tests:
     name: Integration Tests
