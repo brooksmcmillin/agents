@@ -205,7 +205,8 @@ WIKI_DATE_TITLE="${CATEGORY} (${TODAY} ${NOW_TIME})"
 
 # --- Build prompt ---
 PROMPT_FILE=$(mktemp "${TMPDIR:-/tmp}/${SCRIPT_NAME}-prompt.XXXXXX")
-trap 'rm -f "$PROMPT_FILE"' EXIT
+WIKI_ERR=""
+trap 'rm -f "$PROMPT_FILE" "${WIKI_ERR:-}"' EXIT
 
 cat > "$PROMPT_FILE" <<PROMPT_VARS
 You are a technical blog strategist analyzing recent merged pull requests for content opportunities.
@@ -421,7 +422,7 @@ _WIKI_PROMPT_END_
 
   WIKI_EXIT=0
   WIKI_ERR=$(mktemp "${TMPDIR:-/tmp}/${SCRIPT_NAME}-wiki-err.XXXXXX")
-  claude -p "$WIKI_PROMPT" --model claude-haiku-4-5-20251001 --allowedTools "${WIKI_TOOLS[@]}" >/dev/null 2>"$WIKI_ERR" || WIKI_EXIT=$?
+  echo "$WIKI_PROMPT" | claude -p - --model claude-haiku-4-5-20251001 --allowedTools "${WIKI_TOOLS[@]}" >/dev/null 2>"$WIKI_ERR" || WIKI_EXIT=$?
 
   if [[ $WIKI_EXIT -ne 0 ]]; then
     send_alert "$SCRIPT_NAME: Wiki Page Failed [$HOSTNAME]" \
