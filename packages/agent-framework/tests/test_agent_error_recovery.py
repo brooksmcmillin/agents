@@ -52,6 +52,7 @@ def mock_mcp_client():
     mock_instance.connect.return_value.__aexit__ = AsyncMock()
     mock_instance.call_tool = AsyncMock(return_value={"result": "ok"})
     mock_instance.get_available_tools = MagicMock(return_value=[])
+    mock_instance.end_turn = AsyncMock()
     return mock_instance
 
 
