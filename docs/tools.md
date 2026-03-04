@@ -1,15 +1,19 @@
 # MCP Tools Reference
 
-The MCP server exposes **72 tools** across 15 categories (defined in `packages/agent-framework/agent_framework/tools/`).
+The MCP server exposes **73 tools** across 16 categories (defined in `packages/agent-framework/agent_framework/tools/`).
 
 ## Web Analysis Tools (2 tools)
 - `fetch_web_content` - Fetch web content as clean markdown for LLM reading and analysis
 - `analyze_website` - Web content analysis (tone, SEO, engagement) - uses real web scraping
 
 ## Browser Testing Tools (6 tools)
-*Requires Playwright browser automation library (install with `uv sync --group browser`)*
+*Requires Playwright browser automation library. Install with:*
+```bash
+uv sync --group browser
+uv run playwright install chromium
+```
 - `browser_screenshot` - Take a screenshot of a webpage using headless Chromium, supporting full-page captures and custom viewports
-- `browser_accessibility_audit` - Run an accessibility audit checking heading hierarchy, image alt text, form labels, ARIA landmarks, link text quality, and viewport configuration
+- `browser_accessibility_audit` - Run an accessibility audit checking heading hierarchy, image alt text, form labels, ARIA landmarks, link text quality, language attribute, skip-navigation links, viewport configuration, and keyboard focus order
 - `browser_performance_audit` - Collect performance metrics including DNS/TCP/TTFB/DOM load times, Core Web Vitals (LCP, CLS), total page weight, and resource breakdown by category
 - `browser_console_errors` - Capture JavaScript console errors, warnings, and uncaught exceptions from a loaded webpage
 - `browser_check_links` - Check for broken links on a webpage by extracting all links and verifying them with HEAD requests
