@@ -1,0 +1,209 @@
+#!/usr/bin/env bash
+#
+# install-blog-ideas-timer - Install a systemd timer for blog-post-ideas.
+#
+# Idempotent: safe to run multiple times. Will not overwrite an existing timer.
+#
+# Usage:
+#   install-blog-ideas-timer <category> <day-of-week> <HH:MM>
+#
+# Examples:
+#   install-blog-ideas-timer "Blog Ideas" friday 10:00
+#   install-blog-ideas-timer "Blog Ideas" wed 14:00
+#
+# To list installed timers:
+#   systemctl list-timers 'blog-post-ideas*'
+#
+# To remove:
+#   sudo systemctl disable --now blog-post-ideas.timer
+#   sudo rm /etc/systemd/system/blog-post-ideas.{service,timer}
+#   sudo systemctl daemon-reload
+#
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+IDEAS_SCRIPT="$SCRIPT_DIR/blog-post-ideas"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+ENV_FILE="${PROJECT_DIR}/.env"
+
+usage() {
+  cat <<'EOF'
+Usage: install-blog-ideas-timer <category> <day-of-week> <HH:MM>
+
+Install a weekly systemd timer that runs blog-post-ideas.
+
+The script searches all your GitHub repos via MCP — no specific
+directory is required.
+
+Arguments:
+  category      TaskManager category/project name (quote if it has spaces)
+  day-of-week   Day to run: name (monday, mon) or number (0-6, 0=Sunday)
+  HH:MM         Time to run in 24-hour format (e.g., 09:00, 15:30)
+
+Options:
+  -h, --help    Show this help
+
+Day-of-week accepts:
+  Names:   sunday, monday, tuesday, wednesday, thursday, friday, saturday
+  Short:   sun, mon, tue, wed, thu, fri, sat
+  Numbers: 0=Sunday, 1=Monday, ..., 6=Saturday
+
+Only one timer is installed (blog-post-ideas.timer). Re-running will
+report the existing timer and exit without changes.
+
+Examples:
+  install-blog-ideas-timer "Blog Ideas" friday 10:00
+  install-blog-ideas-timer "Blog Ideas" wed 14:00
+EOF
+  exit 0
+}
+
+# --- Parse day-of-week to systemd OnCalendar format ---
+parse_day_of_week() {
+  local input="${1,,}"  # lowercase
+  case "$input" in
+    0|sunday|sun)     echo "Sun" ;;
+    1|monday|mon)     echo "Mon" ;;
+    2|tuesday|tue)    echo "Tue" ;;
+    3|wednesday|wed)  echo "Wed" ;;
+    4|thursday|thu)   echo "Thu" ;;
+    5|friday|fri)     echo "Fri" ;;
+    6|saturday|sat)   echo "Sat" ;;
+    *)
+      echo "Error: invalid day-of-week '$1'" >&2
+      echo "Accepted: sunday/sun/0, monday/mon/1, tuesday/tue/2, wednesday/wed/3, thursday/thu/4, friday/fri/5, saturday/sat/6" >&2
+      return 1
+      ;;
+  esac
+}
+
+day_name() {
+  local input="${1,,}"
+  case "$input" in
+    0|sunday|sun)     echo "Sunday" ;;
+    1|monday|mon)     echo "Monday" ;;
+    2|tuesday|tue)    echo "Tuesday" ;;
+    3|wednesday|wed)  echo "Wednesday" ;;
+    4|thursday|thu)   echo "Thursday" ;;
+    5|friday|fri)     echo "Friday" ;;
+    6|saturday|sat)   echo "Saturday" ;;
+  esac
+}
+
+# --- Parse args ---
+[[ $# -eq 0 ]] && usage
+[[ "$1" == "-h" || "$1" == "--help" ]] && usage
+
+if [[ $# -lt 3 ]]; then
+  echo "Error: expected 3 arguments: <category> <day-of-week> <HH:MM>" >&2
+  echo "Run with --help for usage." >&2
+  exit 1
+fi
+
+CATEGORY="$1"
+DAY_OF_WEEK_INPUT="$2"
+TIME="$3"
+
+# --- Validate day-of-week ---
+DOW_SYSTEMD=$(parse_day_of_week "$DAY_OF_WEEK_INPUT") || exit 1
+DOW_NAME=$(day_name "$DAY_OF_WEEK_INPUT")
+
+# --- Validate time format ---
+if ! [[ "$TIME" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]]; then
+  echo "Error: time must be HH:MM in 24-hour format (e.g., 09:00, 15:30), got '$TIME'" >&2
+  exit 1
+fi
+
+# --- Validate category (reject shell-special characters and control chars) ---
+if [[ "$CATEGORY" =~ [\"\$\`\\%] ]] || [[ "$CATEGORY" == *$'\n'* ]] || [[ "$CATEGORY" == *$'\r'* ]]; then
+  echo "Error: category name must not contain double quotes, dollar signs, backticks, backslashes, percent signs, or newlines" >&2
+  exit 1
+fi
+
+# --- Validate blog-post-ideas script ---
+if [[ ! -f "$IDEAS_SCRIPT" ]]; then
+  echo "Error: blog-post-ideas not found at $IDEAS_SCRIPT" >&2
+  exit 1
+fi
+
+if [[ ! -x "$IDEAS_SCRIPT" ]]; then
+  echo "Error: blog-post-ideas is not executable. Run: chmod +x $IDEAS_SCRIPT" >&2
+  exit 1
+fi
+
+# --- Validate .env ---
+if [[ ! -f "$ENV_FILE" ]]; then
+  echo "Error: $ENV_FILE not found. Copy .env.example to .env and configure it." >&2
+  exit 1
+fi
+
+if ! grep -qE '^\s*NTFY_TOKEN=.+' "$ENV_FILE"; then
+  echo "Error: NTFY_TOKEN not found (or commented out) in $ENV_FILE." >&2
+  exit 1
+fi
+
+UNIT_NAME="blog-post-ideas"
+
+# --- Check for existing timer ---
+if systemctl list-unit-files "${UNIT_NAME}.timer" &>/dev/null && \
+   systemctl list-unit-files "${UNIT_NAME}.timer" 2>/dev/null | grep -q "${UNIT_NAME}.timer"; then
+  echo "Timer already exists: ${UNIT_NAME}.timer. No changes made."
+  systemctl list-timers "${UNIT_NAME}.timer" --no-pager 2>/dev/null || true
+  exit 0
+fi
+
+# --- Generate service unit ---
+SERVICE_CONTENT="[Unit]
+Description=Blog Post Ideas: ${CATEGORY}
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=$(whoami)
+WorkingDirectory=${PROJECT_DIR}
+ExecStart=\"${IDEAS_SCRIPT}\" -c \"${CATEGORY}\"
+EnvironmentFile=${ENV_FILE}
+Environment=PATH=${HOME}/.local/bin:/usr/local/bin:/usr/bin:/bin
+TimeoutStartSec=1800
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target"
+
+# --- Generate timer unit ---
+TIMER_CONTENT="[Unit]
+Description=Run blog-post-ideas ${DOW_NAME}s at ${TIME}
+
+[Timer]
+OnCalendar=${DOW_SYSTEMD} *-*-* ${TIME}:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target"
+
+# --- Install ---
+echo "Installing ${UNIT_NAME}.service and ${UNIT_NAME}.timer..."
+
+echo "$SERVICE_CONTENT" | sudo tee "/etc/systemd/system/${UNIT_NAME}.service" >/dev/null
+echo "$TIMER_CONTENT" | sudo tee "/etc/systemd/system/${UNIT_NAME}.timer" >/dev/null
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now "${UNIT_NAME}.timer"
+
+echo ""
+echo "Timer installed:"
+echo "  Unit:      ${UNIT_NAME}.timer"
+echo "  Schedule:  ${DOW_NAME}s at ${TIME}"
+echo "  Category:  ${CATEGORY}"
+echo ""
+echo "Verify with:"
+echo "  systemctl list-timers '${UNIT_NAME}*'"
+echo "  journalctl -u ${UNIT_NAME}.service"
+echo ""
+echo "To remove:"
+echo "  sudo systemctl disable --now ${UNIT_NAME}.timer"
+echo "  sudo rm /etc/systemd/system/${UNIT_NAME}.{service,timer}"
+echo "  sudo systemctl daemon-reload"
