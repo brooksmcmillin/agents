@@ -7,7 +7,7 @@ One Claude Code session debugs a failing service on a remote server by sending s
 ## Prerequisites
 
 - Built `remote-agent` binary (from `remote-agent/`)
-- mcp-relay configured in Claude Code
+- mcp-relay configured in Claude Code (see [mcp-relay docs](https://github.com/anthropics/mcp-relay) for setup)
 - Python 3 on the machine running remote-agent
 
 ## Setup
@@ -161,15 +161,21 @@ Claude Code                  mcp-relay                    remote-agent
    |--- Both bugs fixed ✓      |                    Done ✓    |
 ```
 
+## Security
+
+The `remote-agent` executes arbitrary shell commands received on its relay channel. Anyone with relay access who knows the channel name can run commands on the machine. In this demo:
+
+- Channel names (`demo-server-commands`, `demo-server-output`) are the only "secret"
+- Relay OAuth authentication is the sole access control
+- Use unique, hard-to-guess `--name` values for anything beyond local demos
+
 ## Cleanup
 
 ```bash
 rm -rf /tmp/remote-debug-demo
-
-# Clear the relay channels (from Claude Code via mcp-relay)
-# clear_channel("demo-server-commands")
-# clear_channel("demo-server-output")
 ```
+
+Clear the relay channels from Claude Code using mcp-relay's `clear_channel` tool for `demo-server-commands` and `demo-server-output`.
 
 ## Troubleshooting
 

@@ -74,7 +74,7 @@ def main() -> None:
     print(f"  Errors:   {summary['error_count']}")
     print(f"  Warnings: {summary['warn_count']}")
     print(f"  Info:     {summary['info_count']}")
-    print(f"Report written to {output_dir}/report.json")
+    print(f"Report written to {os.path.join(output_dir, 'report.json')}")
 
 
 if __name__ == "__main__":
