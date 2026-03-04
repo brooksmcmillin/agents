@@ -5,7 +5,7 @@ mod token_store;
 
 use clap::Parser;
 use relay::RelayError;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::signal;
 use tokio::sync::Notify;
@@ -59,7 +59,7 @@ fn get_hostname() -> String {
 async fn acquire_token(
     http: &reqwest::Client,
     auth_url: &str,
-    token_path: &PathBuf,
+    token_path: &Path,
 ) -> Result<token_store::TokenSet, String> {
     // Try loading existing token
     if let Some(token_set) = token_store::load(token_path) {
@@ -98,7 +98,7 @@ async fn acquire_token(
 async fn handle_auth_error(
     http: &reqwest::Client,
     auth_url: &str,
-    token_path: &PathBuf,
+    token_path: &Path,
     relay_client: &mut relay::RelayClient,
 ) -> Result<(), String> {
     eprintln!("Received 401, re-authenticating...");

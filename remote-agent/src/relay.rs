@@ -61,9 +61,28 @@ impl RelayClient {
         self.access_token = token.to_string();
     }
 
+    /// URL-encode a channel name for use in path segments.
+    fn encode_channel(channel: &str) -> String {
+        // Percent-encode anything that isn't alphanumeric, hyphen, or underscore
+        channel
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                    c.to_string()
+                } else {
+                    format!("%{:02X}", c as u32)
+                }
+            })
+            .collect()
+    }
+
     /// Send a message to a channel.
     pub async fn send_message(&self, channel: &str, content: &str) -> Result<Message, RelayError> {
-        let url = format!("{}/channels/{}/messages", self.base_url, channel);
+        let url = format!(
+            "{}/channels/{}/messages",
+            self.base_url,
+            Self::encode_channel(channel)
+        );
 
         let body = serde_json::json!({ "content": content });
 
@@ -97,7 +116,11 @@ impl RelayClient {
         since: Option<&str>,
         limit: Option<u32>,
     ) -> Result<MessagesResponse, RelayError> {
-        let url = format!("{}/channels/{}/messages", self.base_url, channel);
+        let url = format!(
+            "{}/channels/{}/messages",
+            self.base_url,
+            Self::encode_channel(channel)
+        );
 
         let mut req = self.client.get(&url).bearer_auth(&self.access_token);
 
