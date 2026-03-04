@@ -14,10 +14,9 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
 
+from .constants import ALLOWED_LOG_DIRS
+
 _tool_logger: logging.Logger | None = None
-
-
-_ALLOWED_LOG_DIRS = ("/var/log/", ".data/")
 
 
 def configure_tool_logger(log_path: str) -> None:
@@ -30,10 +29,8 @@ def configure_tool_logger(log_path: str) -> None:
     global _tool_logger
 
     resolved = Path(log_path).resolve()
-    if not any(
-        str(resolved).startswith(str(Path(d).resolve()) + os.sep) for d in _ALLOWED_LOG_DIRS
-    ):
-        raise ValueError(f"Tool log path must be within {_ALLOWED_LOG_DIRS}, got: {resolved}")
+    if not any(str(resolved).startswith(str(Path(d).resolve()) + os.sep) for d in ALLOWED_LOG_DIRS):
+        raise ValueError(f"Tool log path must be within {ALLOWED_LOG_DIRS}, got: {resolved}")
 
     resolved.parent.mkdir(parents=True, exist_ok=True)
 
