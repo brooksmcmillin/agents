@@ -263,6 +263,7 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
+            ~/.cargo/bin
             agents/security_audit/collector-rs/target
           key: ${{ runner.os }}-cargo-${{ hashFiles('agents/security_audit/collector-rs/Cargo.lock') }}
           restore-keys: |
@@ -279,7 +280,7 @@ jobs:
       - name: Audit dependencies
         working-directory: agents/security_audit/collector-rs
         run: |
-          cargo install cargo-audit --locked 2>/dev/null || true
+          cargo install cargo-audit --locked || true
           cargo audit
 
   integration-tests:
