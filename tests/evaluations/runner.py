@@ -422,6 +422,11 @@ async def _main() -> None:
     if bool(args.variant_a) != bool(args.variant_b):
         parser.error("A/B testing requires both --variant-a and --variant-b")
 
+    # --save-baseline produces a single {agent}.json file, which doesn't
+    # make sense for A/B testing (variant B would silently overwrite A).
+    if args.save_baseline and args.variant_a:
+        parser.error("--save-baseline cannot be combined with A/B testing")
+
     # A/B testing mode
     if args.variant_a and args.variant_b:
         print(f"Running A/B evaluation for {args.agent}...")
@@ -465,11 +470,6 @@ async def _main() -> None:
             path_a = run_a.save(RESULTS_DIR)
             path_b = run_b.save(RESULTS_DIR)
             print(f"Results saved: {path_a}, {path_b}")
-
-        if args.save_baseline:
-            path_a = run_a.save_baseline(RESULTS_DIR)
-            path_b = run_b.save_baseline(RESULTS_DIR)
-            print(f"Baselines saved: {path_a}, {path_b}")
 
     # Single evaluation mode
     else:

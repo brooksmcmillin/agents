@@ -187,9 +187,11 @@ jobs:
       - run: uv sync
 
       - name: Check eval baselines for prompt changes
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: >
           uv run python -m tests.evaluations.check_prompt_gate
-          origin/${{ github.event.pull_request.base.ref }}
+          origin/$BASE_REF
 
   frontend-tests:
     name: Frontend Tests

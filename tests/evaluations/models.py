@@ -123,7 +123,7 @@ class EvalRun:
             **self.summary(),
             "results": [r.to_dict() for r in self.results],
         }
-        path.write_text(json.dumps(data, indent=2))
+        path.write_text(json.dumps(data, indent=2) + "\n")
         return path
 
     def save_baseline(self, output_dir: Path) -> Path:

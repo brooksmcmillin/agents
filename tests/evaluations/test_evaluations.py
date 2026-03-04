@@ -539,12 +539,15 @@ class TestPromptChangeGate:
         assert baselines == {"chatbot", "business"}
 
     def test_extract_changed_baselines_ignores_ad_hoc(self):
+        """Defense-in-depth: ad-hoc filenames don't match agent names.
+
+        In practice, ad-hoc files are gitignored (*_*_*.json) and never
+        appear in git diff. This test verifies the naming convention also
+        prevents false matches if the gitignore is ever removed.
+        """
         files = [
             "tests/evaluations/results/chatbot_default_abc123.json",
         ]
-        # Ad-hoc files still have their stem extracted — the gate
-        # only cares whether the agent name matches, and ad-hoc filenames
-        # won't match agent names because they contain underscores.
         baselines = extract_changed_baselines(files)
         assert "chatbot" not in baselines
 
@@ -561,3 +564,11 @@ class TestPromptChangeGate:
         assert not missing, (
             f"Agents missing from check_prompt_gate._MODULE_TO_REGISTRY: {', '.join(missing)}"
         )
+
+    def test_module_to_registry_keys_are_valid_directories(self):
+        """Verify every key in the mapping points to an actual agent directory."""
+        from tests.evaluations.check_prompt_gate import _MODULE_TO_REGISTRY
+        from tests.evaluations.runner import PROJECT_ROOT
+
+        stale = {k for k in _MODULE_TO_REGISTRY if not (PROJECT_ROOT / "agents" / k).is_dir()}
+        assert not stale, f"Stale keys in check_prompt_gate._MODULE_TO_REGISTRY: {', '.join(stale)}"
