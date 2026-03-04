@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "endpoint-monitor": {
-      "command": "uv",
-      "args": ["run", "--directory", "/home/brooks/build/agents", "python", "scripts/demos/pair_debug/demo_server.py"]
-    }
-  }
-}

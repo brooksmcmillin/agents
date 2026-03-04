@@ -8,20 +8,22 @@ Two Claude Code CLI instances collaborate to debug a broken MCP tool, communicat
 
 - Two terminal windows
 - Claude Code CLI in both
-- mcp-relay configured in both sessions (the default project `.mcp.json` includes it)
+- mcp-relay configured in both sessions (see [mcp-relay docs](https://github.com/anthropics/mcp-relay) for setup)
 
 ## Setup
 
 ### 1. Add the buggy server to Session A's MCP config
 
-Create or edit `.mcp.json` **in the directory where you'll launch Session A** (or use `--mcp-config`):
+Create or edit `.mcp.json` **in the directory where you'll launch Session A** (or use `--mcp-config`).
+
+Replace `<AGENTS_REPO>` with the absolute path to your checkout of this repo:
 
 ```json
 {
   "mcpServers": {
     "endpoint-monitor": {
       "command": "uv",
-      "args": ["run", "--directory", "/home/brooks/build/agents", "python", "scripts/demos/pair_debug/demo_server.py"]
+      "args": ["run", "--directory", "<AGENTS_REPO>", "python", "scripts/demos/pair_debug/demo_server.py"]
     }
   }
 }
@@ -39,7 +41,7 @@ claude
 
 **Terminal 2 (Session B):**
 ```bash
-cd /home/brooks/build/agents
+cd <AGENTS_REPO>
 claude
 ```
 
@@ -154,8 +156,8 @@ Session A                     #pair-debug                    Session B
 # Clear the relay channel
 # (from either session, via mcp-relay's clear_channel tool)
 
-# Remove the temporary MCP config if you created one
-rm /tmp/pair-debug-demo/.mcp.json
+# Remove the MCP config you created for Session A
+rm /tmp/pair-debug-demo/.mcp.json   # or wherever you placed it
 ```
 
 ## Troubleshooting
