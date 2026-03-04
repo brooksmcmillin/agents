@@ -9,9 +9,11 @@ These tests verify that:
 
 import os
 from datetime import UTC, datetime
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from pydantic import ValidationError
 
 
 class TestMemoryBackendSelection:
@@ -53,34 +55,41 @@ class TestMemoryBackendSelection:
 class TestSettingsMemoryBackend:
     """Tests for the Settings.memory_backend field validator."""
 
-    def test_settings_default_is_file(self, monkeypatch):
+    def test_settings_default_is_file(self, monkeypatch, temp_dir: Path):
         """Test that Settings.memory_backend defaults to 'file'."""
         monkeypatch.delenv("MEMORY_BACKEND", raising=False)
 
         from agent_framework.core.config import Settings
 
-        s = Settings()
+        s = Settings(
+            token_storage_path=temp_dir / "tokens",
+            memory_storage_path=temp_dir / "memories",
+        )
         assert s.memory_backend == "file"
 
-    def test_settings_normalizes_to_lowercase(self, monkeypatch):
+    def test_settings_normalizes_to_lowercase(self, monkeypatch, temp_dir: Path):
         """Test that Settings.memory_backend lowercases the raw env var."""
         monkeypatch.setenv("MEMORY_BACKEND", "DATABASE")
 
         from agent_framework.core.config import Settings
 
-        s = Settings()
+        s = Settings(
+            token_storage_path=temp_dir / "tokens",
+            memory_storage_path=temp_dir / "memories",
+        )
         assert s.memory_backend == "database"
 
-    def test_settings_rejects_invalid_backend(self, monkeypatch):
+    def test_settings_rejects_invalid_backend(self, monkeypatch, temp_dir: Path):
         """Test that Settings raises on an unrecognized MEMORY_BACKEND value."""
         monkeypatch.setenv("MEMORY_BACKEND", "redis")
-
-        from pydantic import ValidationError
 
         from agent_framework.core.config import Settings
 
         with pytest.raises(ValidationError, match="Invalid memory_backend"):
-            Settings()
+            Settings(
+                token_storage_path=temp_dir / "tokens",
+                memory_storage_path=temp_dir / "memories",
+            )
 
 
 class TestDatabaseUrlResolution:
