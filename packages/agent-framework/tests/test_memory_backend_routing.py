@@ -50,6 +50,39 @@ class TestMemoryBackendSelection:
         assert get_memory_backend() == "database"
 
 
+class TestSettingsMemoryBackend:
+    """Tests for the Settings.memory_backend field validator."""
+
+    def test_settings_default_is_file(self, monkeypatch):
+        """Test that Settings.memory_backend defaults to 'file'."""
+        monkeypatch.delenv("MEMORY_BACKEND", raising=False)
+
+        from agent_framework.core.config import Settings
+
+        s = Settings()
+        assert s.memory_backend == "file"
+
+    def test_settings_normalizes_to_lowercase(self, monkeypatch):
+        """Test that Settings.memory_backend lowercases the raw env var."""
+        monkeypatch.setenv("MEMORY_BACKEND", "DATABASE")
+
+        from agent_framework.core.config import Settings
+
+        s = Settings()
+        assert s.memory_backend == "database"
+
+    def test_settings_rejects_invalid_backend(self, monkeypatch):
+        """Test that Settings raises on an unrecognized MEMORY_BACKEND value."""
+        monkeypatch.setenv("MEMORY_BACKEND", "redis")
+
+        from pydantic import ValidationError
+
+        from agent_framework.core.config import Settings
+
+        with pytest.raises(ValidationError, match="Invalid memory_backend"):
+            Settings()
+
+
 class TestDatabaseUrlResolution:
     """Tests for database URL environment variable resolution."""
 

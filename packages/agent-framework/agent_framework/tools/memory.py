@@ -212,6 +212,11 @@ def get_memory_backend() -> str:
     callers can compare against the canonical strings ``"file"`` and
     ``"database"`` without additional normalisation.
 
+    This function is intentionally permissive — it does not validate the value.
+    All callers use the pattern ``if backend == "database": ... else: ...`` which
+    safely falls back to the file backend for any unknown value.  Validation at
+    startup is handled by the ``Settings.memory_backend`` field validator.
+
     Returns:
         The configured backend name, e.g. ``"file"`` or ``"database"``.
     """
