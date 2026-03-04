@@ -18,7 +18,7 @@ import sys
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TextIO, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from anthropic import APIConnectionError, APIStatusError, AsyncAnthropic
 from anthropic.types import (
@@ -45,6 +45,7 @@ from agent_framework.security.context_trimming import (
 )
 from agent_framework.utils.errors import MissingAPIKeyError
 
+from ..logging import setup_logging
 from .config import settings
 from .mcp_client import MCPClient
 from .remote_mcp_client import RemoteMCPClient
@@ -186,160 +187,6 @@ def _read_multiline_input(prompt: str) -> str:
         pass
 
     return "\n".join(lines)
-
-
-class _StderrToLogFile:
-    """Wrapper that redirects stderr to a log file only (not console).
-
-    This captures stderr output (from subprocesses, exceptions, etc.) and
-    writes it only to the log file, keeping the console clean. The original
-    stderr is preserved for fileno() and isatty() compatibility but writes
-    are not echoed to it.
-    """
-
-    def __init__(self, log_file_path: Path, original_stderr: TextIO | None) -> None:
-        self.log_file_path = log_file_path
-        self.original_stderr = original_stderr
-        self._log_file = None
-
-    def _ensure_file_open(self) -> None:
-        """Open log file lazily."""
-        import contextlib
-
-        if self._log_file is None:
-            with contextlib.suppress(OSError):
-                self._log_file = open(  # noqa: SIM115
-                    self.log_file_path, "a", encoding="utf-8"
-                )
-
-    def write(self, data: str) -> None:
-        """Write to log file only (not echoed to console)."""
-        import contextlib
-
-        # Write only to log file - do NOT echo to console
-        self._ensure_file_open()
-        if self._log_file:
-            with contextlib.suppress(OSError):
-                self._log_file.write(data)
-                self._log_file.flush()
-
-    def flush(self) -> None:
-        """Flush the log file stream."""
-        import contextlib
-
-        if self._log_file:
-            with contextlib.suppress(OSError):
-                self._log_file.flush()
-
-    def fileno(self) -> int:
-        """Return file descriptor of original stderr."""
-        if self.original_stderr:
-            return self.original_stderr.fileno()
-        raise OSError("No stderr available")
-
-    def isatty(self) -> bool:
-        """Check if original stderr is a tty."""
-        if self.original_stderr:
-            return self.original_stderr.isatty()
-        return False
-
-    def close(self) -> None:
-        """Close the log file (but not original stderr)."""
-        import contextlib
-
-        if self._log_file:
-            with contextlib.suppress(OSError):
-                self._log_file.close()
-            self._log_file = None
-
-
-# Global reference to stderr wrapper for cleanup
-_stderr_wrapper: _StderrToLogFile | None = None
-
-
-def setup_logging(
-    agent_name: str,
-    console_level: int = logging.WARNING,
-    file_level: int = logging.DEBUG,
-    redirect_stderr: bool = True,
-    json_format: bool | None = None,
-) -> logging.Logger:
-    """
-    Set up logging with both file and console handlers.
-
-    Args:
-        agent_name: Name of the agent (used for log file name)
-        console_level: Log level for console output (default: WARNING)
-        file_level: Log level for file output (default: DEBUG)
-        redirect_stderr: If True, redirect sys.stderr to also write to log file (default: True)
-        json_format: If True, use JSON format for file logging (Loki-compatible).
-            If None, auto-detect from LOKI_ENABLED or LOG_FORMAT environment variables.
-            Console output always uses text format for readability.
-
-    Returns:
-        Configured logger instance
-    """
-    global _stderr_wrapper
-
-    # Auto-detect JSON format from settings if not explicitly specified
-    if json_format is None:
-        json_format = settings.loki_enabled or settings.log_format.lower() == "json"
-
-    # Get log file path using settings helper
-    log_file = settings.get_log_file(agent_name)
-
-    # Get the root logger for agent_framework
-    agent_logger = logging.getLogger("agent_framework")
-    agent_logger.setLevel(logging.DEBUG)  # Capture all levels
-    agent_logger.propagate = False  # Don't propagate to root logger (prevents duplicate output)
-
-    # Remove existing handlers to avoid duplicates on reload
-    agent_logger.handlers.clear()
-
-    # File handler - captures all debug info
-    file_handler = logging.FileHandler(log_file, encoding="utf-8")
-    file_handler.setLevel(file_level)
-
-    if json_format:
-        # Use JSON formatter for Loki compatibility
-        from ..logging import AgentJsonFormatter
-
-        file_handler.setFormatter(AgentJsonFormatter(agent_name=agent_name))
-    else:
-        # Use standard text formatter for human readability
-        file_handler.setFormatter(
-            logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-        )
-    agent_logger.addHandler(file_handler)
-
-    # Console handler - always text format for human readability
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(console_level)
-    console_handler.setFormatter(logging.Formatter("%(message)s"))
-    agent_logger.addHandler(console_handler)
-
-    # Also configure httpx and mcp loggers to file only
-    for lib_logger_name in ["httpx", "mcp", "mcp_server"]:
-        lib_logger = logging.getLogger(lib_logger_name)
-        lib_logger.setLevel(logging.DEBUG)
-        lib_logger.handlers.clear()
-        lib_logger.addHandler(file_handler)
-        lib_logger.propagate = False
-
-    # Redirect sys.stderr to also write to log file
-    if redirect_stderr:
-        import sys
-
-        # Only wrap if not already wrapped
-        if not isinstance(sys.stderr, _StderrToLogFile):
-            _stderr_wrapper = _StderrToLogFile(log_file, sys.stderr)
-            sys.stderr = _stderr_wrapper  # type: ignore[assignment]
-            agent_logger.debug("sys.stderr redirected to log file")
-
-    log_format_type = "JSON" if json_format else "text"
-    agent_logger.info(f"Logging initialized ({log_format_type} format). Log file: {log_file}")
-
-    return agent_logger
 
 
 class InvalidToolName(Exception):
