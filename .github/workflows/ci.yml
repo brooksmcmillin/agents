@@ -69,11 +69,12 @@ jobs:
 
       - run: uv sync
 
-      - name: Audit production dependencies
-        run: |
-          uv export --format requirements-txt --no-dev \
-            | grep -vE '^-e |agent-framework' > /tmp/reqs.txt
-          uv run --with 'pip-audit>=2.10,<3' pip-audit -r /tmp/reqs.txt
+      - name: Audit all dependencies with pip-audit
+        run: uv run pip-audit
+
+      - name: Audit all dependencies with safety
+        run: uv run safety scan
+        continue-on-error: true
 
   unit-tests:
     name: Unit Tests (${{ matrix.python-version }})
