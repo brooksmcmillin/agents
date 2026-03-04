@@ -246,6 +246,40 @@ jobs:
           path: webui/dist/
           retention-days: 7
 
+  rust-collector:
+    name: Rust Collector (security-audit-collector-rs)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            agents/security_audit/collector-rs/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('agents/security_audit/collector-rs/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build (debug)
+        working-directory: agents/security_audit/collector-rs
+        run: cargo build
+
+      - name: Clippy (deny warnings)
+        working-directory: agents/security_audit/collector-rs
+        run: cargo clippy -- -D warnings
+
+      - name: Test
+        working-directory: agents/security_audit/collector-rs
+        run: cargo test
+
   integration-tests:
     name: Integration Tests
     needs: [pip-audit, unit-tests, database-tests, frontend-build]

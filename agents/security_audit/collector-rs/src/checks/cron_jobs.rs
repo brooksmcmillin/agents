@@ -10,16 +10,17 @@ pub fn run() -> Value {
     if let Some(content) = read_file_string("/etc/crontab") {
         for line in content.lines() {
             let line = line.trim();
-            if !line.is_empty() && !line.starts_with('#') {
-                if line.contains("curl ") || line.contains("wget ") {
-                    let truncated: String = line.chars().take(200).collect();
-                    findings.push(json!({
-                        "source": "/etc/crontab",
-                        "line": truncated,
-                        "severity": "high",
-                        "issue": "Cron job fetches remote content",
-                    }));
-                }
+            if !line.is_empty()
+                && !line.starts_with('#')
+                && (line.contains("curl ") || line.contains("wget "))
+            {
+                let truncated: String = line.chars().take(200).collect();
+                findings.push(json!({
+                    "source": "/etc/crontab",
+                    "line": truncated,
+                    "severity": "high",
+                    "issue": "Cron job fetches remote content",
+                }));
             }
         }
     }
