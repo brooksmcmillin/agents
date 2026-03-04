@@ -69,13 +69,7 @@ jobs:
 
       - run: uv sync
 
-      - name: Audit production dependencies
-        run: |
-          uv export --format requirements-txt --no-dev \
-            | grep -vE '^-e |agent-framework' > /tmp/reqs.txt
-          uv run pip-audit -r /tmp/reqs.txt --format json
-
-      - name: Audit root dev dependencies
+      - name: Audit all dependencies with pip-audit
         run: uv run pip-audit --format json
 
   unit-tests:
