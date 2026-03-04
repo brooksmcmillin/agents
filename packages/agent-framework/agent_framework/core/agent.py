@@ -741,22 +741,40 @@ class Agent(ABC):
                 else:
                     return result
 
-    async def _get_available_tools(self) -> list[str]:
-        """Get list of available MCP tools (reconnects to server)."""
+    async def _collect_remote_tools(self, url: str) -> list[dict[str, Any]]:
+        """Connect to a single remote MCP server and collect its tools.
 
-        # Get tools from local MCP server
-        async with self.mcp_client.connect():
-            self.tools["local"] = self.mcp_client.get_available_tools()
+        Populates ``self.tools[url]`` with the list of tool names and returns the
+        raw tool list as returned by the remote server.
 
-        # Get tools from remote MCP server(s) if applicable
+        Args:
+            url: The URL of the remote MCP server.
+
+        Returns:
+            Raw list of tool definitions returned by the remote server.
+        """
+        async with self._create_remote_mcp_client(url) as mcp:
+            mcp_tools = await mcp.list_tools()
+            self.tools[url] = [tool["name"] for tool in mcp_tools]
+            return mcp_tools
+
+    async def _update_remote_tools(self) -> dict[str, list[dict[str, Any]]]:
+        """Fetch tools from all configured remote MCP servers, pruning failed URLs.
+
+        Iterates ``self.mcp_urls``, calls ``_collect_remote_tools`` for each, and
+        removes any URL that raises a connection-related error when
+        ``skip_failed_mcp_urls`` is enabled.
+
+        Returns:
+            Mapping of URL to raw tool list for each successfully connected server.
+        """
         logger.debug("Getting available remote tools.")
         failed_urls: list[str] = []
+        results: dict[str, list[dict[str, Any]]] = {}
         for url in self.mcp_urls:
             logger.debug(f"Getting tools from {url}")
             try:
-                async with self._create_remote_mcp_client(url) as mcp:
-                    mcp_tools = await mcp.list_tools()
-                    self.tools[url] = [tool["name"] for tool in mcp_tools]
+                results[url] = await self._collect_remote_tools(url)
             except (ConnectionError, TimeoutError, OSError, ValueError, RuntimeError) as e:
                 if self.skip_failed_mcp_urls:
                     logger.warning(f"Skipping failed remote MCP server {url}: {e}")
@@ -767,6 +785,18 @@ class Agent(ABC):
         # Remove failed URLs so they aren't retried later
         for url in failed_urls:
             self.mcp_urls.remove(url)
+
+        return results
+
+    async def _get_available_tools(self) -> list[str]:
+        """Get list of available MCP tools (reconnects to server)."""
+
+        # Get tools from local MCP server
+        async with self.mcp_client.connect():
+            self.tools["local"] = self.mcp_client.get_available_tools()
+
+        # Get tools from remote MCP server(s) if applicable
+        await self._update_remote_tools()
 
         # Return the concatenation of all the tool lists
         return [item for lst in self.tools.values() for item in lst]
@@ -1582,35 +1612,17 @@ class Agent(ABC):
 
         # Get remote MCP Server tools
         logger.debug("Starting Remote MCP Server Checks")
-        failed_urls: list[str] = []
-        for url in self.mcp_urls:
-            logger.debug(f"Checking Remote MCP Server: {url}")
-            try:
-                async with self._create_remote_mcp_client(url) as mcp:
-                    mcp_tools = await mcp.list_tools()
-
-                    # Populate self.tools[url] for tool routing
-                    self.tools[url] = [tool["name"] for tool in mcp_tools]
-
-                    # Convert to Anthropic format
-                    anthropic_tools += [
-                        {
-                            "name": tool["name"],
-                            "description": tool["description"],
-                            "input_schema": tool["input_schema"],
-                        }
-                        for tool in mcp_tools
-                    ]
-            except (ConnectionError, TimeoutError, OSError, ValueError, RuntimeError) as e:
-                if self.skip_failed_mcp_urls:
-                    logger.warning(f"Skipping failed remote MCP server {url}: {e}")
-                    failed_urls.append(url)
-                else:
-                    raise
-
-        # Remove failed URLs so they aren't retried on subsequent calls
-        for url in failed_urls:
-            self.mcp_urls.remove(url)
+        remote_tools = await self._update_remote_tools()
+        for mcp_tools in remote_tools.values():
+            # Convert to Anthropic format
+            anthropic_tools += [
+                {
+                    "name": tool["name"],
+                    "description": tool["description"],
+                    "input_schema": tool["input_schema"],
+                }
+                for tool in mcp_tools
+            ]
 
         # Add delegation tool (request_agent) if enabled and configured
         if self.enable_delegation and self._delegation_config:
