@@ -1,15 +1,25 @@
 # MCP Tools Reference
 
-The MCP server exposes **55 tools** across 14 categories (defined in `packages/agent-framework/agent_framework/tools/`).
+The MCP server exposes **72 tools** across 15 categories (defined in `packages/agent-framework/agent_framework/tools/`).
 
 ## Web Analysis Tools (2 tools)
 - `fetch_web_content` - Fetch web content as clean markdown for LLM reading and analysis
 - `analyze_website` - Web content analysis (tone, SEO, engagement) - uses real web scraping
 
-## Memory Tools (6 tools)
+## Browser Testing Tools (6 tools)
+*Requires Playwright browser automation library (install with `uv sync --group browser`)*
+- `browser_screenshot` - Take a screenshot of a webpage using headless Chromium, supporting full-page captures and custom viewports
+- `browser_accessibility_audit` - Run an accessibility audit checking heading hierarchy, image alt text, form labels, ARIA landmarks, link text quality, and viewport configuration
+- `browser_performance_audit` - Collect performance metrics including DNS/TCP/TTFB/DOM load times, Core Web Vitals (LCP, CLS), total page weight, and resource breakdown by category
+- `browser_console_errors` - Capture JavaScript console errors, warnings, and uncaught exceptions from a loaded webpage
+- `browser_check_links` - Check for broken links on a webpage by extracting all links and verifying them with HEAD requests
+- `browser_crawl_site` - Crawl a website starting from a URL to discover internal pages, following same-origin links up to a maximum page count
+
+## Memory Tools (7 tools)
 - `save_memory` - Save information with key/value/category/tags/importance (1-10 scale)
 - `get_memories` - Retrieve memories with filtering by category/tags/importance
 - `search_memories` - Search memories by keyword
+- `recall_memories` - Retrieve memories by semantic similarity using embedding-based vector search or keyword fallback
 - `delete_memory` - Delete a memory by key
 - `get_memory_stats` - Get memory system statistics
 - `configure_memory_store` - Configure memory backend (file or database)
@@ -95,6 +105,28 @@ The MCP server exposes **55 tools** across 14 categories (defined in `packages/a
 - `grep_files` - Search file contents by regex pattern with ReDoS protection
 - `write_file` - Write text content to a file (create or overwrite), optionally creating parent directories
 - `edit_file` - Edit a file by finding and replacing an exact string match (unique or replace-all)
+
+## Network Admin Tools (11 tools)
+*Requires `SYSADMIN_ALLOWED_SUBNETS` env var for network-based tools (fail-secure: denied when unset)*
+
+**Network Discovery & Scanning:**
+- `network_discover_hosts` - Discover live hosts on a local subnet using TCP probes on common ports (80, 443, 22, 445)
+- `network_scan_ports` - Scan TCP ports on a target host with support for port ranges, common port lists, and optional service banner grabbing
+- `network_grab_banners` - Connect to open ports and retrieve service banners to identify software versions and misconfigurations
+- `network_check_tls` - Inspect TLS/SSL configuration including certificate validity, expiration, protocol version, cipher suites, and trust chain validation
+
+**Network Configuration Audit:**
+- `network_check_dns` - Perform DNS lookups and check for common misconfigurations (SPF, DMARC, reverse DNS)
+- `network_check_default_credentials` - Check for default/common credentials on discovered services (SSH, HTTP, SNMP) for defensive auditing
+
+**Local System Security Audit:**
+- `system_get_info` - Collect local system information including OS version, hostname, network interfaces, listening ports, and uptime
+- `system_check_ssh_config` - Audit SSH server configuration for security issues (root login, password auth, empty passwords, X11 forwarding)
+- `system_check_file_permissions` - Check permissions on sensitive files and directories, identifying world-readable/writable files and overly permissive SSH keys
+- `system_check_firewall` - Check firewall configuration and identify issues in ufw, iptables, or nftables rules
+
+**Comprehensive Security Reporting:**
+- `network_generate_report` - Run a comprehensive multi-stage security assessment orchestrating port scans, TLS checks, DNS analysis, SSH config audits, firewall review, and default credential tests with findings sorted by severity
 
 ## Tool Usage Examples
 
