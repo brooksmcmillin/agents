@@ -204,6 +204,11 @@ class MCPClient:
         async with self._persistent_connect_lock:
             if self.session is None:
                 # No cached connection yet — start one and cache it.
+                # Note: if the subprocess crashes while the session is cached,
+                # self.session will still be non-None and the stale client will be
+                # returned on the next call, causing transport errors.  Transparent
+                # reconnection-on-failure is a known limitation deferred to a future
+                # improvement (see task #606).
                 server_params = self._build_server_params()
                 errlog = self._open_errlog()
 
