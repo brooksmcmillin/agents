@@ -280,7 +280,7 @@ jobs:
       - name: Audit dependencies
         working-directory: agents/security_audit/collector-rs
         run: |
-          cargo install cargo-audit --locked || true
+          cargo install cargo-audit --locked
           cargo audit
 
   integration-tests:
