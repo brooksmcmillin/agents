@@ -268,17 +268,19 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - name: Build (debug)
-        working-directory: agents/security_audit/collector-rs
-        run: cargo build
-
       - name: Clippy (deny warnings)
         working-directory: agents/security_audit/collector-rs
-        run: cargo clippy -- -D warnings
+        run: cargo clippy --all-targets -- -D warnings
 
       - name: Test
         working-directory: agents/security_audit/collector-rs
         run: cargo test
+
+      - name: Audit dependencies
+        working-directory: agents/security_audit/collector-rs
+        run: |
+          cargo install cargo-audit --locked 2>/dev/null || true
+          cargo audit
 
   integration-tests:
     name: Integration Tests

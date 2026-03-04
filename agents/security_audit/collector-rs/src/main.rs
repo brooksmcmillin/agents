@@ -372,6 +372,12 @@ fn upload_report(report_path: &Path, url: &str) -> Result<(), String> {
                 .to_string()
         })?;
 
+    eprintln!(
+        "[WARN] Uploading over plaintext HTTP. Security audit reports contain \
+         sensitive system data (open ports, SSH config, user accounts, kernel \
+         parameters). Use HTTPS wherever possible to prevent interception."
+    );
+
     let (host_port, path) = match url_trimmed.find('/') {
         Some(i) => (&url_trimmed[..i], &url_trimmed[i..]),
         None => (url_trimmed, "/"),
