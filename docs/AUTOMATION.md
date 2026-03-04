@@ -154,7 +154,7 @@ weekly-pr-review ~/build/agents -c "PR Review" --dry-run
    - Codebase trends (high-churn files, complexity growth, consistency)
    - Action items (urgent, todo, watch)
 3. **Create tasks** (optional) - If issues warrant follow-up, creates tasks in TaskManager
-4. **Log to wiki** - Documents analysis at: `automation-log/<category>/<category>-week-YYYY-MM-DD-HHMM>`
+4. **Log to wiki** - Documents analysis at: `automation-log/<category>/<category>-week-YYYY-MM-DD-HHMM`
 
 **Requirements:**
 
@@ -168,7 +168,7 @@ weekly-pr-review ~/build/agents -c "PR Review" --dry-run
 
 **Output:**
 
-- Creates wiki pages at: `automation-log/<category>/<category>-week-YYYY-MM-DD-HHMM>`
+- Creates wiki pages at: `automation-log/<category>/<category>-week-YYYY-MM-DD-HHMM`
 - Optionally creates TaskManager tasks from findings
 - Sends ntfy push notifications on errors
 - Logs to stdout and file
