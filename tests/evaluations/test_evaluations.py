@@ -397,6 +397,34 @@ class TestAllDatasets:
             )
 
 
+# ── Dataset coverage ─────────────────────────────────────────────────
+
+
+class TestDatasetCoverage:
+    """Ensure every registered agent has a corresponding eval dataset."""
+
+    # Agents that are background services (no interactive prompt) and don't need eval datasets.
+    EXCLUDED_AGENTS: set[str] = set()
+
+    def test_every_agent_has_dataset(self):
+        """Fail if a registered agent has no JSONL dataset file."""
+        from shared.registry import build_agent_registry
+
+        registry = build_agent_registry()
+        missing = []
+        for agent_name in sorted(registry):
+            if agent_name in self.EXCLUDED_AGENTS:
+                continue
+            path = DATASETS_DIR / f"{agent_name}.jsonl"
+            if not path.exists():
+                missing.append(agent_name)
+
+        assert not missing, (
+            f"Agents missing eval datasets: {', '.join(missing)}. "
+            f"Create tests/evaluations/datasets/<name>.jsonl for each."
+        )
+
+
 # ── Prompt variants ──────────────────────────────────────────────────
 
 
