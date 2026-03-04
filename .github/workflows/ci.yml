@@ -314,7 +314,7 @@ jobs:
 
       - run: uv sync
 
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: frontend-build
           path: webui/dist/
