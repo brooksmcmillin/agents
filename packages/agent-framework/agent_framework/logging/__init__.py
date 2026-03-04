@@ -11,6 +11,7 @@ Key components:
 - _StderrToLogFile: Redirects stderr to log file while keeping console clean
 """
 
+import contextlib
 import contextvars
 import json
 import logging
@@ -242,8 +243,6 @@ class _StderrToLogFile:
 
     def _ensure_file_open(self) -> None:
         """Open log file lazily."""
-        import contextlib
-
         if self._log_file is None:
             with contextlib.suppress(OSError):
                 self._log_file = open(  # noqa: SIM115
@@ -252,8 +251,6 @@ class _StderrToLogFile:
 
     def write(self, data: str) -> None:
         """Write to log file only (not echoed to console)."""
-        import contextlib
-
         # Write only to log file - do NOT echo to console
         self._ensure_file_open()
         if self._log_file:
@@ -263,8 +260,6 @@ class _StderrToLogFile:
 
     def flush(self) -> None:
         """Flush the log file stream."""
-        import contextlib
-
         if self._log_file:
             with contextlib.suppress(OSError):
                 self._log_file.flush()
@@ -281,10 +276,13 @@ class _StderrToLogFile:
             return self.original_stderr.isatty()
         return False
 
+    @property
+    def closed(self) -> bool:
+        """Return True if the log file has been closed."""
+        return self._log_file is None
+
     def close(self) -> None:
         """Close the log file (but not original stderr)."""
-        import contextlib
-
         if self._log_file:
             with contextlib.suppress(OSError):
                 self._log_file.close()
@@ -333,7 +331,9 @@ def setup_logging(
     agent_logger.setLevel(logging.DEBUG)  # Capture all levels
     agent_logger.propagate = False  # Don't propagate to root logger (prevents duplicate output)
 
-    # Remove existing handlers to avoid duplicates on reload
+    # Remove existing handlers to avoid duplicates on reload (close first to avoid FD leaks)
+    for handler in agent_logger.handlers[:]:
+        handler.close()
     agent_logger.handlers.clear()
 
     # File handler - captures all debug info
@@ -385,6 +385,4 @@ __all__ = [
     "reset_correlation_id",
     "create_json_handler",
     "setup_logging",
-    "_StderrToLogFile",
-    "_stderr_wrapper",
 ]
