@@ -496,7 +496,7 @@ class Agent(ABC):
                 )
                 logger.info("Lakera Guard security checks enabled")
             else:
-                logger.debug("Lakera Guard not enabled: LAKERA_API_KEY not configured")
+                logger.warning("Prompt injection detection is DISABLED")
 
         # Conversation history
         self.messages: list[MessageParam] = []
@@ -1390,7 +1390,9 @@ class Agent(ABC):
         # Security check: Screen user input for prompt injection and other threats
         if self.security_guard is not None:
             security_result = await self.security_guard.check_input(user_message)
-            if security_result.flagged:
+            if security_result.skipped:
+                logger.debug("Lakera Guard check was skipped (no API key or disabled)")
+            elif security_result.flagged:
                 logger.warning(
                     f"Security threat detected in user input: {security_result.categories}"
                 )

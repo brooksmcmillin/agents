@@ -191,9 +191,9 @@ class Settings(BaseSettings):
         description="Lakera Guard project ID for request tracking and analytics.",
     )
     lakera_fail_open: bool = Field(
-        default=True,
+        default=False,
         description="If True, allow content through when Lakera API errors occur. "
-        "If False, block content on API failures.",
+        "If False, block content on API failures (secure default).",
     )
 
     # Observability - Langfuse

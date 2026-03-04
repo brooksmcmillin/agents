@@ -8,7 +8,7 @@ LLM interactions for security threats including:
 - Malicious content
 
 The integration is optional - if LAKERA_API_KEY is not set, security
-checks are skipped silently.
+checks are skipped and a warning is logged.
 
 For more information, see: https://docs.lakera.ai/docs/api/guard
 """
@@ -73,7 +73,7 @@ class LakeraGuard:
 
     This client screens LLM inputs and outputs for security threats.
     If LAKERA_API_KEY environment variable is not set, all checks
-    are skipped (fail-open behavior).
+    are skipped and a warning is logged (fail-closed is the secure default).
 
     Usage:
         guard = LakeraGuard()
@@ -99,7 +99,7 @@ class LakeraGuard:
         project_id: str | None = None,
         api_url: str = LAKERA_API_URL,
         timeout: float = DEFAULT_TIMEOUT,
-        fail_open: bool = True,
+        fail_open: bool = False,
     ):
         """Initialize Lakera Guard client.
 
@@ -110,7 +110,7 @@ class LakeraGuard:
             api_url: Lakera Guard API URL (default: production endpoint).
             timeout: Request timeout in seconds.
             fail_open: If True, allow content through when API errors occur.
-                      If False, raise SecurityCheckError on API failures.
+                      If False, raise SecurityCheckError on API failures (secure default).
         """
         self._api_key = api_key or os.environ.get(LAKERA_API_KEY_ENV)
         self._project_id = project_id or os.environ.get(LAKERA_PROJECT_ID_ENV)
@@ -122,7 +122,7 @@ class LakeraGuard:
         if self._api_key:
             logger.info("Lakera Guard initialized with API key")
         else:
-            logger.info(f"Lakera Guard disabled: {LAKERA_API_KEY_ENV} environment variable not set")
+            logger.warning("Prompt injection detection is DISABLED")
 
     @property
     def enabled(self) -> bool:
