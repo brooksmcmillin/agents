@@ -830,12 +830,30 @@ class TestSystemCheckSshConfig:
         assert "/etc/ssh/" in result["message"]
 
     @pytest.mark.asyncio
-    async def test_returns_error_for_symlink_escape_attempt(self, tmp_path: Any) -> None:
-        """A symlink pointing outside /etc/ssh/ must be caught by realpath check."""
-        # We can't actually create a symlink to /tmp in /etc/ssh/, so we test
-        # the logic by passing a path outside /etc/ssh/ directly
+    async def test_returns_error_for_path_in_home_dir(self) -> None:
+        """Paths outside /etc/ssh/ (e.g. home dir) are rejected."""
         result = await system_check_ssh_config(AGENT, config_path="/home/user/.ssh/sshd_config")
         assert result["status"] == "error"
+
+    @pytest.mark.asyncio
+    async def test_rejects_symlink_pointing_outside_allowed_dir(self, tmp_path: Any) -> None:
+        """A symlink resolving outside /etc/ssh/ must be caught by realpath.
+
+        Creates a real symlink in tmp_path pointing to a file outside /etc/ssh/,
+        then patches os.path.realpath to simulate resolution to a disallowed path.
+        This verifies the realpath-based guard works against symlink traversal.
+        """
+        # Create a real symlink target
+        target = tmp_path / "evil_config"
+        target.write_text("PermitRootLogin yes\n")
+        symlink = tmp_path / "sshd_config_link"
+        symlink.symlink_to(target)
+
+        # Patch realpath so the symlink resolves to a path outside /etc/ssh/
+        with patch("os.path.realpath", return_value=str(target)):
+            result = await system_check_ssh_config(AGENT, config_path=str(symlink))
+        assert result["status"] == "error"
+        assert "/etc/ssh/" in result["message"]
 
     @pytest.mark.asyncio
     async def test_returns_error_when_file_not_found(self) -> None:
@@ -1003,11 +1021,11 @@ class TestSystemCheckFilePermissions:
         mock_stat.st_gid = 0
         with patch("os.stat", return_value=mock_stat):
             result = await system_check_file_permissions(AGENT, paths=None)
-        # Should have critical findings about world-readable shadow files
+        # Must have critical findings about world-readable shadow files
         findings = result["findings"]
         shadow_findings = [f for f in findings if "shadow" in f.get("finding", "")]
-        if shadow_findings:
-            assert any(f["severity"] == "critical" for f in shadow_findings)
+        assert shadow_findings, "Expected at least one finding about world-readable shadow file"
+        assert any(f["severity"] == "critical" for f in shadow_findings)
 
     @pytest.mark.asyncio
     async def test_flags_world_writable_files(self) -> None:
@@ -1032,8 +1050,14 @@ class TestSystemCheckFilePermissions:
             with patch("os.path.expanduser", side_effect=lambda p: p.replace("~", "/home/user")):
                 result = await system_check_file_permissions(AGENT)
         findings = result["findings"]
-        # Should flag SSH key permission issues
-        assert isinstance(findings, list)
+        # Must flag SSH key permission issues (644 instead of required 600)
+        ssh_findings = [
+            f
+            for f in findings
+            if "id_rsa" in f.get("finding", "") or "id_ed25519" in f.get("finding", "")
+        ]
+        assert ssh_findings, "Expected at least one finding about loose SSH key permissions"
+        assert any(f["severity"] == "high" for f in ssh_findings)
 
     @pytest.mark.asyncio
     async def test_handles_file_not_found_gracefully(self) -> None:
@@ -1367,13 +1391,12 @@ class TestNetworkGenerateReport:
 
         severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
         findings = result["findings"]
-        if len(findings) > 1:
-            for i in range(len(findings) - 1):
-                sev_a = severity_order.get(findings[i].get("severity", "info"), 5)
-                sev_b = severity_order.get(findings[i + 1].get("severity", "info"), 5)
-                assert sev_a <= sev_b, (
-                    f"Findings not sorted: {findings[i]} before {findings[i + 1]}"
-                )
+        # We injected 3 findings via findings_from_ssh; assert they were collected
+        assert len(findings) == 3, f"Expected 3 findings from ssh_config mock, got {len(findings)}"
+        for i in range(len(findings) - 1):
+            sev_a = severity_order.get(findings[i].get("severity", "info"), 5)
+            sev_b = severity_order.get(findings[i + 1].get("severity", "info"), 5)
+            assert sev_a <= sev_b, f"Findings not sorted: {findings[i]} before {findings[i + 1]}"
 
     @pytest.mark.asyncio
     async def test_uses_limited_scans_when_specified(self, mock_check_host_allowed: Any) -> None:
