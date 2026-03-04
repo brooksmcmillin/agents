@@ -6,6 +6,8 @@ from unittest.mock import patch
 
 import pytest
 
+import agent_framework.telemetry.decision_logger as dl
+
 # ─── Fixtures ────────────────────────────────────────────────────────────────
 
 
@@ -19,14 +21,6 @@ def reset_decision_logger():
     reset_decision_logger()
 
 
-@pytest.fixture
-def decision_log_file(tmp_path: Path) -> Path:
-    """Return a path inside .data/ so configure_decision_logger accepts it."""
-    # The allowed dir check uses a relative ".data/" path resolved from cwd.
-    # Patch _ALLOWED_LOG_DIRS to accept the tmp_path we control.
-    return tmp_path / "decisions.jsonl"
-
-
 # ─── configure_decision_logger ───────────────────────────────────────────────
 
 
@@ -38,32 +32,29 @@ class TestConfigureDecisionLogger:
             configure_decision_logger(str(tmp_path / "decisions.jsonl"))
 
     def test_accepts_allowed_path(self, tmp_path: Path) -> None:
-        import agent_framework.telemetry.decision_logger as dl
         from agent_framework.telemetry.decision_logger import configure_decision_logger
 
         log_path = tmp_path / "decisions.jsonl"
-        with patch.object(dl, "_ALLOWED_LOG_DIRS", (str(tmp_path),)):
+        with patch.object(dl, "ALLOWED_LOG_DIRS", (str(tmp_path),)):
             configure_decision_logger(str(log_path))
 
         assert dl._decision_logger is not None
 
     def test_creates_parent_directories(self, tmp_path: Path) -> None:
-        import agent_framework.telemetry.decision_logger as dl
         from agent_framework.telemetry.decision_logger import configure_decision_logger
 
         log_path = tmp_path / "subdir" / "nested" / "decisions.jsonl"
-        with patch.object(dl, "_ALLOWED_LOG_DIRS", (str(tmp_path),)):
+        with patch.object(dl, "ALLOWED_LOG_DIRS", (str(tmp_path),)):
             configure_decision_logger(str(log_path))
 
         assert log_path.parent.exists()
 
     def test_repeated_calls_replace_handler(self, tmp_path: Path) -> None:
         """Calling configure_decision_logger twice should not add duplicate handlers."""
-        import agent_framework.telemetry.decision_logger as dl
         from agent_framework.telemetry.decision_logger import configure_decision_logger
 
         log_path = tmp_path / "decisions.jsonl"
-        with patch.object(dl, "_ALLOWED_LOG_DIRS", (str(tmp_path),)):
+        with patch.object(dl, "ALLOWED_LOG_DIRS", (str(tmp_path),)):
             configure_decision_logger(str(log_path))
             configure_decision_logger(str(log_path))
 
@@ -77,12 +68,10 @@ class TestConfigureDecisionLogger:
 class TestLogDecision:
     def _configure(self, tmp_path: Path) -> Path:
         """Set up the logger and return the log file path."""
-        import agent_framework.telemetry.decision_logger as dl
+        from agent_framework.telemetry.decision_logger import configure_decision_logger
 
         log_path = tmp_path / "decisions.jsonl"
-        with patch.object(dl, "_ALLOWED_LOG_DIRS", (str(tmp_path),)):
-            from agent_framework.telemetry.decision_logger import configure_decision_logger
-
+        with patch.object(dl, "ALLOWED_LOG_DIRS", (str(tmp_path),)):
             configure_decision_logger(str(log_path))
         return log_path
 
@@ -102,6 +91,20 @@ class TestLogDecision:
             inputs={"available_tools": ["tool_a"]},
             output={"selected_tools": ["tool_a"]},
         )
+
+    def test_invalid_decision_type_raises_even_when_unconfigured(self) -> None:
+        """ValueError must be raised for invalid decision_type even with no logger."""
+        from agent_framework.telemetry.decision_logger import log_decision
+
+        # Logger is not configured (autouse fixture cleared it), but the
+        # validation should still run so typos are caught in development.
+        with pytest.raises(ValueError, match="Unknown decision_type"):
+            log_decision(
+                agent="TestAgent",
+                decision_type="tool_seleciton",  # typo
+                inputs={},
+                output={},
+            )
 
     def test_writes_jsonl_record(self, tmp_path: Path) -> None:
         from agent_framework.telemetry.decision_logger import log_decision
@@ -304,11 +307,15 @@ class TestDecisionTypeConstants:
             DECISION_TYPE_ROUTING,
             DECISION_TYPE_TOOL_SELECTION,
             configure_decision_logger,
+            get_decision_logger,
             log_decision,
+            reset_decision_logger,
         )
 
         assert callable(configure_decision_logger)
         assert callable(log_decision)
+        assert callable(get_decision_logger)
+        assert callable(reset_decision_logger)
         assert DECISION_TYPE_TOOL_SELECTION == "tool_selection"
         assert DECISION_TYPE_ROUTING == "routing"
         assert DECISION_TYPE_DECOMPOSITION == "decomposition"
@@ -326,20 +333,18 @@ class TestGetAndResetDecisionLogger:
         assert get_decision_logger() is None
 
     def test_get_returns_logger_after_configure(self, tmp_path: Path) -> None:
-        import agent_framework.telemetry.decision_logger as dl
         from agent_framework.telemetry.decision_logger import (
             configure_decision_logger,
             get_decision_logger,
         )
 
         log_path = tmp_path / "decisions.jsonl"
-        with patch.object(dl, "_ALLOWED_LOG_DIRS", (str(tmp_path),)):
+        with patch.object(dl, "ALLOWED_LOG_DIRS", (str(tmp_path),)):
             configure_decision_logger(str(log_path))
 
         assert get_decision_logger() is not None
 
     def test_reset_clears_logger(self, tmp_path: Path) -> None:
-        import agent_framework.telemetry.decision_logger as dl
         from agent_framework.telemetry.decision_logger import (
             configure_decision_logger,
             get_decision_logger,
@@ -347,7 +352,7 @@ class TestGetAndResetDecisionLogger:
         )
 
         log_path = tmp_path / "decisions.jsonl"
-        with patch.object(dl, "_ALLOWED_LOG_DIRS", (str(tmp_path),)):
+        with patch.object(dl, "ALLOWED_LOG_DIRS", (str(tmp_path),)):
             configure_decision_logger(str(log_path))
 
         assert get_decision_logger() is not None

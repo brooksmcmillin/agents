@@ -26,6 +26,8 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
 
+from .constants import ALLOWED_LOG_DIRS
+
 # ─── Decision type constants ────────────────────────────────────────────────
 
 DECISION_TYPE_TOOL_SELECTION = "tool_selection"
@@ -48,8 +50,6 @@ _VALID_DECISION_TYPES = frozenset(
 
 _decision_logger: logging.Logger | None = None
 
-_ALLOWED_LOG_DIRS = ("/var/log/", ".data/")
-
 
 # ─── Configuration ───────────────────────────────────────────────────────────
 
@@ -68,10 +68,8 @@ def configure_decision_logger(log_path: str) -> None:
     global _decision_logger
 
     resolved = Path(log_path).resolve()
-    if not any(
-        str(resolved).startswith(str(Path(d).resolve()) + os.sep) for d in _ALLOWED_LOG_DIRS
-    ):
-        raise ValueError(f"Decision log path must be within {_ALLOWED_LOG_DIRS}, got: {resolved}")
+    if not any(str(resolved).startswith(str(Path(d).resolve()) + os.sep) for d in ALLOWED_LOG_DIRS):
+        raise ValueError(f"Decision log path must be within {ALLOWED_LOG_DIRS}, got: {resolved}")
 
     resolved.parent.mkdir(parents=True, exist_ok=True)
 
@@ -79,7 +77,9 @@ def configure_decision_logger(log_path: str) -> None:
     _decision_logger.setLevel(logging.INFO)
     _decision_logger.propagate = False
 
-    # Avoid duplicate handlers on repeated calls
+    # Close and remove existing handlers to avoid duplicates and resource leaks
+    for h in _decision_logger.handlers[:]:
+        h.close()
     _decision_logger.handlers.clear()
 
     handler = RotatingFileHandler(
@@ -134,22 +134,29 @@ def log_decision(
         output: Dict summarising the decision outcome (e.g. selected tool
             name, chosen route, subtask count).
         reasoning: Optional free-text explanation of why this decision was
-            made (e.g. extracted from the model's ``thinking`` block or
-            synthesised from the response).
+            made (e.g. the exception type name for error-handling decisions,
+            or a description synthesised from the response). Must not
+            contain sensitive information such as exception messages, API
+            keys, or connection strings.
         session_id: Optional session/conversation identifier for correlating
             decisions within a single turn.
 
     Raises:
         ValueError: If *decision_type* is not one of the recognised constants.
+            This is always raised, even when the logger is unconfigured, so
+            typos are caught early in development.
     """
-    if _decision_logger is None:
-        return
-
+    # Validate decision_type before the early return so callers with typos
+    # get an immediate ValueError in development (unconfigured logger) rather
+    # than a silent no-op that only surfaces in production.
     if decision_type not in _VALID_DECISION_TYPES:
         raise ValueError(
             f"Unknown decision_type {decision_type!r}. "
             f"Must be one of: {sorted(_VALID_DECISION_TYPES)}"
         )
+
+    if _decision_logger is None:
+        return
 
     record: dict[str, Any] = {
         "id": str(uuid.uuid4()),

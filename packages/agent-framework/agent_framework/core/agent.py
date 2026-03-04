@@ -1232,6 +1232,8 @@ class Agent(ABC):
                     )
 
                 # Log permission error handling decision
+                # Use type name only — not str(e) — to avoid leaking
+                # permission details into the decision log.
                 log_decision(
                     agent=self.get_agent_name(),
                     decision_type=DECISION_TYPE_ERROR_HANDLING,
@@ -1240,7 +1242,7 @@ class Agent(ABC):
                         "error_type": "PermissionError",
                     },
                     output={"action": "return_permission_error_to_model"},
-                    reasoning=str(e),
+                    reasoning="PermissionError",
                     session_id=session_id,
                 )
 
@@ -1262,6 +1264,9 @@ class Agent(ABC):
                     )
 
                 # Log tool execution error handling decision
+                # Use type name only — not str(e) — to avoid leaking
+                # sensitive data (API keys, connection strings, etc.) from
+                # exception messages into the decision log.
                 log_decision(
                     agent=self.get_agent_name(),
                     decision_type=DECISION_TYPE_ERROR_HANDLING,
@@ -1270,7 +1275,7 @@ class Agent(ABC):
                         "error_type": type(e).__name__,
                     },
                     output={"action": "return_tool_error_to_model"},
-                    reasoning=str(e),
+                    reasoning=type(e).__name__,
                     session_id=session_id,
                 )
 

@@ -42,7 +42,9 @@ from .telemetry import (
     DECISION_TYPE_ROUTING,
     DECISION_TYPE_TOOL_SELECTION,
     configure_decision_logger,
+    get_decision_logger,
     log_decision,
+    reset_decision_logger,
 )
 from .utils.errors import ContentPolicyError, PromptInjectionError, SecurityError
 
@@ -87,7 +89,9 @@ __all__ = [
     "get_required_permissions",
     # Decision logging
     "configure_decision_logger",
+    "get_decision_logger",
     "log_decision",
+    "reset_decision_logger",
     "DECISION_TYPE_TOOL_SELECTION",
     "DECISION_TYPE_ROUTING",
     "DECISION_TYPE_DECOMPOSITION",
