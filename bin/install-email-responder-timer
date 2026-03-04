@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+#
+# install-email-responder-timer - Install a systemd timer for email-responder.
+#
+# Idempotent: safe to run multiple times. Will not overwrite an existing timer.
+#
+# Usage:
+#   install-email-responder-timer              # Default: every 30 minutes
+#   install-email-responder-timer 60           # Every 60 minutes
+#   install-email-responder-timer 15           # Every 15 minutes
+#
+# To list installed timer:
+#   systemctl list-timers 'email-responder*'
+#
+# To remove:
+#   sudo systemctl disable --now email-responder.timer
+#   sudo rm /etc/systemd/system/email-responder.{service,timer}
+#   sudo systemctl daemon-reload
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+RUNNER_SCRIPT="$SCRIPT_DIR/email-responder"
+ENV_FILE="${PROJECT_DIR}/.env"
+UNIT_NAME="email-responder"
+
+usage() {
+  cat <<'EOF'
+Usage: install-email-responder-timer [MINUTES]
+
+Install a systemd timer that runs email-responder periodically.
+
+Arguments:
+  MINUTES     Interval in minutes between runs (default: 30)
+
+Options:
+  -h, --help  Show this help
+
+Examples:
+  install-email-responder-timer        # Every 30 minutes
+  install-email-responder-timer 60     # Every hour
+  install-email-responder-timer 15     # Every 15 minutes
+EOF
+  exit 0
+}
+
+# --- Parse args ---
+[[ "${1:-}" == "-h" || "${1:-}" == "--help" ]] && usage
+
+INTERVAL="${1:-30}"
+
+if ! [[ "$INTERVAL" =~ ^[1-9][0-9]*$ ]]; then
+  echo "Error: interval must be a positive integer (minutes), got '$INTERVAL'" >&2
+  exit 1
+fi
+
+# --- Validate runner script ---
+if [[ ! -f "$RUNNER_SCRIPT" ]]; then
+  echo "Error: email-responder not found at $RUNNER_SCRIPT" >&2
+  exit 1
+fi
+
+if [[ ! -x "$RUNNER_SCRIPT" ]]; then
+  echo "Error: email-responder is not executable. Run: chmod +x $RUNNER_SCRIPT" >&2
+  exit 1
+fi
+
+# --- Validate .env ---
+if [[ ! -f "$ENV_FILE" ]]; then
+  echo "Error: $ENV_FILE not found. Copy .env.example to .env and configure it." >&2
+  exit 1
+fi
+
+# --- Check for existing timer ---
+if systemctl list-unit-files "${UNIT_NAME}.timer" &>/dev/null && \
+   systemctl list-unit-files "${UNIT_NAME}.timer" 2>/dev/null | grep -q "${UNIT_NAME}.timer"; then
+  echo "Timer already exists: ${UNIT_NAME}.timer. No changes made."
+  systemctl list-timers "${UNIT_NAME}.timer" --no-pager 2>/dev/null || true
+  exit 0
+fi
+
+# --- Generate service unit ---
+SERVICE_CONTENT="[Unit]
+Description=Email Responder: check inbox and save draft replies
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=$(whoami)
+WorkingDirectory=${PROJECT_DIR}
+ExecStart=${RUNNER_SCRIPT}
+EnvironmentFile=${ENV_FILE}
+Environment=PATH=${HOME}/.local/bin:/usr/local/bin:/usr/bin:/bin
+TimeoutStartSec=600
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target"
+
+# --- Generate timer unit ---
+TIMER_CONTENT="[Unit]
+Description=Run email-responder every ${INTERVAL} minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=${INTERVAL}min
+Persistent=true
+
+[Install]
+WantedBy=timers.target"
+
+# --- Install ---
+echo "Installing ${UNIT_NAME}.service and ${UNIT_NAME}.timer..."
+
+echo "$SERVICE_CONTENT" | sudo tee "/etc/systemd/system/${UNIT_NAME}.service" >/dev/null
+echo "$TIMER_CONTENT" | sudo tee "/etc/systemd/system/${UNIT_NAME}.timer" >/dev/null
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now "${UNIT_NAME}.timer"
+
+echo ""
+echo "Timer installed:"
+echo "  Unit:      ${UNIT_NAME}.timer"
+echo "  Schedule:  every ${INTERVAL} minutes"
+echo ""
+echo "Verify with:"
+echo "  systemctl list-timers '${UNIT_NAME}*'"
+echo "  journalctl -u ${UNIT_NAME}.service"
+echo ""
+echo "To remove:"
+echo "  sudo systemctl disable --now ${UNIT_NAME}.timer"
+echo "  sudo rm /etc/systemd/system/${UNIT_NAME}.{service,timer}"
+echo "  sudo systemctl daemon-reload"

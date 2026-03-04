@@ -37,8 +37,8 @@ from .read import get_email, get_emails, search_emails
 # Tool schemas for MCP registration
 from .schemas import TOOL_SCHEMAS
 
-# Email sending operations
-from .send import send_agent_report, send_email
+# Email sending and drafting operations
+from .send import save_draft, send_agent_report, send_email
 
 __all__ = [
     # Client
@@ -60,6 +60,7 @@ __all__ = [
     "get_emails",
     "get_email",
     "search_emails",
+    "save_draft",
     "send_email",
     "send_agent_report",
     "move_email",

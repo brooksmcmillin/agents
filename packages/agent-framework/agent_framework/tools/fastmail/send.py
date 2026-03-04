@@ -1,6 +1,6 @@
-"""Email sending operations for FastMail.
+"""Email sending and drafting operations for FastMail.
 
-Contains send_email and send_agent_report functions.
+Contains send_email, send_agent_report, and save_draft functions.
 """
 
 import logging
@@ -648,3 +648,120 @@ async def send_agent_report(
         "from_address": from_email,
         "to_address": settings.admin_email_address,
     }
+
+
+async def save_draft(
+    to: list[str],
+    subject: str,
+    body: str,
+    cc: list[str] | None = None,
+    bcc: list[str] | None = None,
+    reply_to_email_id: str | None = None,
+    is_html: bool = False,
+    identity_email: str | None = None,
+    api_token: str | None = None,
+) -> dict[str, Any]:
+    """
+    Save an email draft in FastMail without sending it.
+
+    Creates an email in the drafts mailbox with the $draft keyword.
+    The draft can be reviewed and sent manually by the user. No recipient
+    allowlist check is performed since drafts are not sent.
+
+    Args:
+        to: List of recipient email addresses
+        subject: Email subject line
+        body: Email body content (plain text or HTML)
+        cc: Optional list of CC recipients
+        bcc: Optional list of BCC recipients
+        reply_to_email_id: Optional email ID to reply to (sets In-Reply-To header)
+        is_html: If True, body is treated as HTML (default: False for plain text).
+            HTML content is sanitized to prevent XSS.
+        identity_email: Optional email address to send from. Must match a configured
+            identity in FastMail. If not specified, uses the primary identity.
+        api_token: Optional FastMail API token.
+
+    Returns:
+        Dictionary containing:
+            - status: "success" or "error"
+            - email_id: ID of the created draft
+            - message: Status message
+    """
+    logger.info(f"Saving draft email to {to}, subject: {subject}")
+
+    # Validate inputs (format only, no allowlist check for drafts)
+    if error := _validate_send_inputs(to, subject, cc, bcc):
+        return error
+
+    # Sanitize HTML content if needed
+    if is_html:
+        body = _sanitize_html(body)
+
+    try:
+        client = _get_client(api_token)
+        await client._ensure_session()
+
+        # Resolve sender identity
+        identity_result = await _resolve_sender_identity(client, identity_email)
+        if isinstance(identity_result, dict):
+            return identity_result
+        _identity_id, from_address, from_name = identity_result
+
+        # Build email object
+        email_create = _build_email_object(
+            to, subject, body, is_html, from_address, from_name, cc, bcc
+        )
+
+        # Add reply threading if replying
+        if reply_to_email_id:
+            await _add_reply_threading(client, email_create, reply_to_email_id)
+
+        # Get drafts mailbox ID
+        mailbox_result = await _get_send_mailboxes(client)
+        if isinstance(mailbox_result, dict):
+            return mailbox_result
+        drafts_mailbox_id, _sent_mailbox_id = mailbox_result
+
+        # Place in drafts with $draft keyword — no EmailSubmission
+        email_create["mailboxIds"] = {drafts_mailbox_id: True}
+        email_create["keywords"] = {"$draft": True}
+
+        response = await client._call(
+            [
+                [
+                    "Email/set",
+                    {"accountId": client.account_id, "create": {"draft": email_create}},
+                    "email-create",
+                ]
+            ]
+        )
+
+        # Process the response
+        for resp in response.get("methodResponses", []):
+            if resp[0] == "error":
+                return {
+                    "status": "error",
+                    "message": f"JMAP error: {resp[1].get('description', 'Unknown error')}",
+                }
+            if resp[0] == "Email/set":
+                not_created = resp[1].get("notCreated") or {}
+                if "draft" in not_created:
+                    error_info = not_created["draft"]
+                    return {
+                        "status": "error",
+                        "message": f"Failed to create draft: {error_info.get('description', error_info.get('type'))}",
+                    }
+                created = (resp[1].get("created") or {}).get("draft")
+                if created:
+                    email_id = created.get("id")
+                    logger.info(f"Draft saved successfully: {email_id}")
+                    return {
+                        "status": "success",
+                        "email_id": email_id,
+                        "message": f"Draft saved successfully (to: {', '.join(to)})",
+                    }
+
+        return {"status": "error", "message": "Unexpected response from server"}
+
+    except Exception as e:
+        return _handle_jmap_error(e, "saving draft")

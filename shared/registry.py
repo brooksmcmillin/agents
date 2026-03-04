@@ -73,6 +73,7 @@ def build_agent_registry() -> dict[str, AgentEntry]:
     from agents.business_advisor.main import BusinessAdvisorAgent
     from agents.chatbot.main import ChatbotAgent
     from agents.code_analysis.main import CodeAnalysisAgent
+    from agents.email_responder.main import EmailResponderAgent
     from agents.events.main import EventsAgent
     from agents.log_analysis.main import LogAnalysisAgent
     from agents.pr_agent.main import PRAgent
@@ -119,6 +120,11 @@ def build_agent_registry() -> dict[str, AgentEntry]:
             CodeAnalysisAgent,
             {**mcp_task_config, **delegation_config},
             "Repository analysis agent for security, logic, performance, and architecture improvements",
+        ),
+        "email-responder": (
+            EmailResponderAgent,
+            None,
+            "Email responder that drafts replies for human review",
         ),
         "events": (
             EventsAgent,

@@ -98,11 +98,21 @@ FASTMAIL_TOOLS = [
     "get_emails",
     "get_email",
     "search_emails",
+    "save_draft",
     "send_email",
     "send_agent_report",
     "move_email",
     "update_email_flags",
     "delete_email",
+]
+
+# Read-only email tools plus draft saving — for agents that should never send
+EMAIL_DRAFT_TOOLS = [
+    "list_mailboxes",
+    "get_emails",
+    "get_email",
+    "search_emails",
+    "save_draft",
 ]
 
 CLAUDE_CODE_TOOLS = [

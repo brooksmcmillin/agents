@@ -7,7 +7,7 @@ from .calendar import get_calendar_events, list_calendars
 from .mailbox import list_mailboxes
 from .manage import delete_email, move_email, update_email_flags
 from .read import get_email, get_emails, search_emails
-from .send import send_agent_report, send_email
+from .send import save_draft, send_agent_report, send_email
 
 TOOL_SCHEMAS = [
     {
@@ -155,6 +155,62 @@ TOOL_SCHEMAS = [
             "required": ["query"],
         },
         "handler": search_emails,
+    },
+    {
+        "name": "save_draft",
+        "description": (
+            "Save an email draft in FastMail without sending it. "
+            "Creates the email in the drafts mailbox for human review. "
+            "Supports plain text or HTML body, CC/BCC recipients, and replying to existing emails. "
+            "The draft can be reviewed and sent manually by the user."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "to": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of recipient email addresses",
+                },
+                "subject": {
+                    "type": "string",
+                    "description": "Email subject line",
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Email body content (plain text or HTML)",
+                },
+                "cc": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional list of CC recipients",
+                },
+                "bcc": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional list of BCC recipients",
+                },
+                "reply_to_email_id": {
+                    "type": "string",
+                    "description": "Optional email ID to reply to (sets In-Reply-To header for threading)",
+                },
+                "is_html": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "If true, body is treated as HTML (default: false for plain text)",
+                },
+                "identity_email": {
+                    "type": "string",
+                    "description": "Optional email address to send from. Must match a configured identity in FastMail.",
+                },
+                "api_token": {
+                    "type": "string",
+                    "description": "Optional FastMail API token",
+                },
+            },
+            "required": ["to", "subject", "body"],
+        },
+        "handler": save_draft,
     },
     {
         "name": "send_email",

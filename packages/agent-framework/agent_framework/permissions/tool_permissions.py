@@ -61,6 +61,7 @@ TOOL_PERMISSIONS: dict[str, set[Permission]] = {
     "get_emails": {Permission.READ},
     "get_email": {Permission.READ},
     "search_emails": {Permission.READ},
+    "save_draft": {Permission.WRITE},
     "send_email": {Permission.SEND},
     "send_agent_report": {Permission.SEND},
     "move_email": {Permission.WRITE},
