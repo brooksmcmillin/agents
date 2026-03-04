@@ -35,6 +35,15 @@ from .permissions import (
 )
 from .security import LakeraGuard, LakeraSecurityResult, SecurityCheckError
 from .server.server import create_mcp_server
+from .telemetry import (
+    DECISION_TYPE_AUTONOMY_TIER,
+    DECISION_TYPE_DECOMPOSITION,
+    DECISION_TYPE_ERROR_HANDLING,
+    DECISION_TYPE_ROUTING,
+    DECISION_TYPE_TOOL_SELECTION,
+    configure_decision_logger,
+    log_decision,
+)
 from .utils.errors import ContentPolicyError, PromptInjectionError, SecurityError
 
 __all__ = [
@@ -76,4 +85,12 @@ __all__ = [
     "REMOTE_MCP_PERMISSIONS",
     "TOOL_PERMISSIONS",
     "get_required_permissions",
+    # Decision logging
+    "configure_decision_logger",
+    "log_decision",
+    "DECISION_TYPE_TOOL_SELECTION",
+    "DECISION_TYPE_ROUTING",
+    "DECISION_TYPE_DECOMPOSITION",
+    "DECISION_TYPE_AUTONOMY_TIER",
+    "DECISION_TYPE_ERROR_HANDLING",
 ]

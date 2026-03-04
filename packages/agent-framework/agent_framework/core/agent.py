@@ -46,6 +46,11 @@ from agent_framework.security.context_trimming import (
 from agent_framework.utils.errors import MissingAPIKeyError
 
 from ..logging import setup_logging
+from ..telemetry.decision_logger import (
+    DECISION_TYPE_ERROR_HANDLING,
+    DECISION_TYPE_TOOL_SELECTION,
+    log_decision,
+)
 from .config import settings
 from .mcp_client import MCPClient
 from .remote_mcp_client import RemoteMCPClient
@@ -940,7 +945,7 @@ class Agent(ABC):
         exc_info: tuple | None = None
         try:
             return await self._process_message_internal(
-                user_message, trace_ctx, on_text_delta, on_tool_start
+                user_message, trace_ctx, on_text_delta, on_tool_start, session_id
             )
         except BaseException:
             import sys
@@ -1125,6 +1130,7 @@ class Agent(ABC):
         tool_calls: list[ToolUseBlock],
         trace_ctx,
         on_tool_start: Callable[[str], None] | None = None,
+        session_id: str | None = None,
     ) -> list[dict[str, Any]]:
         """Execute a batch of tool calls and return their results.
 
@@ -1139,6 +1145,7 @@ class Agent(ABC):
             trace_ctx: Optional observability trace context.
             on_tool_start: Optional callback invoked when a tool call
                 begins, receiving the tool name.
+            session_id: Optional session ID for decision log correlation.
 
         Returns:
             A list of tool-result dicts ready to append to the conversation.
@@ -1224,6 +1231,19 @@ class Agent(ABC):
                         metadata={"error_type": "PermissionError"},
                     )
 
+                # Log permission error handling decision
+                log_decision(
+                    agent=self.get_agent_name(),
+                    decision_type=DECISION_TYPE_ERROR_HANDLING,
+                    inputs={
+                        "tool_name": tool_call.name,
+                        "error_type": "PermissionError",
+                    },
+                    output={"action": "return_permission_error_to_model"},
+                    reasoning=str(e),
+                    session_id=session_id,
+                )
+
                 tool_results.append(
                     self._make_tool_error_result(tool_call.id, e, is_permission_error=True)
                 )
@@ -1240,6 +1260,19 @@ class Agent(ABC):
                         level="ERROR",
                         metadata={"error_type": type(e).__name__},
                     )
+
+                # Log tool execution error handling decision
+                log_decision(
+                    agent=self.get_agent_name(),
+                    decision_type=DECISION_TYPE_ERROR_HANDLING,
+                    inputs={
+                        "tool_name": tool_call.name,
+                        "error_type": type(e).__name__,
+                    },
+                    output={"action": "return_tool_error_to_model"},
+                    reasoning=str(e),
+                    session_id=session_id,
+                )
 
                 tool_results.append(self._make_tool_error_result(tool_call.id, e))
 
@@ -1259,6 +1292,7 @@ class Agent(ABC):
         trace_ctx,
         on_text_delta: Callable[[str], None] | None = None,
         on_tool_start: Callable[[str], None] | None = None,
+        session_id: str | None = None,
     ) -> str:
         """Internal message processing with observability context.
 
@@ -1267,6 +1301,7 @@ class Agent(ABC):
             trace_ctx: Optional TraceContext for observability
             on_text_delta: Optional callback for streaming text deltas
             on_tool_start: Optional callback invoked when a tool call begins
+            session_id: Optional session ID for decision log correlation
 
         Returns:
             The agent's response as a string
@@ -1382,6 +1417,22 @@ class Agent(ABC):
                         )
                         return text_response
 
+                    # Log tool selection decision
+                    log_decision(
+                        agent=self.get_agent_name(),
+                        decision_type=DECISION_TYPE_TOOL_SELECTION,
+                        inputs={
+                            "iteration": iteration,
+                            "available_tool_count": sum(len(v) for v in self.tools.values()),
+                            "message_count": len(self.messages),
+                        },
+                        output={
+                            "selected_tools": [tc.name for tc in tool_calls],
+                            "tool_count": len(tool_calls),
+                        },
+                        session_id=session_id,
+                    )
+
                     # Add assistant response to conversation (with tool calls)
                     # Note: tool_use responses should always have content, but ensure non-empty
                     self.messages.append(
@@ -1393,7 +1444,7 @@ class Agent(ABC):
 
                     # Execute tool calls and collect results
                     tool_results = await self._execute_tool_calls(
-                        tool_calls, trace_ctx, on_tool_start
+                        tool_calls, trace_ctx, on_tool_start, session_id
                     )
 
                     # Add tool results to conversation
