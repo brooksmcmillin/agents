@@ -147,6 +147,26 @@ jobs:
           uv run pytest packages/agent-framework/tests/test_database_memory_store.py -v
           uv run pytest tests/integration/test_api_conversations.py -v
 
+  eval-validation:
+    name: Eval Dataset Validation
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - run: uv sync
+
+      - name: Validate eval datasets and coverage
+        run: uv run pytest tests/evaluations/test_evaluations.py -v
+
   frontend-tests:
     name: Frontend Tests
     needs: lint

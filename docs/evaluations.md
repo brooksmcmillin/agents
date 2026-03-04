@@ -18,12 +18,20 @@ tests/evaluations/
 ├── runner.py          # Core eval runner — loads datasets, runs agents, scores results
 ├── scorers.py         # Scoring functions (LLM-as-judge, keyword, tool-use checks)
 ├── models.py          # Data models (EvalCase, EvalResult, EvalRun)
-├── datasets/          # JSONL test cases per agent
+├── datasets/          # JSONL test cases per agent (13 datasets)
 │   ├── chatbot.jsonl
 │   ├── business.jsonl
 │   ├── security.jsonl
 │   ├── code-analysis.jsonl
 │   ├── log-analysis.jsonl
+│   ├── events.jsonl
+│   ├── pr.jsonl
+│   ├── red-team.jsonl
+│   ├── tasks.jsonl
+│   ├── security-audit.jsonl
+│   ├── sysadmin.jsonl
+│   ├── web-analysis.jsonl
+│   ├── website-tester.jsonl
 │   └── README.md
 └── results/           # Stored eval run results (gitignored)
 ```
@@ -167,6 +175,37 @@ All Langfuse integration is optional and degrades gracefully — the runner work
 - **LLM-as-judge default**: Natural language `expected` fields are more maintainable than brittle regex assertions. Claude Haiku keeps costs low (~$0.001 per judgment).
 - **No mock agents in eval**: Evaluations run the real `process_message()` pipeline including tool calls, permissions, and context management. This catches integration issues that unit tests miss.
 - **Separate from pytest**: Evaluations call the Anthropic API and cost money. They should be run deliberately, not on every `pytest` invocation.
+
+## CI Integration
+
+### Dataset validation (active)
+
+CI runs `pytest tests/evaluations/test_evaluations.py` on every PR. This validates all JSONL files parse correctly, have required fields, and have tags. No API calls — purely structural checks.
+
+CI also verifies that every agent in the registry has a corresponding dataset file, preventing coverage gaps when new agents are added.
+
+### Roadmap
+
+The following CI gates are planned, roughly in priority order:
+
+#### 1. Prompt change detection gate
+**Cost: zero.** If a `prompts.py` file changed in the PR, require that the corresponding agent's eval was run and results committed to `tests/evaluations/results/`. Enforces that prompt changes are tested before merge without running live evals in CI.
+
+#### 2. Live evals on changed agents
+**Cost: ~$0.50/run.** When an agent's code or prompts change, run the eval runner against that agent with `--scorer composite` and fail if `pass_rate` drops below a threshold (e.g., 0.7). Mitigations for cost:
+- Only run for agents whose code changed (file-path filtering)
+- Use keyword + tool_use scorers only (skip LLM judge) for cheaper runs
+- Run on merge to main only, not on every PR push
+
+#### 3. Score trend tracking
+**Cost: ~$0.50/run.** Push eval scores to Langfuse on every merge to main. Not a blocking gate — provides regression visibility over time. Complements hard gates with trend dashboards.
+
+### Known limitations
+
+- **`max_tokens` field** — Parsed from JSONL but never passed to `process_message()`. Dead field.
+- **No parallel execution** — Cases run sequentially due to a Langfuse `_last_trace_id` concurrency hazard.
+- **No multi-turn eval support** — All cases are single input → single response.
+- **Prompt variants** — Only `business_advisor` has `PROMPT_VARIANTS`; A/B testing errors for other agents.
 
 ## Related Documentation
 
