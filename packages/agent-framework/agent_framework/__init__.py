@@ -14,6 +14,7 @@ from .logging import (
     get_correlation_id,
     reset_correlation_id,
     set_correlation_id,
+    setup_logging,
 )
 from .oauth import DeviceAuthorizationCallback, DeviceAuthorizationInfo
 from .observability import (
@@ -66,6 +67,7 @@ __all__ = [
     "get_correlation_id",
     "reset_correlation_id",
     "create_json_handler",
+    "setup_logging",
     # Permissions
     "AgentIdentity",
     "ExecutionContext",
