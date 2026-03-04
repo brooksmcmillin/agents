@@ -15,39 +15,39 @@ import pytest
 
 
 class TestMemoryBackendSelection:
-    """Tests for _get_backend() function."""
+    """Tests for get_memory_backend() function."""
 
     def test_default_backend_is_file(self, monkeypatch):
         """Test that the default backend is 'file' when no env var is set."""
         monkeypatch.delenv("MEMORY_BACKEND", raising=False)
 
-        from agent_framework.tools.memory import _get_backend
+        from agent_framework.tools.memory import get_memory_backend
 
-        assert _get_backend() == "file"
+        assert get_memory_backend() == "file"
 
     def test_file_backend_from_env(self, monkeypatch):
         """Test that MEMORY_BACKEND=file returns 'file'."""
         monkeypatch.setenv("MEMORY_BACKEND", "file")
 
-        from agent_framework.tools.memory import _get_backend
+        from agent_framework.tools.memory import get_memory_backend
 
-        assert _get_backend() == "file"
+        assert get_memory_backend() == "file"
 
     def test_database_backend_from_env(self, monkeypatch):
         """Test that MEMORY_BACKEND=database returns 'database'."""
         monkeypatch.setenv("MEMORY_BACKEND", "database")
 
-        from agent_framework.tools.memory import _get_backend
+        from agent_framework.tools.memory import get_memory_backend
 
-        assert _get_backend() == "database"
+        assert get_memory_backend() == "database"
 
     def test_backend_case_insensitive(self, monkeypatch):
         """Test that backend selection is case-insensitive."""
         monkeypatch.setenv("MEMORY_BACKEND", "DATABASE")
 
-        from agent_framework.tools.memory import _get_backend
+        from agent_framework.tools.memory import get_memory_backend
 
-        assert _get_backend() == "database"
+        assert get_memory_backend() == "database"
 
 
 class TestDatabaseUrlResolution:

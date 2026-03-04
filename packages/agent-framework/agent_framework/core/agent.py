@@ -1868,12 +1868,14 @@ class Agent(ABC):
         Respects the configured MEMORY_BACKEND (file or database).
         """
         try:
-            import os
-
-            from ..tools.memory import get_database_memory_store, get_memory_store
+            from ..tools.memory import (
+                get_database_memory_store,
+                get_memory_backend,
+                get_memory_store,
+            )
 
             agent_name = self.get_agent_name()
-            backend = os.environ.get("MEMORY_BACKEND", "file").lower()
+            backend = get_memory_backend()
 
             if backend == "database":
                 store = await get_database_memory_store(agent_name=agent_name)

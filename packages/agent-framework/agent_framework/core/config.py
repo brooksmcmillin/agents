@@ -1,6 +1,5 @@
 """Configuration management for agents and MCP servers."""
 
-import os
 from datetime import datetime
 from pathlib import Path
 
@@ -57,6 +56,11 @@ class Settings(BaseSettings):
     memory_storage_path: Path = Field(
         default=Path.home() / ".agents" / "memories",
         description="Path to store memories",
+    )
+    memory_backend: str = Field(
+        default="file",
+        description="Memory storage backend. Options: 'file' (default, local JSON) or "
+        "'database' (PostgreSQL, enables cross-machine portability).",
     )
 
     # RAG (Retrieval-Augmented Generation) Storage
@@ -238,7 +242,7 @@ class Settings(BaseSettings):
         self.token_storage_path.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.token_storage_path.chmod(0o700)
         # Only create memory_storage_path if using file backend
-        if os.environ.get("MEMORY_BACKEND", "file").lower() == "file":
+        if self.memory_backend.lower() == "file":
             self.memory_storage_path.mkdir(parents=True, exist_ok=True, mode=0o700)
             self.memory_storage_path.chmod(0o700)
         self.log_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
