@@ -69,10 +69,7 @@ if [[ ! -f "$ENV_FILE" ]]; then
   exit 1
 fi
 
-MESSAGE="Check the inbox for new and unread emails. For each email that warrants a response, \
-read the full content with get_email, draft a professional reply, and save it using save_draft \
-with reply_to_email_id set for proper threading. Skip newsletters, automated notifications, \
-no-reply senders, and spam. Summarize what you did at the end."
+MESSAGE="Check inbox"
 
 CMD=(uv run python bin/run-agent email-responder -q "$MESSAGE")
 
