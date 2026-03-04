@@ -1231,18 +1231,18 @@ class Agent(ABC):
                         metadata={"error_type": "PermissionError"},
                     )
 
-                # Log permission error handling decision
-                # Use type name only — not str(e) — to avoid leaking
-                # permission details into the decision log.
+                # Log permission error handling decision.
+                # Use type(e).__name__ rather than str(e) to avoid leaking
+                # sensitive permission details into the decision log.
                 log_decision(
                     agent=self.get_agent_name(),
                     decision_type=DECISION_TYPE_ERROR_HANDLING,
                     inputs={
                         "tool_name": tool_call.name,
-                        "error_type": "PermissionError",
+                        "error_type": type(e).__name__,
                     },
                     output={"action": "return_permission_error_to_model"},
-                    reasoning="PermissionError",
+                    reasoning=type(e).__name__,
                     session_id=session_id,
                 )
 
