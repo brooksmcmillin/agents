@@ -221,6 +221,7 @@ class TestAgentProcessMessage:
                 mock_mcp_instance.available_tools = {}
 
                 agent = ConcreteAgent().create()
+                mock_mcp_instance.end_turn = AsyncMock()
                 agent.mcp_client = mock_mcp_instance
 
                 # Mock the connect context manager
@@ -275,6 +276,7 @@ class TestAgentProcessMessage:
                 mock_mcp_instance.call_tool = AsyncMock(return_value={"result": "ok"})
 
                 agent = ConcreteAgent().create()
+                mock_mcp_instance.end_turn = AsyncMock()
                 agent.mcp_client = mock_mcp_instance
 
                 # Mock _call_mcp_tool_with_reconnect
@@ -303,6 +305,7 @@ class TestAgentProcessMessage:
                 mock_mcp_instance.connect.return_value.__aexit__ = AsyncMock()
 
                 agent = ConcreteAgent().create()
+                mock_mcp_instance.end_turn = AsyncMock()
                 agent.mcp_client = mock_mcp_instance
 
                 result = await agent.process_message("Test")
@@ -353,6 +356,7 @@ class TestAgentStreaming:
                 mock_mcp_instance.connect.return_value.__aexit__ = AsyncMock()
 
                 agent = ConcreteAgent().create()
+                mock_mcp_instance.end_turn = AsyncMock()
                 agent.mcp_client = mock_mcp_instance
 
                 received_chunks: list[str] = []
@@ -434,6 +438,7 @@ class TestAgentStreaming:
                 mock_mcp_instance.connect.return_value.__aexit__ = AsyncMock()
 
                 agent = ConcreteAgent().create()
+                mock_mcp_instance.end_turn = AsyncMock()
                 agent.mcp_client = mock_mcp_instance
                 agent._call_mcp_tool_with_reconnect = AsyncMock(return_value={"result": "ok"})
 
@@ -475,6 +480,7 @@ class TestAgentStreaming:
                 mock_mcp_instance.connect.return_value.__aexit__ = AsyncMock()
 
                 agent = ConcreteAgent().create()
+                mock_mcp_instance.end_turn = AsyncMock()
                 agent.mcp_client = mock_mcp_instance
 
                 result = await agent.process_message("Hello")
@@ -503,6 +509,7 @@ class TestAgentMemoryIsolation:
                 mock_mcp_instance.connect.return_value.__aexit__ = AsyncMock()
 
                 agent = ConcreteAgent().create()
+                mock_mcp_instance.end_turn = AsyncMock()
                 agent.mcp_client = mock_mcp_instance
                 agent.tools = {"local": ["save_memory", "get_memories"]}
 
@@ -531,6 +538,7 @@ class TestAgentMemoryIsolation:
                 mock_mcp_instance.connect.return_value.__aexit__ = AsyncMock()
 
                 agent = ConcreteAgent().create()
+                mock_mcp_instance.end_turn = AsyncMock()
                 agent.mcp_client = mock_mcp_instance
                 agent.tools = {"local": ["save_memory"]}
 
@@ -559,6 +567,7 @@ class TestAgentMemoryIsolation:
                 mock_mcp_instance.connect.return_value.__aexit__ = AsyncMock()
 
                 agent = ConcreteAgent().create()
+                mock_mcp_instance.end_turn = AsyncMock()
                 agent.mcp_client = mock_mcp_instance
                 agent.tools = {"local": ["fetch_web_content"]}
 
@@ -589,6 +598,7 @@ class TestAgentMemoryIsolation:
                 mock_mcp_instance.connect.return_value.__aexit__ = AsyncMock()
 
                 agent = ConcreteAgent().create()
+                mock_mcp_instance.end_turn = AsyncMock()
                 agent.mcp_client = mock_mcp_instance
                 agent.tools = {"local": list(MEMORY_TOOLS)}
 

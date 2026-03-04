@@ -245,6 +245,7 @@ class Agent(ABC):
         backup_model: str | None = None,
         backup_api_key: str | None = None,
         enable_delegation: bool = False,
+        persistent_mcp: bool = False,
     ):
         """
         Initialize the agent.
@@ -290,6 +291,11 @@ class Agent(ABC):
             enable_delegation: If True and delegation is configured (via
                 shared.delegation.setup_delegation), adds a ``request_agent`` tool
                 that lets this agent consult other specialized agents. Default: False
+            persistent_mcp: If True, the local MCP subprocess is kept alive
+                across tool calls within a turn and torn down between turns.
+                This reduces per-call subprocess startup overhead in production.
+                If False (default), a new subprocess is spawned for every tool
+                call, enabling hot reload of tools without restarting the agent.
         """
         # Set up logging first (need agent name, so call get_agent_name early)
         self.log_dir = settings.log_dir
@@ -329,6 +335,7 @@ class Agent(ABC):
             agent_name=self.get_agent_name(),
             stderr_log_file=self.log_file,
             allowed_tools=allowed_tools,
+            persistent=persistent_mcp,
         )
 
         # Initialize security guard (Lakera Guard) if enabled and available
@@ -956,6 +963,10 @@ class Agent(ABC):
                 trace_ctx.__exit__(*exc_info)
             elif trace_ctx is not None:
                 trace_ctx.__exit__(None, None, None)
+
+            # In persistent mode, close the cached MCP connection at the end
+            # of each turn so that the next turn picks up any tool changes.
+            await self.mcp_client.end_turn()
 
     def _messages_for_api(self) -> list[MessageParam]:
         """Return a copy of self.messages with internal metadata stripped.
