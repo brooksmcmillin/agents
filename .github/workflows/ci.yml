@@ -241,7 +241,7 @@ jobs:
           test -f webui/dist/index.html || exit 1
           test -d webui/dist/assets || exit 1
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: frontend-build
           path: webui/dist/
