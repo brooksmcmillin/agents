@@ -315,51 +315,22 @@ class TestCompositeScorer:
 # ── Dataset validation ───────────────────────────────────────────────
 
 
+def _discover_datasets() -> list[str]:
+    """Discover all dataset names from JSONL files in the datasets directory."""
+    return sorted(p.stem for p in DATASETS_DIR.glob("*.jsonl"))
+
+
 class TestAllDatasets:
     """Verify all JSONL dataset files are valid and well-formed."""
 
-    @pytest.mark.parametrize(
-        "agent_name",
-        [
-            "chatbot",
-            "business",
-            "security",
-            "code-analysis",
-            "log-analysis",
-            "events",
-            "pr",
-            "red-team",
-            "tasks",
-            "security-audit",
-            "sysadmin",
-            "web-analysis",
-            "website-tester",
-        ],
-    )
+    @pytest.mark.parametrize("agent_name", _discover_datasets())
     def test_dataset_loads_and_has_cases(self, agent_name: str):
         path = DATASETS_DIR / f"{agent_name}.jsonl"
         assert path.exists(), f"Dataset missing for {agent_name}"
         cases = load_dataset(path)
         assert len(cases) >= 5, f"Dataset for {agent_name} should have at least 5 cases"
 
-    @pytest.mark.parametrize(
-        "agent_name",
-        [
-            "chatbot",
-            "business",
-            "security",
-            "code-analysis",
-            "log-analysis",
-            "events",
-            "pr",
-            "red-team",
-            "tasks",
-            "security-audit",
-            "sysadmin",
-            "web-analysis",
-            "website-tester",
-        ],
-    )
+    @pytest.mark.parametrize("agent_name", _discover_datasets())
     def test_dataset_cases_have_required_fields(self, agent_name: str):
         path = DATASETS_DIR / f"{agent_name}.jsonl"
         cases = load_dataset(path)
@@ -368,24 +339,7 @@ class TestAllDatasets:
             assert case.expected, f"Case in {agent_name} must have non-empty expected"
             assert isinstance(case.tags, list), f"Tags must be a list in {agent_name}"
 
-    @pytest.mark.parametrize(
-        "agent_name",
-        [
-            "chatbot",
-            "business",
-            "security",
-            "code-analysis",
-            "log-analysis",
-            "events",
-            "pr",
-            "red-team",
-            "tasks",
-            "security-audit",
-            "sysadmin",
-            "web-analysis",
-            "website-tester",
-        ],
-    )
+    @pytest.mark.parametrize("agent_name", _discover_datasets())
     def test_dataset_cases_have_tags(self, agent_name: str):
         """Every case should have at least one tag for filtering."""
         path = DATASETS_DIR / f"{agent_name}.jsonl"
@@ -403,9 +357,6 @@ class TestAllDatasets:
 class TestDatasetCoverage:
     """Ensure every registered agent has a corresponding eval dataset."""
 
-    # Agents that are background services (no interactive prompt) and don't need eval datasets.
-    EXCLUDED_AGENTS: set[str] = set()
-
     def test_every_agent_has_dataset(self):
         """Fail if a registered agent has no JSONL dataset file."""
         from shared.registry import build_agent_registry
@@ -413,8 +364,6 @@ class TestDatasetCoverage:
         registry = build_agent_registry()
         missing = []
         for agent_name in sorted(registry):
-            if agent_name in self.EXCLUDED_AGENTS:
-                continue
             path = DATASETS_DIR / f"{agent_name}.jsonl"
             if not path.exists():
                 missing.append(agent_name)
