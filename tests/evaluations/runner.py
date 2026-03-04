@@ -121,6 +121,12 @@ _AGENT_MODULE_ALIASES: dict[str, str] = {
     "sysadmin": "system_admin",
     "tasks": "task_manager",
     "pr": "pr_agent",
+    "red-team": "red_team",
+    "security-audit": "security_audit",
+    "code-analysis": "code_analysis",
+    "log-analysis": "log_analysis",
+    "web-analysis": "web_analysis",
+    "website-tester": "website_tester",
 }
 
 

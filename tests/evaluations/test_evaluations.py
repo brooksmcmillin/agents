@@ -320,7 +320,21 @@ class TestAllDatasets:
 
     @pytest.mark.parametrize(
         "agent_name",
-        ["chatbot", "business", "security", "code-analysis", "log-analysis"],
+        [
+            "chatbot",
+            "business",
+            "security",
+            "code-analysis",
+            "log-analysis",
+            "events",
+            "pr",
+            "red-team",
+            "tasks",
+            "security-audit",
+            "sysadmin",
+            "web-analysis",
+            "website-tester",
+        ],
     )
     def test_dataset_loads_and_has_cases(self, agent_name: str):
         path = DATASETS_DIR / f"{agent_name}.jsonl"
@@ -330,7 +344,21 @@ class TestAllDatasets:
 
     @pytest.mark.parametrize(
         "agent_name",
-        ["chatbot", "business", "security", "code-analysis", "log-analysis"],
+        [
+            "chatbot",
+            "business",
+            "security",
+            "code-analysis",
+            "log-analysis",
+            "events",
+            "pr",
+            "red-team",
+            "tasks",
+            "security-audit",
+            "sysadmin",
+            "web-analysis",
+            "website-tester",
+        ],
     )
     def test_dataset_cases_have_required_fields(self, agent_name: str):
         path = DATASETS_DIR / f"{agent_name}.jsonl"
@@ -342,7 +370,21 @@ class TestAllDatasets:
 
     @pytest.mark.parametrize(
         "agent_name",
-        ["chatbot", "business", "security", "code-analysis", "log-analysis"],
+        [
+            "chatbot",
+            "business",
+            "security",
+            "code-analysis",
+            "log-analysis",
+            "events",
+            "pr",
+            "red-team",
+            "tasks",
+            "security-audit",
+            "sysadmin",
+            "web-analysis",
+            "website-tester",
+        ],
     )
     def test_dataset_cases_have_tags(self, agent_name: str):
         """Every case should have at least one tag for filtering."""
