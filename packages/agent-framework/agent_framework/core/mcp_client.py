@@ -235,7 +235,7 @@ class MCPClient:
                     # Clean up on connection failure
                     self.session = None
                     self._persistent_exit_stack = None
-                    with contextlib.suppress(OSError, RuntimeError, asyncio.CancelledError):
+                    with contextlib.suppress(OSError, RuntimeError):
                         await stack.aclose()
                     self._close_errlog()
                     raise
@@ -258,7 +258,7 @@ class MCPClient:
             self._persistent_exit_stack = None
             self.session = None
             logger.info("Closing persistent MCP connection")
-            with contextlib.suppress(OSError, RuntimeError, asyncio.CancelledError):
+            with contextlib.suppress(OSError, RuntimeError):
                 await stack.aclose()
             self._close_errlog()
             logger.info("Persistent MCP connection closed")
