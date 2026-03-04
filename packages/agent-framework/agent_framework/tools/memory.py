@@ -204,8 +204,22 @@ _file_memory_stores: dict[str, MemoryStore] = {}
 _database_memory_stores: dict[str, DatabaseMemoryStore] = {}
 
 
-def _get_backend() -> str:
-    """Get configured memory backend."""
+def get_memory_backend() -> str:
+    """Get configured memory backend.
+
+    Reads the ``MEMORY_BACKEND`` environment variable.  Defaults to ``"file"``
+    when the variable is not set.  The returned value is always lower-cased so
+    callers can compare against the canonical strings ``"file"`` and
+    ``"database"`` without additional normalisation.
+
+    This function is intentionally permissive — it does not validate the value.
+    All callers use the pattern ``if backend == "database": ... else: ...`` which
+    safely falls back to the file backend for any unknown value.  Validation at
+    startup is handled by the ``Settings.memory_backend`` field validator.
+
+    Returns:
+        The configured backend name, e.g. ``"file"`` or ``"database"``.
+    """
     return os.environ.get("MEMORY_BACKEND", "file").lower()
 
 
@@ -295,7 +309,7 @@ async def get_active_memory_store(
     Returns:
         An object satisfying :class:`MemoryStoreProtocol`.
     """
-    backend = _get_backend()
+    backend = get_memory_backend()
 
     if backend == "database":
         return await get_database_memory_store(agent_name)
@@ -564,7 +578,7 @@ async def get_memory_stats(
 
     return {
         "status": "success",
-        "backend": _get_backend(),
+        "backend": get_memory_backend(),
         **stats,
     }
 
