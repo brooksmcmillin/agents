@@ -759,7 +759,7 @@ class Agent(ABC):
             Raw list of tool definitions returned by the remote server.
         """
         async with self._create_remote_mcp_client(url) as mcp:
-            mcp_tools = await mcp.list_tools()
+            mcp_tools = await asyncio.wait_for(mcp.list_tools(), timeout=10.0)
             self.tools[url] = [tool["name"] for tool in mcp_tools]
             return mcp_tools
 
