@@ -30,6 +30,9 @@ ENV/
 .env
 .ntfy.env
 
+# MCP config (user-specific)
+.mcp.json
+
 # Runtime data directory
 .data/
 
