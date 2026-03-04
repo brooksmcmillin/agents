@@ -167,6 +167,30 @@ jobs:
       - name: Validate eval datasets and coverage
         run: uv run pytest tests/evaluations/test_evaluations.py -v
 
+  prompt-change-gate:
+    name: Prompt Change Gate
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - run: uv sync
+
+      - name: Check eval baselines for prompt changes
+        run: >
+          uv run python -m tests.evaluations.check_prompt_gate
+          origin/${{ github.event.pull_request.base.ref }}
+
   frontend-tests:
     name: Frontend Tests
     needs: lint

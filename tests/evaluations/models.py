@@ -126,6 +126,22 @@ class EvalRun:
         path.write_text(json.dumps(data, indent=2))
         return path
 
+    def save_baseline(self, output_dir: Path) -> Path:
+        """Save run results as the baseline for CI prompt-change detection.
+
+        Uses a stable filename ({agent_name}.json) that should be committed
+        to the repository. CI checks that this file is updated whenever the
+        agent's prompts.py changes.
+        """
+        output_dir.mkdir(parents=True, exist_ok=True)
+        path = output_dir / f"{self.agent_name}.json"
+        data = {
+            **self.summary(),
+            "results": [r.to_dict() for r in self.results],
+        }
+        path.write_text(json.dumps(data, indent=2) + "\n")
+        return path
+
 
 def load_dataset(path: Path) -> list[EvalCase]:
     """Load evaluation cases from a JSONL file."""

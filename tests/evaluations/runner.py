@@ -410,6 +410,11 @@ async def _main() -> None:
         action="store_true",
         help="Save results to tests/evaluations/results/",
     )
+    parser.add_argument(
+        "--save-baseline",
+        action="store_true",
+        help="Save results as baseline ({agent}.json) for CI prompt-change gate",
+    )
 
     args = parser.parse_args()
 
@@ -461,6 +466,11 @@ async def _main() -> None:
             path_b = run_b.save(RESULTS_DIR)
             print(f"Results saved: {path_a}, {path_b}")
 
+        if args.save_baseline:
+            path_a = run_a.save_baseline(RESULTS_DIR)
+            path_b = run_b.save_baseline(RESULTS_DIR)
+            print(f"Baselines saved: {path_a}, {path_b}")
+
     # Single evaluation mode
     else:
         variant = args.variant_a or "default"
@@ -486,6 +496,10 @@ async def _main() -> None:
         if args.save:
             path = run.save(RESULTS_DIR)
             print(f"Results saved: {path}")
+
+        if args.save_baseline:
+            path = run.save_baseline(RESULTS_DIR)
+            print(f"Baseline saved: {path}")
 
 
 if __name__ == "__main__":

@@ -95,8 +95,9 @@ demo_output/
 test_output/
 scratch/
 
-# Evaluation results (generated, may contain API responses)
-tests/evaluations/results/*.json
+# Evaluation results — ad-hoc runs (contain run IDs in filename)
+# Baseline files ({agent_name}.json) are tracked for CI prompt-change gate
+tests/evaluations/results/*_*_*.json
 
 # Web UI
 webui/dist/

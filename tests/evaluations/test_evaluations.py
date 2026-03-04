@@ -12,6 +12,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from tests.evaluations.check_prompt_gate import (
+    extract_changed_agents,
+    extract_changed_baselines,
+)
 from tests.evaluations.models import EvalCase, EvalResult, EvalRun, load_dataset
 from tests.evaluations.runner import DATASETS_DIR, _load_prompts_module
 from tests.evaluations.scorers import (
@@ -456,3 +460,104 @@ class TestLangfuseIntegration:
         assert call_kwargs["name"] == "eval_score"
         assert call_kwargs["value"] == 4.0
         mock_dumps.assert_called_once()
+
+
+# ── Baseline save ───────────────────────────────────────────────────
+
+
+class TestSaveBaseline:
+    def _make_run(self, agent_name: str = "chatbot") -> EvalRun:
+        case = EvalCase(input="test", expected="test")
+        result = EvalResult(case=case, response="ok", score=4.0)
+        run = EvalRun(agent_name=agent_name)
+        run.results = [result]
+        return run
+
+    def test_save_baseline_uses_stable_filename(self, tmp_path: Path):
+        run = self._make_run("chatbot")
+        path = run.save_baseline(tmp_path)
+        assert path.name == "chatbot.json"
+        assert path.exists()
+
+    def test_save_baseline_overwrites_existing(self, tmp_path: Path):
+        run1 = self._make_run("chatbot")
+        run2 = self._make_run("chatbot")
+        path1 = run1.save_baseline(tmp_path)
+        path2 = run2.save_baseline(tmp_path)
+        assert path1 == path2
+        # File should contain run2's data
+        data = json.loads(path2.read_text())
+        assert data["run_id"] == run2.run_id
+
+    def test_save_baseline_content_is_valid_json(self, tmp_path: Path):
+        run = self._make_run("code-analysis")
+        path = run.save_baseline(tmp_path)
+        data = json.loads(path.read_text())
+        assert data["agent_name"] == "code-analysis"
+        assert len(data["results"]) == 1
+
+
+# ── Prompt change gate ──────────────────────────────────────────────
+
+
+class TestPromptChangeGate:
+    def test_extract_changed_agents_finds_prompts(self):
+        files = [
+            "agents/chatbot/prompts.py",
+            "agents/business_advisor/prompts.py",
+            "agents/chatbot/main.py",
+            "shared/registry.py",
+        ]
+        agents = extract_changed_agents(files)
+        assert agents == ["business", "chatbot"]
+
+    def test_extract_changed_agents_ignores_non_prompts(self):
+        files = [
+            "agents/chatbot/main.py",
+            "agents/chatbot/__init__.py",
+            "shared/registry.py",
+        ]
+        agents = extract_changed_agents(files)
+        assert agents == []
+
+    def test_extract_changed_agents_handles_aliases(self):
+        files = [
+            "agents/system_admin/prompts.py",
+            "agents/task_manager/prompts.py",
+            "agents/pr_agent/prompts.py",
+        ]
+        agents = extract_changed_agents(files)
+        assert agents == ["pr", "sysadmin", "tasks"]
+
+    def test_extract_changed_baselines(self):
+        files = [
+            "tests/evaluations/results/chatbot.json",
+            "tests/evaluations/results/business.json",
+            "tests/evaluations/datasets/chatbot.jsonl",
+        ]
+        baselines = extract_changed_baselines(files)
+        assert baselines == {"chatbot", "business"}
+
+    def test_extract_changed_baselines_ignores_ad_hoc(self):
+        files = [
+            "tests/evaluations/results/chatbot_default_abc123.json",
+        ]
+        # Ad-hoc files still have their stem extracted — the gate
+        # only cares whether the agent name matches, and ad-hoc filenames
+        # won't match agent names because they contain underscores.
+        baselines = extract_changed_baselines(files)
+        assert "chatbot" not in baselines
+
+    def test_module_to_registry_covers_all_agents(self):
+        """Verify the gate script's module mapping covers every registered agent."""
+        from shared.registry import build_agent_registry
+        from tests.evaluations.check_prompt_gate import _MODULE_TO_REGISTRY
+
+        registry = build_agent_registry()
+        registry_names = set(registry.keys())
+        mapped_names = set(_MODULE_TO_REGISTRY.values())
+
+        missing = registry_names - mapped_names
+        assert not missing, (
+            f"Agents missing from check_prompt_gate._MODULE_TO_REGISTRY: {', '.join(missing)}"
+        )

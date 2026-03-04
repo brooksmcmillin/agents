@@ -15,10 +15,11 @@ The evaluation system provides three capabilities:
 ```
 tests/evaluations/
 ├── __init__.py
-├── runner.py          # Core eval runner — loads datasets, runs agents, scores results
-├── scorers.py         # Scoring functions (LLM-as-judge, keyword, tool-use checks)
-├── models.py          # Data models (EvalCase, EvalResult, EvalRun)
-├── datasets/          # JSONL test cases per agent (13 datasets)
+├── runner.py              # Core eval runner — loads datasets, runs agents, scores results
+├── scorers.py             # Scoring functions (LLM-as-judge, keyword, tool-use checks)
+├── models.py              # Data models (EvalCase, EvalResult, EvalRun)
+├── check_prompt_gate.py   # CI gate — requires eval baselines when prompts change
+├── datasets/              # JSONL test cases per agent (13 datasets)
 │   ├── chatbot.jsonl
 │   ├── business.jsonl
 │   ├── security.jsonl
@@ -33,7 +34,7 @@ tests/evaluations/
 │   ├── web-analysis.jsonl
 │   ├── website-tester.jsonl
 │   └── README.md
-└── results/           # Stored eval run results (gitignored)
+└── results/               # Baseline eval results (tracked) + ad-hoc runs (gitignored)
 ```
 
 ## Quick Start
@@ -184,20 +185,39 @@ CI runs `pytest tests/evaluations/test_evaluations.py` on every PR. This validat
 
 CI also verifies that every agent in the registry has a corresponding dataset file, preventing coverage gaps when new agents are added.
 
+### Prompt change detection gate (active)
+
+**Cost: zero.** When a PR changes any `agents/*/prompts.py` file, the `prompt-change-gate` CI job verifies that the corresponding eval baseline was also updated in the PR. This enforces that prompt changes are tested before merge without running live evals in CI.
+
+**Workflow when changing prompts:**
+
+```bash
+# 1. Edit the agent's prompts.py
+vim agents/chatbot/prompts.py
+
+# 2. Run the eval and save the baseline
+uv run python -m tests.evaluations.runner --agent chatbot --save-baseline
+
+# 3. Commit both files
+git add agents/chatbot/prompts.py tests/evaluations/results/chatbot.json
+git commit -m "Update chatbot prompt and eval baseline"
+```
+
+The `--save-baseline` flag saves results to `tests/evaluations/results/{agent}.json` using a stable filename that overwrites the previous baseline. This is separate from `--save` which creates timestamped files for ad-hoc analysis.
+
+**Implementation:** `tests/evaluations/check_prompt_gate.py` — maps module directory names to registry names, detects changed `prompts.py` files via `git diff`, and verifies corresponding baseline result files were also modified.
+
 ### Roadmap
 
 The following CI gates are planned, roughly in priority order:
 
-#### 1. Prompt change detection gate
-**Cost: zero.** If a `prompts.py` file changed in the PR, require that the corresponding agent's eval was run and results committed to `tests/evaluations/results/`. Enforces that prompt changes are tested before merge without running live evals in CI.
-
-#### 2. Live evals on changed agents
+#### Live evals on changed agents
 **Cost: ~$0.50/run.** When an agent's code or prompts change, run the eval runner against that agent with `--scorer composite` and fail if `pass_rate` drops below a threshold (e.g., 0.7). Mitigations for cost:
 - Only run for agents whose code changed (file-path filtering)
 - Use keyword + tool_use scorers only (skip LLM judge) for cheaper runs
 - Run on merge to main only, not on every PR push
 
-#### 3. Score trend tracking
+#### Score trend tracking
 **Cost: ~$0.50/run.** Push eval scores to Langfuse on every merge to main. Not a blocking gate — provides regression visibility over time. Complements hard gates with trend dashboards.
 
 ### Known limitations
