@@ -17,9 +17,25 @@ pub fn read_file_string(path: &str) -> Option<String> {
     fs::read_to_string(path).ok()
 }
 
-/// Get the system hostname.
+/// Sanitize a hostname for use in a filename.
+///
+/// Replaces any character that is not alphanumeric, `-`, or `.` with `_` to
+/// prevent path traversal when the hostname is embedded in an output filename.
+fn sanitize_hostname(raw: &str) -> String {
+    raw.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '.' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+/// Get the system hostname, sanitized for safe use in filenames.
 pub fn hostname() -> String {
-    read_file_string("/etc/hostname")
+    let raw = read_file_string("/etc/hostname")
         .map(|s| s.trim().to_string())
         .or_else(|| {
             let out = run_cmd("hostname", &[]);
@@ -29,5 +45,6 @@ pub fn hostname() -> String {
                 Some(out.trim().to_string())
             }
         })
-        .unwrap_or_else(|| "unknown".to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+    sanitize_hostname(&raw)
 }
