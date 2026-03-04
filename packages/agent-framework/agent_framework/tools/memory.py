@@ -218,11 +218,6 @@ def get_memory_backend() -> str:
     return os.environ.get("MEMORY_BACKEND", "file").lower()
 
 
-# Keep the private alias so any code that directly references `_get_backend`
-# continues to work during any remaining transition period.
-_get_backend = get_memory_backend
-
-
 def get_memory_store(agent_name: str = DEFAULT_AGENT_NAME) -> MemoryStore:
     """Get or create a file-based memory store instance for the specified agent.
 

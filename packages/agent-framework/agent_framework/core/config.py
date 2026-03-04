@@ -222,6 +222,20 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("langfuse_host", "langfuse_base_url"),
     )
 
+    @field_validator("memory_backend")
+    @classmethod
+    def validate_memory_backend(cls, v: str) -> str:
+        """Normalize and validate the memory backend setting.
+
+        Lowercases the value (so ``MEMORY_BACKEND=DATABASE`` works) and
+        rejects strings that are not one of the known backends.
+        """
+        normalized = v.lower()
+        valid_backends = ("file", "database")
+        if normalized not in valid_backends:
+            raise ValueError(f"Invalid memory_backend '{v}'. Must be one of: {valid_backends}")
+        return normalized
+
     @field_validator("langfuse_host")
     @classmethod
     def validate_langfuse_host(cls, v: str | None) -> str | None:
@@ -242,7 +256,7 @@ class Settings(BaseSettings):
         self.token_storage_path.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.token_storage_path.chmod(0o700)
         # Only create memory_storage_path if using file backend
-        if self.memory_backend.lower() == "file":
+        if self.memory_backend == "file":
             self.memory_storage_path.mkdir(parents=True, exist_ok=True, mode=0o700)
             self.memory_storage_path.chmod(0o700)
         self.log_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
