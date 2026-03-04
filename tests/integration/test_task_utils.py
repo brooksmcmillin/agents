@@ -182,11 +182,11 @@ class TestParsePriority:
 
     def test_parse_text_high(self):
         """Test parsing 'high' text priority."""
-        assert parse_priority("high") == 9
+        assert parse_priority("high") == 8
 
     def test_parse_text_critical(self):
         """Test parsing 'critical' text priority."""
-        assert parse_priority("critical") == 9
+        assert parse_priority("critical") == 10
 
     # --- Text Priority Values (medium/normal) ---
 
@@ -209,8 +209,8 @@ class TestParsePriority:
     def test_parse_text_case_insensitive(self):
         """Test that text priority parsing is case insensitive."""
         assert parse_priority("URGENT") == 9
-        assert parse_priority("High") == 9
-        assert parse_priority("CrItIcAl") == 9
+        assert parse_priority("High") == 8
+        assert parse_priority("CrItIcAl") == 10
         assert parse_priority("MEDIUM") == 5
         assert parse_priority("Normal") == 5
         assert parse_priority("LOW") == 2
@@ -373,4 +373,4 @@ class TestTaskUtilsIntegration:
 
         priorities = [parse_priority(task["priority"]) for task in tasks]
 
-        assert priorities == [9, 5, 9, 5]
+        assert priorities == [9, 5, 8, 5]

@@ -21,6 +21,7 @@ from agent_framework.tools import send_slack_message
 from agents.orchestrator.models import AutonomyTier, OrchestratorConfig, Task
 from agents.orchestrator.state_machine import Orchestrator
 from shared import BatchAgent, parse_json_result, parse_task_result
+from shared.task_utils import PRIORITY_TEXT_TO_INT
 
 from .dependency_graph import compute_processing_order, identify_blocked_tasks
 from .lightweight_executor import execute_lightweight
@@ -524,9 +525,9 @@ class TaskQueueRunner(BatchAgent):
         # Sort: due_date ASC, then priority DESC
         def sort_key(t: dict) -> tuple:
             due = t.get("due_date") or "9999-99-99"
-            # Invert priority for DESC (higher priority first)
-            priority_map = {"urgent": 0, "high": 1, "medium": 2, "low": 3}
-            priority = priority_map.get(str(t.get("priority", "medium")).lower(), 2)
+            # Invert priority for DESC (higher priority first) using canonical mapping
+            priority_int = PRIORITY_TEXT_TO_INT.get(str(t.get("priority", "medium")).lower(), 5)
+            priority = -priority_int
             return (due, priority)
 
         unique_tasks.sort(key=sort_key)
@@ -1159,8 +1160,7 @@ class TaskQueueRunner(BatchAgent):
     def _to_orchestrator_task(self, mcp_task: dict, triage: TriageResult) -> Task:
         """Convert an MCP task dict to an orchestrator Task model."""
         priority_text = str(mcp_task.get("priority", "medium")).lower()
-        priority_map = {"low": 2, "medium": 5, "high": 8, "urgent": 10}
-        priority = priority_map.get(priority_text, 5)
+        priority = PRIORITY_TEXT_TO_INT.get(priority_text, 5)
 
         # Determine autonomy tier
         tier_value = triage.suggested_autonomy_tier or mcp_task.get("autonomy_tier") or 2
