@@ -4,8 +4,12 @@ This module manages the connection to the MCP server and provides
 a clean interface for calling MCP tools.
 """
 
+import asyncio
+import contextlib
 import json
 import logging
+import os
+import sys
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -84,7 +88,45 @@ class MCPClient:
 
         # Persistent connection state: holds the active stack when persistent=True
         # so the subprocess stays alive between connect() calls.
-        self._persistent_exit_stack: Any | None = None
+        self._persistent_exit_stack: contextlib.AsyncExitStack | None = None
+
+        # Lock to prevent concurrent coroutines from each spawning a fresh
+        # subprocess when persistent=True and session is None.
+        self._persistent_connect_lock: asyncio.Lock = asyncio.Lock()
+
+    def _build_server_params(self) -> StdioServerParameters:
+        """Build StdioServerParameters for the MCP server subprocess.
+
+        Uses sys.executable to ensure we use the same Python interpreter
+        (and virtual environment) as the running agent.
+        Passes current environment variables to subprocess so it inherits
+        settings like MEMORY_BACKEND, DATABASE_URL, etc.
+        """
+        return StdioServerParameters(
+            command=sys.executable,
+            args=["-m", self.server_script_path.replace("/", ".").replace(".py", "")],
+            env=dict(os.environ),
+        )
+
+    def _open_errlog(self) -> TextIO:
+        """Open and return the stderr log file, falling back to sys.stderr."""
+        if self._stderr_log_path:
+            try:
+                self._stderr_file = open(  # noqa: SIM115
+                    self._stderr_log_path, "a", encoding="utf-8"
+                )
+                logger.debug(f"MCP server stderr redirected to: {self._stderr_log_path}")
+                return self._stderr_file
+            except OSError as e:
+                logger.warning(f"Failed to open stderr log file {self._stderr_log_path}: {e}")
+        return sys.stderr
+
+    def _close_errlog(self) -> None:
+        """Close the stderr log file if one was opened."""
+        if self._stderr_file:
+            with contextlib.suppress(OSError):
+                self._stderr_file.close()
+            self._stderr_file = None
 
     @asynccontextmanager
     async def connect(self) -> AsyncGenerator[Self, None]:
@@ -115,34 +157,10 @@ class MCPClient:
     @asynccontextmanager
     async def _connect_fresh(self) -> AsyncGenerator[Self, None]:
         """Connect by spawning a new subprocess each time (non-persistent mode)."""
-        import os
-        import sys
-
-        # Set up server parameters
-        # Use sys.executable to ensure we use the same Python interpreter
-        # (and virtual environment) as the running agent
-        # Pass current environment variables to subprocess so it inherits
-        # settings like MEMORY_BACKEND, DATABASE_URL, etc.
-        server_params = StdioServerParameters(
-            command=sys.executable,
-            args=["-m", self.server_script_path.replace("/", ".").replace(".py", "")],
-            env=dict(os.environ),
-        )
+        server_params = self._build_server_params()
+        errlog = self._open_errlog()
 
         logger.info(f"Connecting to MCP server: {self.server_script_path}")
-
-        # Open stderr log file if configured
-        errlog: TextIO = sys.stderr
-        if self._stderr_log_path:
-            try:
-                self._stderr_file = open(  # noqa: SIM115
-                    self._stderr_log_path, "a", encoding="utf-8"
-                )
-                errlog = self._stderr_file
-                logger.debug(f"MCP server stderr redirected to: {self._stderr_log_path}")
-            except OSError as e:
-                logger.warning(f"Failed to open stderr log file {self._stderr_log_path}: {e}")
-                # Fall back to sys.stderr
 
         try:
             # Connect to server, passing errlog for stderr capture
@@ -164,15 +182,9 @@ class MCPClient:
             raise
 
         finally:
-            import contextlib
-
             self.session = None
             logger.info("MCP session closed")
-            # Close stderr log file if we opened it
-            if self._stderr_file:
-                with contextlib.suppress(OSError):
-                    self._stderr_file.close()
-                self._stderr_file = None
+            self._close_errlog()
 
     @asynccontextmanager
     async def _connect_persistent(self) -> AsyncGenerator[Self, None]:
@@ -183,64 +195,50 @@ class MCPClient:
         the already-connected client.  Callers must call ``end_turn()``
         or ``disconnect()`` to close the subprocess between turns so that
         updated tools are picked up on the next turn.
+
+        A lock prevents concurrent coroutines from each spawning a fresh
+        subprocess when the session is not yet established.
         """
-        if self.session is not None:
-            # Already connected — reuse without spawning a new subprocess.
-            logger.debug("Reusing cached MCP connection (persistent mode)")
-            yield self
-            return
+        async with self._persistent_connect_lock:
+            if self.session is not None:
+                # Already connected — reuse without spawning a new subprocess.
+                logger.debug("Reusing cached MCP connection (persistent mode)")
+                yield self
+                return
 
-        # No cached connection yet — start one and cache it.
-        import contextlib
-        import os
-        import sys
+            # No cached connection yet — start one and cache it.
+            server_params = self._build_server_params()
+            errlog = self._open_errlog()
 
-        server_params = StdioServerParameters(
-            command=sys.executable,
-            args=["-m", self.server_script_path.replace("/", ".").replace(".py", "")],
-            env=dict(os.environ),
-        )
+            logger.info(f"Connecting to MCP server (persistent): {self.server_script_path}")
 
-        logger.info(f"Connecting to MCP server (persistent): {self.server_script_path}")
-
-        errlog: TextIO = sys.stderr
-        if self._stderr_log_path:
+            # Use an AsyncExitStack to keep both the stdio_client and ClientSession
+            # context managers alive beyond this method invocation.
+            stack = contextlib.AsyncExitStack()
             try:
-                self._stderr_file = open(  # noqa: SIM115
-                    self._stderr_log_path, "a", encoding="utf-8"
+                read, write = await stack.enter_async_context(
+                    stdio_client(server_params, errlog=errlog)
                 )
-                errlog = self._stderr_file
-                logger.debug(f"MCP server stderr redirected to: {self._stderr_log_path}")
-            except OSError as e:
-                logger.warning(f"Failed to open stderr log file {self._stderr_log_path}: {e}")
+                session = await stack.enter_async_context(ClientSession(read, write))
+                self.session = session
+                self._persistent_exit_stack = stack
 
-        # Use an AsyncExitStack to keep both the stdio_client and ClientSession
-        # context managers alive beyond this method invocation.
-        stack = contextlib.AsyncExitStack()
-        try:
-            await stack.__aenter__()
-            read, write = await stack.enter_async_context(
-                stdio_client(server_params, errlog=errlog)
-            )
-            session = await stack.enter_async_context(ClientSession(read, write))
-            self.session = session
-            self._persistent_exit_stack = stack
+                await session.initialize()
+                logger.info("MCP persistent session initialized")
 
-            await session.initialize()
-            logger.info("MCP persistent session initialized")
+                await self._discover_tools()
 
-            await self._discover_tools()
+                yield self
 
-            yield self
-
-        except Exception as e:
-            logger.error(f"Failed to connect to MCP server (persistent): {e}")
-            # Clean up on connection failure
-            self.session = None
-            self._persistent_exit_stack = None
-            with contextlib.suppress(Exception):
-                await stack.__aexit__(type(e), e, e.__traceback__)
-            raise
+            except Exception as e:
+                logger.error(f"Failed to connect to MCP server (persistent): {e}")
+                # Clean up on connection failure
+                self.session = None
+                self._persistent_exit_stack = None
+                with contextlib.suppress(OSError, RuntimeError, asyncio.CancelledError):
+                    await stack.aclose()
+                self._close_errlog()
+                raise
 
     async def disconnect(self) -> None:
         """Close the cached persistent connection, if any.
@@ -249,20 +247,14 @@ class MCPClient:
         disconnected.  After this call, the next ``connect()`` will spawn
         a fresh subprocess (allowing updated tools to be loaded).
         """
-        import contextlib
-
         stack = self._persistent_exit_stack
         if stack is not None:
             self._persistent_exit_stack = None
             self.session = None
             logger.info("Closing persistent MCP connection")
-            with contextlib.suppress(Exception):
-                await stack.__aexit__(None, None, None)
-            # Close stderr log file if we opened it
-            if self._stderr_file:
-                with contextlib.suppress(OSError):
-                    self._stderr_file.close()
-                self._stderr_file = None
+            with contextlib.suppress(OSError, RuntimeError, asyncio.CancelledError):
+                await stack.aclose()
+            self._close_errlog()
             logger.info("Persistent MCP connection closed")
 
     async def end_turn(self) -> None:
@@ -421,14 +413,21 @@ async def create_mcp_client(
         async with create_mcp_client() as client:
             result = await client.call_tool("tool_name", {...})
 
+    For persistent mode, manage lifecycle explicitly instead:
+        client = MCPClient(persistent=True)
+        async with client.connect():
+            result = await client.call_tool("tool_name", {...})
+        await client.end_turn()   # close between turns
+
     Args:
         server_script_path: Path to the MCP server script
         agent_name: Name of the agent (used for log file naming)
         stderr_log_file: Optional explicit path for stderr log file
         allowed_tools: A list of local tools that are explicitly allowed
-        persistent: If True, cache the MCP subprocess connection. When the
-            context manager exits the connection remains open; call
-            ``client.disconnect()`` or ``client.end_turn()`` to close it.
+        persistent: If True, cache the MCP subprocess connection across calls.
+            Note: with this convenience wrapper the connection is NOT automatically
+            closed when the context exits — call ``client.disconnect()`` or
+            ``client.end_turn()`` explicitly when done with the turn.
 
     Yields:
         Connected MCPClient instance

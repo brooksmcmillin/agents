@@ -305,19 +305,19 @@ class TestMCPClientEnvironment:
         with patch.object(StdioServerParameters, "__init__", capture_init):
             # We can't fully run connect() without a real server,
             # but we can inspect the implementation to verify env is passed.
-            # The actual subprocess spawn happens in _connect_fresh and
-            # _connect_persistent, not in the connect() dispatcher.
+            # The actual subprocess spawn happens in _build_server_params.
             import inspect
 
-            fresh_source = inspect.getsource(client._connect_fresh)
-            persistent_source = inspect.getsource(client._connect_persistent)
-            combined = fresh_source + persistent_source
+            build_params_source = inspect.getsource(client._build_server_params)
 
             # Verify the implementation passes environment
-            assert "env=dict(os.environ)" in combined or "env=os.environ" in combined, (
-                "MCPClient._connect_fresh/_connect_persistent must pass environment variables "
-                "to subprocess. Without this, MEMORY_BACKEND and DATABASE_URL won't be "
-                "available in the MCP server subprocess."
+            assert (
+                "env=dict(os.environ)" in build_params_source
+                or "env=os.environ" in build_params_source
+            ), (
+                "MCPClient._build_server_params must pass environment variables to subprocess. "
+                "Without this, MEMORY_BACKEND and DATABASE_URL won't be available "
+                "in the MCP server subprocess."
             )
 
     def test_environment_inheritance_documentation(self):
@@ -325,15 +325,13 @@ class TestMCPClientEnvironment:
         import inspect
 
         client = MCPClient()
-        # The env passing happens in the helper methods, not the dispatcher
-        fresh_source = inspect.getsource(client._connect_fresh)
-        persistent_source = inspect.getsource(client._connect_persistent)
-        combined = fresh_source + persistent_source
+        # The env passing is centralised in _build_server_params
+        build_params_source = inspect.getsource(client._build_server_params)
 
         # Verify there's a comment explaining why env is passed
-        assert "MEMORY_BACKEND" in combined or "environment" in combined.lower(), (
-            "MCPClient connect helpers should document why environment is passed"
-        )
+        assert (
+            "MEMORY_BACKEND" in build_params_source or "environment" in build_params_source.lower()
+        ), "MCPClient._build_server_params should document why environment is passed"
 
 
 class TestMCPClientPersistentMode:
@@ -411,7 +409,7 @@ class TestMCPClientPersistentMode:
 
         # Simulate a connected state with a mock exit stack
         mock_stack = AsyncMock()
-        mock_stack.__aexit__ = AsyncMock(return_value=None)
+        mock_stack.aclose = AsyncMock(return_value=None)
         client.session = MagicMock()
         client._persistent_exit_stack = mock_stack
 
@@ -419,7 +417,7 @@ class TestMCPClientPersistentMode:
 
         assert client.session is None
         assert client._persistent_exit_stack is None
-        mock_stack.__aexit__.assert_called_once_with(None, None, None)
+        mock_stack.aclose.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_nonpersistent_mode_does_not_cache_session(self):
@@ -431,6 +429,24 @@ class TestMCPClientPersistentMode:
         # After normal operations it should still be None
         await client.end_turn()
         assert client._persistent_exit_stack is None
+
+    def test_persistent_connect_lock_exists(self):
+        """Test that a lock is created for preventing concurrent subprocess spawns."""
+        import asyncio
+
+        client = MCPClient(persistent=True)
+        assert hasattr(client, "_persistent_connect_lock")
+        assert isinstance(client._persistent_connect_lock, asyncio.Lock)
+
+    def test_persistent_exit_stack_type_annotation(self):
+        """Test that _persistent_exit_stack has the correct type (not Any)."""
+        import inspect
+
+        # Get the source and verify the type annotation uses AsyncExitStack, not Any
+        source = inspect.getsource(MCPClient.__init__)
+        assert "AsyncExitStack" in source, (
+            "_persistent_exit_stack should be typed as contextlib.AsyncExitStack | None"
+        )
 
 
 class TestCreateMCPClient:
