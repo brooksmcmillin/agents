@@ -410,12 +410,22 @@ async def _main() -> None:
         action="store_true",
         help="Save results to tests/evaluations/results/",
     )
+    parser.add_argument(
+        "--save-baseline",
+        action="store_true",
+        help="Save results as baseline ({agent}.json) for CI prompt-change gate",
+    )
 
     args = parser.parse_args()
 
     # Validate A/B variant flags: require both or neither
     if bool(args.variant_a) != bool(args.variant_b):
         parser.error("A/B testing requires both --variant-a and --variant-b")
+
+    # --save-baseline produces a single {agent}.json file, which doesn't
+    # make sense for A/B testing (variant B would silently overwrite A).
+    if args.save_baseline and args.variant_a:
+        parser.error("--save-baseline cannot be combined with A/B testing")
 
     # A/B testing mode
     if args.variant_a and args.variant_b:
@@ -486,6 +496,10 @@ async def _main() -> None:
         if args.save:
             path = run.save(RESULTS_DIR)
             print(f"Results saved: {path}")
+
+        if args.save_baseline:
+            path = run.save_baseline(RESULTS_DIR)
+            print(f"Baseline saved: {path}")
 
 
 if __name__ == "__main__":
