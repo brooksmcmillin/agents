@@ -219,6 +219,31 @@ class TestCheckHostAllowed:
             with pytest.raises(ValueError, match="Cannot resolve hostname"):
                 await _check_host_allowed("nonexistent.invalid")
 
+    @pytest.mark.asyncio
+    async def test_rejects_bare_ipv6_outside_ipv4_allowlist(self) -> None:
+        """IPv6 addresses that don't resolve via AF_INET are rejected fail-safely.
+
+        _check_host_allowed uses AF_INET (IPv4-only) resolution. A bare IPv6
+        address will return an empty list or raise gaierror, which is treated
+        as 'cannot resolve' — fail-safe behavior that prevents IPv6 bypass.
+        """
+        loop_mock = AsyncMock()
+        # AF_INET resolution of an IPv6 address returns empty list
+        loop_mock.getaddrinfo = AsyncMock(return_value=[])
+        with patch("asyncio.get_running_loop", return_value=loop_mock):
+            with pytest.raises(ValueError, match="Cannot resolve hostname"):
+                await _check_host_allowed("::1")
+
+    @pytest.mark.asyncio
+    async def test_rejects_ipv6_when_allowlist_is_ipv4_only(self) -> None:
+        """An IPv6 address is blocked when the allowlist only contains IPv4 CIDRs."""
+        loop_mock = AsyncMock()
+        # Simulate gaierror for IPv6 on AF_INET lookup
+        loop_mock.getaddrinfo = AsyncMock(side_effect=socket.gaierror("Name or service not known"))
+        with patch("asyncio.get_running_loop", return_value=loop_mock):
+            with pytest.raises(ValueError, match="Cannot resolve hostname"):
+                await _check_host_allowed("2001:db8::1")
+
 
 # ---------------------------------------------------------------------------
 # Tests for network_discover_hosts
@@ -676,8 +701,9 @@ class TestNetworkCheckDns:
                         "192.168.1.1",
                         record_types=["A", "INJECTED", "MX"],
                     )
-        # INJECTED should have been filtered out
         assert result["status"] == "success"
+        # INJECTED should have been filtered out - it must not appear in records
+        assert "INJECTED" not in result["records"]
 
     @pytest.mark.asyncio
     async def test_output_format_is_consistent(self, mock_check_host_allowed: Any) -> None:
@@ -1189,12 +1215,25 @@ class TestNetworkCheckDefaultCredentials:
         mock_proc.communicate = AsyncMock(return_value=(b"", b"Permission denied"))
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             result = await network_check_default_credentials(AGENT, "192.168.1.1", services=["ssh"])
-        # None of the detail strings should contain actual passwords
+        # Verify no plaintext passwords appear in any field of the detail dicts.
+        # Usernames may appear in plaintext (e.g. in 'username' field), but
+        # password values must always be redacted in the 'password' field.
+        known_passwords = {"raspberry", "admin", "password", "1234"}
         for svc_result in result["results"]:
             for detail in svc_result.get("details", []):
-                password_val = detail.get("password", "")
-                assert "raspberry" not in password_val
-                assert "admin" not in password_val or "[REDACTED" in password_val
+                for key, val in detail.items():
+                    str_val = str(val)
+                    # The 'password' key must never contain a plaintext credential
+                    if key == "password":
+                        for pwd in known_passwords:
+                            assert pwd not in str_val or "[REDACTED" in str_val, (
+                                f"Plaintext password {pwd!r} found in field {key!r}: {str_val!r}"
+                            )
+                    # No field should contain the 'raspberry' password (pi default)
+                    # since it is not a username and would only appear as a credential leak
+                    assert "raspberry" not in str_val, (
+                        f"Password 'raspberry' leaked in field {key!r}: {str_val!r}"
+                    )
 
     @pytest.mark.asyncio
     async def test_unknown_service_returns_zero_credentials(
