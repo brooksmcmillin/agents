@@ -448,6 +448,43 @@ class TestMCPClientPersistentMode:
             "_persistent_exit_stack should be typed as contextlib.AsyncExitStack | None"
         )
 
+    @pytest.mark.asyncio
+    async def test_lock_released_before_yield_allows_concurrent_callers(self):
+        """Test that the lock is released before yield so concurrent callers don't serialize.
+
+        When a session already exists, two concurrent connect() calls should be
+        able to proceed concurrently (both yield quickly) rather than one blocking
+        the other for the duration of its tool call.
+        """
+        import asyncio
+
+        client = MCPClient(persistent=True)
+
+        # Pre-populate a mock session to simulate an already-established connection
+        client.session = MagicMock()
+        client._persistent_exit_stack = MagicMock()
+
+        acquired_while_other_holding = False
+
+        async def caller_one():
+            async with client.connect():
+                # While we're inside the context, try to acquire the lock
+                # If the lock is still held, this would deadlock
+                nonlocal acquired_while_other_holding
+                acquired = client._persistent_connect_lock.locked()
+                acquired_while_other_holding = not acquired
+                # Give caller_two a chance to proceed
+                await asyncio.sleep(0)
+
+        async def caller_two():
+            await asyncio.sleep(0)  # Let caller_one enter first
+            async with client.connect():
+                pass
+
+        # Both should complete without deadlock
+        await asyncio.gather(caller_one(), caller_two())
+        assert acquired_while_other_holding, "Lock should be released before yield"
+
 
 class TestCreateMCPClient:
     """Tests for the create_mcp_client convenience function."""

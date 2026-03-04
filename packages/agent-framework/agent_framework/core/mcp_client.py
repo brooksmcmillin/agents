@@ -196,49 +196,50 @@ class MCPClient:
         or ``disconnect()`` to close the subprocess between turns so that
         updated tools are picked up on the next turn.
 
-        A lock prevents concurrent coroutines from each spawning a fresh
-        subprocess when the session is not yet established.
+        The lock only guards the connection-setup phase to prevent concurrent
+        coroutines from each spawning a fresh subprocess when session is None.
+        The lock is released before yielding so concurrent tool calls can
+        proceed in parallel once the connection is established.
         """
         async with self._persistent_connect_lock:
-            if self.session is not None:
-                # Already connected — reuse without spawning a new subprocess.
+            if self.session is None:
+                # No cached connection yet — start one and cache it.
+                server_params = self._build_server_params()
+                errlog = self._open_errlog()
+
+                logger.info(f"Connecting to MCP server (persistent): {self.server_script_path}")
+
+                # Use an AsyncExitStack to keep both the stdio_client and ClientSession
+                # context managers alive beyond this method invocation.
+                stack = contextlib.AsyncExitStack()
+                try:
+                    read, write = await stack.enter_async_context(
+                        stdio_client(server_params, errlog=errlog)
+                    )
+                    session = await stack.enter_async_context(ClientSession(read, write))
+                    self.session = session
+                    self._persistent_exit_stack = stack
+
+                    await session.initialize()
+                    logger.info("MCP persistent session initialized")
+
+                    await self._discover_tools()
+
+                except Exception as e:
+                    logger.error(f"Failed to connect to MCP server (persistent): {e}")
+                    # Clean up on connection failure
+                    self.session = None
+                    self._persistent_exit_stack = None
+                    with contextlib.suppress(OSError, RuntimeError, asyncio.CancelledError):
+                        await stack.aclose()
+                    self._close_errlog()
+                    raise
+            else:
                 logger.debug("Reusing cached MCP connection (persistent mode)")
-                yield self
-                return
 
-            # No cached connection yet — start one and cache it.
-            server_params = self._build_server_params()
-            errlog = self._open_errlog()
-
-            logger.info(f"Connecting to MCP server (persistent): {self.server_script_path}")
-
-            # Use an AsyncExitStack to keep both the stdio_client and ClientSession
-            # context managers alive beyond this method invocation.
-            stack = contextlib.AsyncExitStack()
-            try:
-                read, write = await stack.enter_async_context(
-                    stdio_client(server_params, errlog=errlog)
-                )
-                session = await stack.enter_async_context(ClientSession(read, write))
-                self.session = session
-                self._persistent_exit_stack = stack
-
-                await session.initialize()
-                logger.info("MCP persistent session initialized")
-
-                await self._discover_tools()
-
-                yield self
-
-            except Exception as e:
-                logger.error(f"Failed to connect to MCP server (persistent): {e}")
-                # Clean up on connection failure
-                self.session = None
-                self._persistent_exit_stack = None
-                with contextlib.suppress(OSError, RuntimeError, asyncio.CancelledError):
-                    await stack.aclose()
-                self._close_errlog()
-                raise
+        # Lock released here — concurrent callers can proceed in parallel once
+        # the connection is established.
+        yield self
 
     async def disconnect(self) -> None:
         """Close the cached persistent connection, if any.
