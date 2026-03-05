@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
+from typing import ClassVar
 
 from agent_framework.core.polling_agent import PollingAgentConfig
 
@@ -38,7 +39,7 @@ class PRShepherdConfig(PollingAgentConfig):
     worker_model: str = "sonnet"
     worker_timeout: int = 600  # seconds
 
-    _VALID_MERGE_METHODS: frozenset[str] = frozenset({"squash", "merge", "rebase"})
+    _VALID_MERGE_METHODS: ClassVar[frozenset[str]] = frozenset({"squash", "merge", "rebase"})
 
     def __post_init__(self) -> None:
         if self.merge_method not in self._VALID_MERGE_METHODS:
