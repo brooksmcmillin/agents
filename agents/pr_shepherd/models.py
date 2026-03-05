@@ -38,6 +38,15 @@ class PRShepherdConfig(PollingAgentConfig):
     worker_model: str = "sonnet"
     worker_timeout: int = 600  # seconds
 
+    _VALID_MERGE_METHODS: frozenset[str] = frozenset({"squash", "merge", "rebase"})
+
+    def __post_init__(self) -> None:
+        if self.merge_method not in self._VALID_MERGE_METHODS:
+            raise ValueError(
+                f"Invalid merge_method {self.merge_method!r}, "
+                f"must be one of {sorted(self._VALID_MERGE_METHODS)}"
+            )
+
     @property
     def max_fix_attempts(self) -> int:
         """Alias for max_retries for backward compatibility."""

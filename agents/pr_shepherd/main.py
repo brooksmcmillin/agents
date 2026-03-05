@@ -77,7 +77,7 @@ class PRShepherd(PollingAgent[TrackedPR, PRDiagnosis, PRActionResult]):
     async def should_skip(self, item: TrackedPR, diagnosis: PRDiagnosis) -> bool:
         """Skip PRs whose checks are still pending."""
         if diagnosis.overall_status == "pending":
-            print(f"  {item.repo}#{item.number}: checks pending, skipping")
+            logger.info(f"{item.repo}#{item.number}: checks pending, skipping")
             item.status = PRStatus.PENDING_CHECKS
             return True
         return False
@@ -123,63 +123,6 @@ class PRShepherd(PollingAgent[TrackedPR, PRDiagnosis, PRActionResult]):
                 f"Remaining failures: {diagnosis.failing_checks}"
             ),
         )
-
-    # ── Backward-compatible entry points ─────────────────────────────
-
-    async def run_once(self) -> list[TrackedPR]:
-        """Single pass over all configured repos. Returns tracked PRs.
-
-        Overrides the base class to maintain backward compatibility:
-        the original PR Shepherd returned list[TrackedPR], not
-        list[ProcessingRecord].
-        """
-        items = await self.poll()
-        logger.info(f"{self.__class__.__name__}: polled {len(items)} work item(s)")
-
-        for item in items:
-            try:
-                diagnosis = await self.diagnose(item)
-
-                if await self.should_skip(item, diagnosis):
-                    continue
-
-                attempt = await self.get_attempt_count(item) + 1
-                if attempt > self.config.max_retries:
-                    logger.warning(
-                        f"{item.repo}#{item.number}: max fix attempts "
-                        f"({self.config.max_retries}) reached, abandoning"
-                    )
-                    if not self.config.dry_run:
-                        result = await self.on_max_retries_exceeded(item, diagnosis)
-                        await self.escalate(item, result)
-                    else:
-                        print(
-                            f"  [dry-run] Would comment: abandoning after "
-                            f"{item.fix_attempts} attempts"
-                        )
-                    continue
-
-                if self.config.dry_run:
-                    if diagnosis.overall_status == "pass":
-                        print(
-                            f"  [dry-run] Would merge {item.repo}#{item.number} "
-                            f"via {self.config.merge_method}"
-                        )
-                    else:
-                        print(
-                            f"  [dry-run] Would attempt fix #{attempt} for "
-                            f"{item.repo}#{item.number}: {diagnosis.failing_checks}"
-                        )
-                    continue
-
-                result = await self.act(item, diagnosis)
-                if await self.should_escalate(item, result):
-                    await self.escalate(item, result)
-
-            except Exception:
-                logger.exception(f"Unhandled error processing {item.repo}#{item.number}, skipping")
-
-        return items
 
     # ── Private implementation details ───────────────────────────────
 

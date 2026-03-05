@@ -97,7 +97,6 @@ class TestPollingAgentConfig:
         assert config.poll_interval == 60
         assert config.max_retries == 3
         assert config.dry_run is False
-        assert config.max_concurrent_items == 5
 
     def test_custom_values(self) -> None:
         config = PollingAgentConfig(poll_interval=120, max_retries=5, dry_run=True)
@@ -183,6 +182,7 @@ class TestPollingAgentRunOnce:
         records = await agent.run_once()
 
         assert len(records) == 1
+        assert records[0].status == WorkItemStatus.SKIPPED
         # In dry_run mode, item is not acted on
         assert "dry-1" not in agent.acted_on
         assert "dry-1" not in agent.escalated_items
@@ -251,7 +251,7 @@ class TestPollingAgentErrorHandling:
 
         assert len(records) == 1
         assert records[0].status == WorkItemStatus.FAILED
-        assert records[0].error == "unhandled exception"
+        assert records[0].error == "diagnose exploded"
 
     @pytest.mark.asyncio
     async def test_act_exception_marks_failed(self) -> None:

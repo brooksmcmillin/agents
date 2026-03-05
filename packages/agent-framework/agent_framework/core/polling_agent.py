@@ -61,7 +61,6 @@ class PollingAgentConfig:
     poll_interval: int = 60  # seconds between poll cycles
     max_retries: int = 3  # max action attempts per work item
     dry_run: bool = False
-    max_concurrent_items: int = 5  # max items to process in parallel
 
 
 @dataclass
@@ -116,6 +115,8 @@ class PollingAgent[WorkItemT, DiagnosisT, ActionResultT](ABC):
                 await self.run_once()
             except Exception:
                 logger.exception(f"{self.__class__.__name__}: unhandled error in poll cycle")
+            if not self._running:
+                break
             logger.info(f"Sleeping {self.config.poll_interval}s before next poll")
             await asyncio.sleep(self.config.poll_interval)
 
@@ -138,10 +139,10 @@ class PollingAgent[WorkItemT, DiagnosisT, ActionResultT](ABC):
 
             try:
                 await self._process_item(item, record)
-            except Exception:
+            except Exception as exc:
                 logger.exception(f"{self.__class__.__name__}: unhandled error processing {item_id}")
                 record.status = WorkItemStatus.FAILED
-                record.error = "unhandled exception"
+                record.error = str(exc) or "unhandled exception"
 
             record.completed_at = datetime.now(UTC)
             records.append(record)
@@ -178,6 +179,7 @@ class PollingAgent[WorkItemT, DiagnosisT, ActionResultT](ABC):
         record.status = WorkItemStatus.ACTING
         if self.config.dry_run:
             logger.info(f"[dry-run] Would act on {item_id} (attempt #{record.attempt})")
+            record.status = WorkItemStatus.SKIPPED
             return
 
         result = await self.act(item, diagnosis)
