@@ -12,6 +12,9 @@ concurrency:
 jobs:
   code-review:
     name: Code Review
+    # Skip Dependabot PRs — Dependabot runs cannot access repo secrets,
+    # so CLAUDE_CODE_OAUTH_TOKEN is empty and the action fails.
+    if: github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -103,6 +106,7 @@ jobs:
 
   security-review:
     name: Security Review
+    if: github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -198,6 +202,8 @@ jobs:
   review-gate:
     name: Review Gate
     needs: [code-review, security-review]
+    # Always run so the status check exists, even when review jobs are skipped
+    if: always()
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -206,9 +212,23 @@ jobs:
       - name: Evaluate reviews and gate merge
         env:
           GH_TOKEN: ${{ github.token }}
+          CODE_REVIEW_RESULT: ${{ needs.code-review.result }}
+          SECURITY_REVIEW_RESULT: ${{ needs.security-review.result }}
         run: |
           PR_NUMBER=${{ github.event.pull_request.number }}
           REPO=${{ github.repository }}
+
+          # If upstream jobs failed (not skipped), propagate the failure
+          if [ "$CODE_REVIEW_RESULT" = "failure" ] || [ "$SECURITY_REVIEW_RESULT" = "failure" ]; then
+            echo "::error::Upstream review job failed unexpectedly"
+            exit 1
+          fi
+
+          # If both review jobs were skipped (e.g. Dependabot PR), pass the gate
+          if [ "$CODE_REVIEW_RESULT" = "skipped" ] && [ "$SECURITY_REVIEW_RESULT" = "skipped" ]; then
+            echo "Review jobs skipped (likely Dependabot PR) — gate passes automatically."
+            exit 0
+          fi
 
           echo "=== Fetching CI reviewer comments ==="
 
