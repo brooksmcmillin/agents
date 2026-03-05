@@ -33,12 +33,12 @@ import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 
 logger = logging.getLogger(__name__)
 
 
-class WorkItemStatus(str, Enum):
+class WorkItemStatus(StrEnum):
     """Generic lifecycle status for a polled work item."""
 
     DISCOVERED = "discovered"

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 
 from shared.constants import MODEL_ALIASES, resolve_model
 
@@ -21,7 +21,7 @@ def _utcnow() -> datetime:
 __all__ = ["MODEL_ALIASES", "resolve_model"]
 
 
-class TriageVerdict(str, Enum):
+class TriageVerdict(StrEnum):
     """Classification verdict from LLM triage."""
 
     FULLY_EXECUTABLE = "fully_executable"

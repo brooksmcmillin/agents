@@ -11,7 +11,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from shared.anthropic_client import get_anthropic_client
@@ -28,7 +28,7 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
-class ReviewVerdict(str, Enum):
+class ReviewVerdict(StrEnum):
     """Outcome of a review gate."""
 
     PASSED = "passed"
