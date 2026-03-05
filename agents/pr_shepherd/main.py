@@ -1,7 +1,8 @@
 """PR Shepherd — polls open PRs, fixes CI failures, and auto-merges.
 
-Standalone async service. Does not use MCP — all GitHub interaction is via
-the ``gh`` CLI, and CI fixes are done via Claude Code workspaces.
+Standalone async service built on the PollingAgent base class.
+Does not use MCP — all GitHub interaction is via the ``gh`` CLI,
+and CI fixes are done via Claude Code workspaces.
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ import logging
 import os
 from pathlib import Path
 
+from agent_framework.core.polling_agent import PollingAgent
 from agent_framework.tools.claude_code import (
     create_claude_code_workspace,
     run_claude_code,
@@ -19,38 +21,34 @@ from agent_framework.tools.claude_code import (
 from agents.orchestrator.models import validate_git_ref, validate_workspace_name
 
 from . import github_ops
-from .models import PRShepherdConfig, PRStatus, TrackedPR
+from .models import PRActionResult, PRDiagnosis, PRShepherdConfig, PRStatus, TrackedPR
 from .prompts import FIX_CI_INSTRUCTIONS_TEMPLATE, REVIEW_COMMENTS_SECTION_TEMPLATE
 
 logger = logging.getLogger(__name__)
 
 
-class PRShepherd:
-    """Watches PRs, ensures CI passes, and merges them."""
+class PRShepherd(PollingAgent[TrackedPR, PRDiagnosis, PRActionResult]):
+    """Watches PRs, ensures CI passes, and merges them.
+
+    Implements the PollingAgent pipeline:
+    - poll: list open PRs from configured repos
+    - diagnose: check CI status for each PR
+    - act: merge if passing, fix if failing
+    - escalate: comment on PR when max retries exceeded
+    """
 
     def __init__(self, config: PRShepherdConfig) -> None:
-        self.config = config
+        super().__init__(config)
+        self.config: PRShepherdConfig = config
 
-    async def run(self) -> None:
-        """Main loop: poll, process, sleep, repeat."""
-        logger.info(
-            f"PR Shepherd starting — repos={self.config.repos}, "
-            f"poll_interval={self.config.poll_interval}s, "
-            f"dry_run={self.config.dry_run}"
-        )
-        while True:
-            await self.run_once()
-            logger.info(f"Sleeping {self.config.poll_interval}s before next poll")
-            await asyncio.sleep(self.config.poll_interval)
+    # ── PollingAgent abstract method implementations ─────────────────
 
-    async def run_once(self) -> list[TrackedPR]:
-        """Single pass over all configured repos. Returns tracked PRs."""
-        all_tracked: list[TrackedPR] = []
-
+    async def poll(self) -> list[TrackedPR]:
+        """List open PRs across all configured repos."""
+        all_prs: list[TrackedPR] = []
         for repo in self.config.repos:
             prs = await github_ops.list_open_prs(repo, label=self.config.label_filter)
             logger.info(f"{repo}: found {len(prs)} open PR(s)")
-
             for pr_data in prs:
                 pr = TrackedPR(
                     repo=repo,
@@ -60,74 +58,148 @@ class PRShepherd:
                 )
                 # Recover fix attempt count from comment history (stateless)
                 pr.fix_attempts = await github_ops.get_fix_attempt_count(repo, pr.number)
+                all_prs.append(pr)
+        return all_prs
 
-                try:
-                    await self._process_pr(pr)
-                except Exception:
-                    logger.exception(f"Unhandled error processing {pr.repo}#{pr.number}, skipping")
-                all_tracked.append(pr)
+    def get_item_id(self, item: TrackedPR) -> str:
+        """Return a unique identifier like 'owner/repo#123'."""
+        return f"{item.repo}#{item.number}"
 
-        return all_tracked
-
-    async def _process_pr(self, pr: TrackedPR) -> None:
-        """Check CI status and take appropriate action."""
-        overall, failing = await github_ops.get_check_status(pr.repo, pr.number)
+    async def diagnose(self, item: TrackedPR) -> PRDiagnosis:
+        """Check CI status for a PR."""
+        overall, failing = await github_ops.get_check_status(item.repo, item.number)
         logger.info(
-            f"{pr.repo}#{pr.number} ({pr.title}): "
-            f"checks={overall}, failing={failing}, attempts={pr.fix_attempts}"
+            f"{item.repo}#{item.number} ({item.title}): "
+            f"checks={overall}, failing={failing}, attempts={item.fix_attempts}"
+        )
+        return PRDiagnosis(overall_status=overall, failing_checks=failing)
+
+    async def should_skip(self, item: TrackedPR, diagnosis: PRDiagnosis) -> bool:
+        """Skip PRs whose checks are still pending."""
+        if diagnosis.overall_status == "pending":
+            print(f"  {item.repo}#{item.number}: checks pending, skipping")
+            item.status = PRStatus.PENDING_CHECKS
+            return True
+        return False
+
+    async def get_attempt_count(self, item: TrackedPR) -> int:
+        """Return the number of previous fix attempts (already loaded in poll)."""
+        return item.fix_attempts
+
+    async def act(self, item: TrackedPR, diagnosis: PRDiagnosis) -> PRActionResult:
+        """Merge passing PRs or attempt to fix failing ones."""
+        if diagnosis.overall_status == "pass":
+            item.status = PRStatus.CHECKS_PASSING
+            return await self._merge_pr(item)
+        else:
+            item.status = PRStatus.CHECKS_FAILING
+            return await self._fix_pr(item, diagnosis.failing_checks)
+
+    async def should_escalate(self, item: TrackedPR, result: PRActionResult) -> bool:
+        """Escalate if an action failed (but not for successful merges/fixes)."""
+        return not result.success
+
+    async def escalate(self, item: TrackedPR, result: PRActionResult) -> None:
+        """Post a comment about the failure."""
+        if result.action == "abandoned":
+            item.status = PRStatus.ABANDONED
+            await github_ops.add_comment(
+                item.repo,
+                item.number,
+                f"[PR Shepherd] {result.message}",
+            )
+        elif result.message:
+            logger.warning(f"{item.repo}#{item.number}: {result.message}")
+
+    async def on_max_retries_exceeded(
+        self, item: TrackedPR, diagnosis: PRDiagnosis
+    ) -> PRActionResult:
+        """Create a result for when max fix attempts are exhausted."""
+        return PRActionResult(
+            success=False,
+            action="abandoned",
+            message=(
+                f"Giving up after {item.fix_attempts} fix attempt(s). "
+                f"Remaining failures: {diagnosis.failing_checks}"
+            ),
         )
 
-        if overall == "pass":
-            pr.status = PRStatus.CHECKS_PASSING
-            await self._merge_pr(pr)
-        elif overall == "fail":
-            pr.status = PRStatus.CHECKS_FAILING
-            if pr.fix_attempts >= self.config.max_fix_attempts:
-                logger.warning(
-                    f"{pr.repo}#{pr.number}: max fix attempts "
-                    f"({self.config.max_fix_attempts}) reached, abandoning"
-                )
-                pr.status = PRStatus.ABANDONED
-                if not self.config.dry_run:
-                    await github_ops.add_comment(
-                        pr.repo,
-                        pr.number,
-                        f"[PR Shepherd] Giving up after {pr.fix_attempts} "
-                        f"fix attempt(s). Remaining failures: {failing}",
+    # ── Backward-compatible entry points ─────────────────────────────
+
+    async def run_once(self) -> list[TrackedPR]:
+        """Single pass over all configured repos. Returns tracked PRs.
+
+        Overrides the base class to maintain backward compatibility:
+        the original PR Shepherd returned list[TrackedPR], not
+        list[ProcessingRecord].
+        """
+        items = await self.poll()
+        logger.info(f"{self.__class__.__name__}: polled {len(items)} work item(s)")
+
+        for item in items:
+            try:
+                diagnosis = await self.diagnose(item)
+
+                if await self.should_skip(item, diagnosis):
+                    continue
+
+                attempt = await self.get_attempt_count(item) + 1
+                if attempt > self.config.max_retries:
+                    logger.warning(
+                        f"{item.repo}#{item.number}: max fix attempts "
+                        f"({self.config.max_retries}) reached, abandoning"
                     )
-                else:
-                    print(f"  [dry-run] Would comment: abandoning after {pr.fix_attempts} attempts")
-            else:
-                await self._fix_pr(pr, failing)
-        else:
-            # pending — nothing to do yet
-            pr.status = PRStatus.PENDING_CHECKS
-            print(f"  {pr.repo}#{pr.number}: checks pending, skipping")
+                    if not self.config.dry_run:
+                        result = await self.on_max_retries_exceeded(item, diagnosis)
+                        await self.escalate(item, result)
+                    else:
+                        print(
+                            f"  [dry-run] Would comment: abandoning after "
+                            f"{item.fix_attempts} attempts"
+                        )
+                    continue
 
-    async def _merge_pr(self, pr: TrackedPR) -> None:
+                if self.config.dry_run:
+                    if diagnosis.overall_status == "pass":
+                        print(
+                            f"  [dry-run] Would merge {item.repo}#{item.number} "
+                            f"via {self.config.merge_method}"
+                        )
+                    else:
+                        print(
+                            f"  [dry-run] Would attempt fix #{attempt} for "
+                            f"{item.repo}#{item.number}: {diagnosis.failing_checks}"
+                        )
+                    continue
+
+                result = await self.act(item, diagnosis)
+                if await self.should_escalate(item, result):
+                    await self.escalate(item, result)
+
+            except Exception:
+                logger.exception(f"Unhandled error processing {item.repo}#{item.number}, skipping")
+
+        return items
+
+    # ── Private implementation details ───────────────────────────────
+
+    async def _merge_pr(self, pr: TrackedPR) -> PRActionResult:
         """Merge a PR whose checks are passing."""
-        if self.config.dry_run:
-            print(f"  [dry-run] Would merge {pr.repo}#{pr.number} via {self.config.merge_method}")
-            return
-
         success = await github_ops.merge_pr(pr.repo, pr.number, method=self.config.merge_method)
         if success:
             pr.status = PRStatus.MERGED
             logger.info(f"Merged {pr.repo}#{pr.number}")
+            return PRActionResult(success=True, action="merged")
         else:
             logger.error(f"Failed to merge {pr.repo}#{pr.number}")
+            return PRActionResult(
+                success=False, action="merge_failed", message="merge command failed"
+            )
 
-    async def _fix_pr(self, pr: TrackedPR, failing_checks: list[str]) -> None:
+    async def _fix_pr(self, pr: TrackedPR, failing_checks: list[str]) -> PRActionResult:
         """Attempt to fix CI failures using a Claude Code worker."""
         pr.status = PRStatus.FIXING
         attempt = pr.fix_attempts + 1
-
-        if self.config.dry_run:
-            print(
-                f"  [dry-run] Would attempt fix #{attempt} for "
-                f"{pr.repo}#{pr.number}: {failing_checks}"
-            )
-            return
 
         logger.info(f"Attempting fix #{attempt} for {pr.repo}#{pr.number}: {failing_checks}")
 
@@ -150,7 +222,9 @@ class PRShepherd:
                 pr.number,
                 "[PR Shepherd] Could not retrieve CI logs. Skipping fix attempt.",
             )
-            return
+            return PRActionResult(
+                success=False, action="no_logs", message="could not retrieve CI logs"
+            )
         if review_comments:
             logger.info(f"{pr.repo}#{pr.number}: found review comments to include")
 
@@ -159,7 +233,7 @@ class PRShepherd:
             validate_git_ref(pr.head_branch, "head branch")
         except ValueError:
             logger.error(f"Invalid branch name for {pr.repo}#{pr.number}: {pr.head_branch!r}")
-            return
+            return PRActionResult(success=False, action="fix_failed", message="invalid branch name")
 
         # Ensure workspace exists (clone repo, checkout PR branch)
         workspace_name = f"pr-shepherd-{pr.repo.replace('/', '-')}-{pr.number}"
@@ -167,7 +241,9 @@ class PRShepherd:
             validate_workspace_name(workspace_name)
         except ValueError:
             logger.error(f"Invalid workspace name: {workspace_name!r}")
-            return
+            return PRActionResult(
+                success=False, action="fix_failed", message="invalid workspace name"
+            )
 
         git_url = f"git@github.com:{pr.repo}.git"
 
@@ -178,7 +254,9 @@ class PRShepherd:
 
         if not ws_result.get("success") and "already exists" not in str(ws_result.get("error", "")):
             logger.error(f"Failed to create workspace: {ws_result.get('error')}")
-            return
+            return PRActionResult(
+                success=False, action="fix_failed", message="workspace creation failed"
+            )
 
         workspace_path = ws_result.get("workspace_path")
         if not workspace_path:
@@ -233,11 +311,11 @@ class PRShepherd:
                 pr.number,
                 f"[PR Shepherd] Fix attempt #{attempt} aborted: git operation timed out.",
             )
-            return
+            return PRActionResult(
+                success=False, action="fix_failed", message="git operation timed out"
+            )
 
         # Build worker instructions.
-        # Escape curly braces in user-controlled content so str.format()
-        # doesn't choke on code snippets like {variable} in logs/comments.
         def _escape(s: str) -> str:
             return s.replace("{", "{{").replace("}", "}}")
 
@@ -248,16 +326,12 @@ class PRShepherd:
             )
 
         # Query feedback store for known patterns in this repo.
-        # Feedback originates from CI logs which could contain adversarial
-        # content, so we sanitize it with a character allowlist before
-        # injecting into the worker prompt.
         feedback_section = ""
         try:
             from shared.outcome_store import get_relevant_feedback
 
             feedback = await get_relevant_feedback(repo=pr.repo, limit=5)
             if feedback:
-                # Strip chars outside the safe set (same approach as orchestrator workers)
                 import re as _re
 
                 _safe_re = _re.compile(r"[^a-zA-Z0-9 _.,'\"()\-:;!?@#/\n\r\t*`]+")
@@ -293,7 +367,7 @@ class PRShepherd:
                 pr.number,
                 f"[PR Shepherd] Fix attempt #{attempt} failed: worker error.",
             )
-            return
+            return PRActionResult(success=False, action="fix_failed", message="worker error")
 
         # Push the fix
         pushed = await github_ops.push_branch(workspace_path, pr.head_branch)
@@ -304,6 +378,7 @@ class PRShepherd:
                 pr.number,
                 f"[PR Shepherd] Fix attempt #{attempt} pushed. Waiting for CI.",
             )
+            return PRActionResult(success=True, action="fix_pushed")
         else:
             logger.error(f"Failed to push fix for {pr.repo}#{pr.number}")
             await github_ops.add_comment(
@@ -311,3 +386,4 @@ class PRShepherd:
                 pr.number,
                 f"[PR Shepherd] Fix attempt #{attempt}: push failed.",
             )
+            return PRActionResult(success=False, action="push_failed", message="git push failed")
