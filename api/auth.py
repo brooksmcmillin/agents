@@ -8,6 +8,7 @@ Contains:
 - Rate limiting configuration
 """
 
+import asyncio
 import ipaddress
 import logging
 import os
@@ -131,7 +132,7 @@ async def verify_api_key(
 
 
 async def authenticate_websocket_connection(
-    websocket: "Any",
+    websocket: Any,
 ) -> dict | None:
     """Authenticate a WebSocket connection via initial message exchange.
 
@@ -150,8 +151,6 @@ async def authenticate_websocket_connection(
     Credentials never appear in query strings, avoiding leakage via
     server logs, browser history, referrer headers, or proxy logs.
     """
-    import asyncio
-
     try:
         data = await asyncio.wait_for(websocket.receive_json(), timeout=10.0)
     except Exception:  # TimeoutError, WebSocketDisconnect, JSONDecodeError, etc.
@@ -210,7 +209,14 @@ def check_session_token(
 # Rate Limiting (optional)
 # ---------------------------------------------------------------------------
 
-_rate_limit_enabled = os.getenv("RATE_LIMIT_ENABLED", "true").lower() == "true"
+
+def _is_rate_limit_enabled() -> bool:
+    """Check if rate limiting is enabled.
+
+    Reads from the environment on each call for consistency with
+    _get_api_key() and to support test patching.
+    """
+    return os.getenv("RATE_LIMIT_ENABLED", "true").lower() == "true"
 
 
 def _get_rate_limit_key(request: Request) -> str:
@@ -243,7 +249,7 @@ def setup_rate_limiting(app: Any) -> Any:
     Returns:
         The limiter instance (or None if disabled).
     """
-    if _rate_limit_enabled:
+    if _is_rate_limit_enabled():
         from slowapi import Limiter, _rate_limit_exceeded_handler
         from slowapi.errors import RateLimitExceeded
 

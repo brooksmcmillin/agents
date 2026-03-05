@@ -82,7 +82,7 @@ async def claude_code_websocket_handler(
         except WebSocketDisconnect:
             pass
         except Exception as e:
-            logger.error(f"Error sending events: {e}")
+            logger.error("Error sending events: %s", e)
 
     async def receive_commands() -> None:
         """Receive and process commands from WebSocket client."""
@@ -111,7 +111,7 @@ async def claude_code_websocket_handler(
         except WebSocketDisconnect:
             pass
         except Exception as e:
-            logger.error(f"Error receiving commands: {e}")
+            logger.error("Error receiving commands: %s", e)
 
     # Run both tasks concurrently
     send_task = asyncio.create_task(send_events())
@@ -133,7 +133,7 @@ async def claude_code_websocket_handler(
                 pass
 
     except Exception as e:
-        logger.error(f"WebSocket error: {e}")
+        logger.error("WebSocket error: %s", e)
     finally:
         # Don't terminate session on disconnect - it might be intentional
         # to reconnect later

@@ -56,12 +56,12 @@ from fastapi import (
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from .auth import (
-    _DISABLE_AUTH_DEFAULT_CIDRS,  # noqa: F401 - re-exported for backward compat
+from .auth import (  # noqa: F401 - backward compat re-exports marked individually
+    _DISABLE_AUTH_DEFAULT_CIDRS,  # noqa: F401
     _get_api_key,
-    _get_rate_limit_key,  # noqa: F401 - re-exported for backward compat
-    _ip_in_cidr_list,  # noqa: F401 - re-exported for backward compat
-    _parse_cidr_list,  # noqa: F401 - re-exported for backward compat
+    _get_rate_limit_key,  # noqa: F401
+    _ip_in_cidr_list,  # noqa: F401
+    _parse_cidr_list,  # noqa: F401
     check_session_token,
     setup_rate_limiting,
     verify_api_key,
