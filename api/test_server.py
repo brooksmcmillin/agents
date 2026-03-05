@@ -266,13 +266,13 @@ class TestVerifyApiKey:
     @pytest.mark.asyncio
     async def test_allows_request_when_no_api_key_configured(self):
         """When API_KEY env is not set, all requests pass (non-IP host skips CIDR check)."""
-        with patch("api.server._api_key", None):
+        with patch.dict(os.environ, {"API_KEY": ""}, clear=False):
             await verify_api_key(request=self._mock_request(), credentials=None)  # Should not raise
 
     @pytest.mark.asyncio
     async def test_rejects_missing_credentials(self):
         """When API_KEY is set but no credentials provided, reject."""
-        with patch("api.server._api_key", "secret-key"):
+        with patch.dict(os.environ, {"API_KEY": "secret-key"}, clear=False):
             from fastapi import HTTPException
 
             with pytest.raises(HTTPException) as exc_info:
@@ -282,7 +282,7 @@ class TestVerifyApiKey:
     @pytest.mark.asyncio
     async def test_rejects_invalid_key(self):
         """When API_KEY is set and wrong key provided, reject."""
-        with patch("api.server._api_key", "secret-key"):
+        with patch.dict(os.environ, {"API_KEY": "secret-key"}, clear=False):
             from fastapi import HTTPException
             from fastapi.security import HTTPAuthorizationCredentials
 
@@ -294,7 +294,7 @@ class TestVerifyApiKey:
     @pytest.mark.asyncio
     async def test_accepts_valid_key(self):
         """When API_KEY is set and correct key provided, allow."""
-        with patch("api.server._api_key", "secret-key"):
+        with patch.dict(os.environ, {"API_KEY": "secret-key"}, clear=False):
             from fastapi.security import HTTPAuthorizationCredentials
 
             creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="secret-key")
@@ -436,7 +436,7 @@ class TestWebSocketAuth:
 
     def test_ws_accepts_when_no_api_key_configured(self, client):
         """Auth message is still required when no API_KEY is set (for session_token)."""
-        with patch("api.server._api_key", None):
+        with patch.dict(os.environ, {"API_KEY": ""}, clear=False):
             from starlette.websockets import WebSocketDisconnect
 
             # A non-auth message should still be rejected with 4001
@@ -448,7 +448,7 @@ class TestWebSocketAuth:
 
     def test_ws_rejects_missing_auth_message(self, client):
         """WebSocket should reject when API_KEY is set but no auth message sent."""
-        with patch("api.server._api_key", "secret-key"):
+        with patch.dict(os.environ, {"API_KEY": "secret-key"}, clear=False):
             from starlette.websockets import WebSocketDisconnect
 
             with pytest.raises(WebSocketDisconnect) as exc_info:
@@ -460,7 +460,7 @@ class TestWebSocketAuth:
 
     def test_ws_rejects_wrong_api_key(self, client):
         """WebSocket should reject when wrong API key in auth message."""
-        with patch("api.server._api_key", "secret-key"):
+        with patch.dict(os.environ, {"API_KEY": "secret-key"}, clear=False):
             from starlette.websockets import WebSocketDisconnect
 
             with pytest.raises(WebSocketDisconnect) as exc_info:
@@ -475,7 +475,7 @@ class TestWebSocketAuth:
         Session not found and wrong session_token both return 4003 to prevent
         session enumeration via differential close codes.
         """
-        with patch("api.server._api_key", "secret-key"):
+        with patch.dict(os.environ, {"API_KEY": "secret-key"}, clear=False):
             from starlette.websockets import WebSocketDisconnect
 
             # Correct API key but session doesn't exist → 4003 (unified code).
@@ -496,7 +496,7 @@ class TestWebSocketAuth:
         fake_session = MagicMock(spec=ClaudeCodeSession)
         fake_session.session_token = "correct-token"  # nosec B105
 
-        with patch("api.server._api_key", "secret-key"):
+        with patch.dict(os.environ, {"API_KEY": "secret-key"}, clear=False):
             with patch("api.server.claude_code_mgr") as mock_mgr:
                 mock_mgr.get_session.return_value = fake_session
                 from starlette.websockets import WebSocketDisconnect
@@ -529,7 +529,7 @@ class TestWebSocketAuth:
 
         fake_session.events = _fake_events
 
-        with patch("api.server._api_key", "secret-key"):
+        with patch.dict(os.environ, {"API_KEY": "secret-key"}, clear=False):
             with patch("api.server.claude_code_mgr") as mock_mgr:
                 mock_mgr.get_session.return_value = fake_session
                 # Connection should pass auth + token check and enter the event loop
@@ -657,7 +657,6 @@ class TestDisableAuthProductionSafety:
                 {"DISABLE_AUTH": "true", "ENV": "production", "API_KEY": ""},
                 clear=False,
             ),
-            patch("api.server._api_key", None),
         ):
             import asyncio
 
