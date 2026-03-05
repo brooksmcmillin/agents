@@ -140,9 +140,15 @@ async def research_and_save(
         )
 
     # Step 3: Prepare value for memory
+    # Sanitize extraction_hint if provided (caller-controlled input that ends
+    # up in the memory store and later in an LLM context window).
     if extraction_hint:
+        hint_sanitize = _web_content_sanitizer.sanitize_llm_output(
+            extraction_hint, source="research_and_save.extraction_hint"
+        )
+        sanitized_hint = hint_sanitize.sanitized_content
         value = (
-            f"[Extraction hint: {extraction_hint}]\n[Source: {url}]\n[Title: {title}]\n\n{content}"
+            f"[Extraction hint: {sanitized_hint}]\n[Source: {url}]\n[Title: {title}]\n\n{content}"
         )
     else:
         value = f"[Source: {url}]\n[Title: {title}]\n\n{content}"
@@ -339,6 +345,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 },
                 "extraction_hint": {
                     "type": "string",
+                    "maxLength": 1000,
                     "description": (
                         "Optional annotation describing what to look for in the content. "
                         "Prepended to the saved value as context for future recall. "
@@ -442,6 +449,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 },
                 "custom_instructions": {
                     "type": "string",
+                    "maxLength": 4000,
                     "description": "Optional custom instructions to prepend to prompt",
                 },
             },
