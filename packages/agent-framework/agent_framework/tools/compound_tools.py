@@ -8,7 +8,7 @@ These are parameterized templates, not hard-coded workflows -- callers control
 behavior through arguments rather than being locked into fixed sequences.
 
 Examples:
-    - research_and_save: fetch_web_content -> optionally summarize -> save_memory
+    - research_and_save: fetch_web_content -> sanitize -> save_memory
     - execute_in_workspace: create workspace -> run claude code -> capture output -> cleanup
 """
 
@@ -16,6 +16,7 @@ import logging
 import uuid
 from typing import Any
 
+from ..security import LLMOutputSanitizer
 from ..utils.tool_decorators import handle_tool_errors
 from .claude_code import (
     create_claude_code_workspace,
@@ -27,42 +28,65 @@ from .web_reader import fetch_web_content
 
 logger = logging.getLogger(__name__)
 
+# Maximum characters stored in a single memory entry.  The memory backend
+# enforces its own 10 000 char limit (MAX_VALUE_LENGTH in memory.py), but we
+# truncate *before* saving so that the metadata header is preserved and the
+# caller gets a correct ``was_truncated`` flag.
+_MAX_MEMORY_CHARS = 10_000
+
+# Maximum timeout (seconds) and agentic turns for execute_in_workspace.
+_MAX_TIMEOUT = 3600
+_MAX_TURNS = 50
+
+# Sanitizer for web content before saving to memory.  Prevents prompt
+# injection via malicious web pages whose title or body contain instructions
+# that could manipulate the agent when the memory is recalled later.
+_web_content_sanitizer = LLMOutputSanitizer(
+    max_length=_MAX_MEMORY_CHARS,
+    escape_suspicious=True,
+    strict_mode=False,
+    block_on_critical=False,  # Don't block -- just escape suspicious patterns
+)
+
 
 @handle_tool_errors(operation="research and save")
 async def research_and_save(
     url: str,
     memory_key: str,
-    summary_prompt: str | None = None,
+    extraction_hint: str | None = None,
     category: str | None = None,
     tags: list[str] | None = None,
     importance: int = 5,
     max_length: int = 50000,
     agent_name: str = "shared",
 ) -> dict[str, Any]:
-    """Fetch web content, optionally summarize it, and save to memory.
+    """Fetch web content, sanitize it, and save to memory.
 
     This compound tool replaces the common 2-3 step sequence of:
     1. fetch_web_content(url)
     2. (optionally) ask LLM to summarize
     3. save_memory(key, content)
 
-    When summary_prompt is provided, the fetched content is truncated to fit
-    the prompt context but no external LLM call is made -- the caller should
-    provide a summary_prompt that instructs on what to extract, and the raw
-    content (or a prefix of it) is saved. For true LLM-based summarization,
-    the caller should use the individual tools and handle the summarization
-    step in their own iteration loop.
+    Web content is sanitized via ``LLMOutputSanitizer`` before being stored
+    to prevent prompt injection when memories are recalled later.
+
+    Note: The stored value is capped at ``_MAX_MEMORY_CHARS`` (10 000 chars)
+    regardless of ``max_length``.  The ``max_length`` parameter controls how
+    much is *fetched*; the memory limit controls how much is *saved*.
 
     Args:
         url: The URL to fetch content from.
         memory_key: Key to save the content under in memory.
-        summary_prompt: Optional instruction for what to extract from the content.
-            When provided, it is prepended to the saved value so the memory
-            includes both the extraction instruction and the raw content.
+        extraction_hint: Optional annotation describing what to look for in
+            the content.  Prepended to the saved value as context for future
+            recall.  No LLM summarization is performed -- for that, use the
+            individual tools and handle summarization in your own loop.
         category: Optional memory category (e.g., "research", "reference").
         tags: Optional tags for memory organization.
         importance: Memory importance level 1-10 (default: 5).
-        max_length: Maximum content length in characters (default: 50000).
+        max_length: Maximum content length in characters when fetching
+            (default: 50000).  Stored value is always capped at
+            ``_MAX_MEMORY_CHARS`` (10 000).
         agent_name: Agent identifier for memory isolation (default: "shared").
 
     Returns:
@@ -73,13 +97,14 @@ async def research_and_save(
             - url: The fetched URL
             - memory_key: The key used for saving
             - content_length: Length of saved content
+            - was_truncated: Whether content was truncated to fit memory limit
     """
     # Step 1: Fetch web content
     logger.info(f"Compound: fetching web content from {url}")
     fetch_result = await fetch_web_content(url=url, max_length=max_length)
 
     # Check for fetch errors
-    if isinstance(fetch_result, dict) and fetch_result.get("status") == "error":
+    if fetch_result.get("status") == "error":
         return {
             "status": "error",
             "message": f"Failed to fetch content: {fetch_result.get('message', 'unknown error')}",
@@ -91,24 +116,43 @@ async def research_and_save(
         }
 
     # Extract content from fetch result
-    content = fetch_result.get("content", "")
-    title = fetch_result.get("title", "No title")
+    raw_content = fetch_result.get("content", "")
+    raw_title = fetch_result.get("title", "No title")
 
-    # Step 2: Prepare value for memory
-    if summary_prompt:
-        # Prepend extraction instruction and metadata
+    # Step 2: Sanitize web content to prevent prompt injection when recalled
+    sanitize_result = _web_content_sanitizer.sanitize_llm_output(
+        raw_content, source="research_and_save.content"
+    )
+    content = sanitize_result.sanitized_content
+
+    title_sanitize = _web_content_sanitizer.sanitize_llm_output(
+        raw_title, source="research_and_save.title"
+    )
+    title = title_sanitize.sanitized_content
+
+    if sanitize_result.patterns_detected or title_sanitize.patterns_detected:
+        all_patterns = list(
+            set(sanitize_result.patterns_detected + title_sanitize.patterns_detected)
+        )
+        logger.warning(
+            f"Web content from {url} contained suspicious patterns that were sanitized: "
+            f"{all_patterns}"
+        )
+
+    # Step 3: Prepare value for memory
+    if extraction_hint:
         value = (
-            f"[Extraction prompt: {summary_prompt}]\n[Source: {url}]\n[Title: {title}]\n\n{content}"
+            f"[Extraction hint: {extraction_hint}]\n[Source: {url}]\n[Title: {title}]\n\n{content}"
         )
     else:
         value = f"[Source: {url}]\n[Title: {title}]\n\n{content}"
 
-    # Truncate value if it exceeds memory limits (10000 chars)
-    max_memory_value = 10000
-    if len(value) > max_memory_value:
-        value = value[: max_memory_value - 50] + "\n\n[Content truncated to fit memory limit]"
+    # Truncate value if it exceeds memory limits
+    was_truncated = len(value) > _MAX_MEMORY_CHARS
+    if was_truncated:
+        value = value[: _MAX_MEMORY_CHARS - 50] + "\n\n[Content truncated to fit memory limit]"
 
-    # Step 3: Save to memory
+    # Step 4: Save to memory
     logger.info(f"Compound: saving fetched content to memory key '{memory_key}'")
     save_result = await save_memory(
         key=memory_key,
@@ -131,7 +175,7 @@ async def research_and_save(
         "url": url,
         "memory_key": memory_key,
         "content_length": len(value),
-        "was_truncated": len(content) > max_memory_value,
+        "was_truncated": was_truncated,
         "message": f"Fetched '{title}' from {url} and saved to memory as '{memory_key}'",
     }
 
@@ -162,8 +206,10 @@ async def execute_in_workspace(
             Must use SSH format (git@host:path).
         workspace_name: Optional workspace folder name. If not provided,
             a unique name is auto-generated.
-        timeout: Maximum seconds for Claude Code execution (default: 300).
-        max_turns: Maximum agentic turns for Claude Code (default: 10).
+        timeout: Maximum seconds for Claude Code execution (default: 300,
+            max: 3600).
+        max_turns: Maximum agentic turns for Claude Code (default: 10,
+            max: 50).
         model: Claude model to use -- "sonnet", "haiku", or "opus" (default: "sonnet").
         cleanup: Whether to delete workspace after execution (default: True).
         working_dir_base: Base directory for workspaces (optional).
@@ -177,8 +223,15 @@ async def execute_in_workspace(
             - run_result: Result from Claude Code execution
             - cleanup_result: Result from workspace deletion (if cleanup=True)
             - output: Final output from Claude Code
+            - final_response: Last response from Claude Code
             - success: Whether execution completed successfully
+            - turns_used: Number of agentic turns consumed
+            - workspace_cleaned_up: Whether the workspace was deleted
     """
+    # Clamp timeout and max_turns to safe upper bounds
+    timeout = min(timeout, _MAX_TIMEOUT)
+    max_turns = min(max_turns, _MAX_TURNS)
+
     # Generate workspace name if not provided
     if not workspace_name:
         workspace_name = f"compound-{uuid.uuid4().hex[:12]}"
@@ -199,13 +252,18 @@ async def execute_in_workspace(
         if not create_result.get("success"):
             return {
                 "status": "error",
-                "message": f"Failed to create workspace: {create_result.get('message', 'unknown error')}",
+                "message": (
+                    f"Failed to create workspace: {create_result.get('message', 'unknown error')}"
+                ),
                 "workspace_name": workspace_name,
                 "create_result": create_result,
                 "run_result": None,
                 "cleanup_result": None,
                 "output": "",
+                "final_response": "",
                 "success": False,
+                "turns_used": 0,
+                "workspace_cleaned_up": False,
             }
 
         # Step 2: Run Claude Code
@@ -259,9 +317,10 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
         "name": "research_and_save",
         "description": (
-            "Compound tool: Fetch web content from a URL and save it to memory in one step. "
+            "Compound tool: Fetch web content from a URL, sanitize it for prompt "
+            "injection safety, and save it to memory in one step. "
             "Replaces the common sequence of fetch_web_content -> save_memory. "
-            "Optionally accepts a summary prompt to annotate the saved content. "
+            "Optionally accepts an extraction hint to annotate the saved content. "
             "Reduces tool iterations from 2-3 to 1."
         ),
         "input_schema": {
@@ -274,13 +333,16 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "memory_key": {
                     "type": "string",
                     "maxLength": 256,
-                    "description": "Key to save the content under in memory (e.g., 'research_python_async')",
+                    "description": (
+                        "Key to save the content under in memory (e.g., 'research_python_async')"
+                    ),
                 },
-                "summary_prompt": {
+                "extraction_hint": {
                     "type": "string",
                     "description": (
-                        "Optional instruction for what to extract from the content. "
-                        "Prepended to the saved value as an extraction annotation."
+                        "Optional annotation describing what to look for in the content. "
+                        "Prepended to the saved value as context for future recall. "
+                        "No LLM summarization is performed."
                     ),
                 },
                 "category": {
@@ -304,7 +366,10 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                     "minimum": 1000,
                     "maximum": 100000,
                     "default": 50000,
-                    "description": "Maximum content length in characters when fetching",
+                    "description": (
+                        "Maximum content length in characters when fetching. "
+                        "Note: stored value is always capped at 10000 chars."
+                    ),
                 },
                 "agent_name": {
                     "type": "string",
@@ -336,21 +401,29 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 },
                 "repo_url": {
                     "type": "string",
-                    "description": "Optional git repository URL to clone (must use SSH format: git@host:path)",
+                    "description": (
+                        "Optional git repository URL to clone (must use SSH format: git@host:path)"
+                    ),
                 },
                 "workspace_name": {
                     "type": "string",
+                    "maxLength": 200,
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_\\-\\.]*$",
                     "description": "Optional workspace folder name (auto-generated if not provided)",
                 },
                 "timeout": {
                     "type": "integer",
                     "default": 300,
-                    "description": "Maximum seconds for Claude Code execution (default: 300)",
+                    "minimum": 1,
+                    "maximum": 3600,
+                    "description": "Maximum seconds for Claude Code execution (default: 300, max: 3600)",
                 },
                 "max_turns": {
                     "type": "integer",
                     "default": 10,
-                    "description": "Maximum agentic turns for Claude Code (default: 10)",
+                    "minimum": 1,
+                    "maximum": 50,
+                    "description": "Maximum agentic turns for Claude Code (default: 10, max: 50)",
                 },
                 "model": {
                     "type": "string",
