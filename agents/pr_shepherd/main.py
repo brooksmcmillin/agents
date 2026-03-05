@@ -216,37 +216,33 @@ class PRShepherd(PollingAgent[TrackedPR, PRDiagnosis, PRActionResult]):
 
         # Checkout the PR branch
         try:
-            fetch_proc = await asyncio.create_subprocess_exec(
-                "git",
-                "fetch",
-                "origin",
-                pr.head_branch,
-                cwd=workspace_path,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await asyncio.wait_for(fetch_proc.communicate(), timeout=60)
-
-            checkout_proc = await asyncio.create_subprocess_exec(
-                "git",
-                "checkout",
-                pr.head_branch,
-                cwd=workspace_path,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await asyncio.wait_for(checkout_proc.communicate(), timeout=30)
-
-            pull_proc = await asyncio.create_subprocess_exec(
-                "git",
-                "pull",
-                "origin",
-                pr.head_branch,
-                cwd=workspace_path,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await asyncio.wait_for(pull_proc.communicate(), timeout=60)
+            for git_cmd, git_args, timeout in [
+                ("fetch", ["origin", pr.head_branch], 60),
+                ("checkout", [pr.head_branch], 30),
+                ("pull", ["origin", pr.head_branch], 60),
+            ]:
+                proc = await asyncio.create_subprocess_exec(
+                    "git",
+                    git_cmd,
+                    *git_args,
+                    cwd=workspace_path,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                _, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+                if proc.returncode != 0:
+                    err_msg = stderr.decode("utf-8", errors="replace")[:500]
+                    logger.error(f"git {git_cmd} failed for {pr.repo}#{pr.number}: {err_msg}")
+                    await github_ops.add_comment(
+                        pr.repo,
+                        pr.number,
+                        f"[PR Shepherd] Fix attempt #{attempt} aborted: git {git_cmd} failed.",
+                    )
+                    return PRActionResult(
+                        success=False,
+                        action="fix_failed",
+                        message=f"git {git_cmd} failed",
+                    )
         except TimeoutError:
             logger.error(f"Git operation timed out for {pr.repo}#{pr.number}")
             await github_ops.add_comment(
