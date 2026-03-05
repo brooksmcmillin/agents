@@ -22,6 +22,8 @@ from .claude_code import (
     list_claude_code_workspaces,
     run_claude_code,
 )
+from .compound_tools import TOOL_SCHEMAS as _compound_tools_schemas
+from .compound_tools import execute_in_workspace, research_and_save
 from .content_suggestions import TOOL_SCHEMAS as _content_suggestions_schemas
 from .content_suggestions import suggest_content_topics
 from .fastmail import TOOL_SCHEMAS as _fastmail_schemas
@@ -128,6 +130,7 @@ ALL_TOOL_SCHEMAS: list[dict] = [
     *_http_client_schemas,
     *_filesystem_schemas,
     *_network_admin_schemas,
+    *_compound_tools_schemas,
 ]
 
 __all__ = [
@@ -219,4 +222,7 @@ __all__ = [
     "system_check_firewall",
     "network_check_default_credentials",
     "network_generate_report",
+    # Compound tools
+    "research_and_save",
+    "execute_in_workspace",
 ]
