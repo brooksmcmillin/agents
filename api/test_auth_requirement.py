@@ -22,33 +22,28 @@ class TestLifespanAuthRequirement:
         """Server must raise RuntimeError when neither API_KEY nor DISABLE_AUTH is set."""
         env = {"API_KEY": "", "DISABLE_AUTH": "", "DATABASE_URL": ""}
         with patch.dict(os.environ, env, clear=False):
-            # Re-import with clean env to reset _api_key at module level
-            with patch("api.server._api_key", None):
-                from api.server import app, lifespan
+            from api.server import app, lifespan
 
-                with pytest.raises(RuntimeError, match="API_KEY environment variable is required"):
-                    async with lifespan(app):
-                        pass  # pragma: no cover
+            with pytest.raises(RuntimeError, match="API_KEY environment variable is required"):
+                async with lifespan(app):
+                    pass  # pragma: no cover
 
     @pytest.mark.asyncio
     async def test_starts_with_api_key_set(self) -> None:
         """Server should start normally when API_KEY is set."""
-        env = {"DATABASE_URL": ""}
-        with (
-            patch.dict(os.environ, env, clear=False),
-            patch("api.server._api_key", "test-secret-key"),
-        ):
+        env = {"API_KEY": "test-secret-key", "DATABASE_URL": ""}
+        with patch.dict(os.environ, env, clear=False):
             from api.server import app, lifespan
 
-            # Should not raise — lifespan completes startup
+            # Should not raise -- lifespan completes startup
             async with lifespan(app):
                 pass
 
     @pytest.mark.asyncio
     async def test_starts_with_disable_auth_true_and_env_development(self) -> None:
         """Server should start when DISABLE_AUTH=true and ENV=development (explicit dev opt-out)."""
-        env = {"DISABLE_AUTH": "true", "ENV": "development", "DATABASE_URL": ""}
-        with patch.dict(os.environ, env, clear=False), patch("api.server._api_key", None):
+        env = {"API_KEY": "", "DISABLE_AUTH": "true", "ENV": "development", "DATABASE_URL": ""}
+        with patch.dict(os.environ, env, clear=False):
             from api.server import app, lifespan
 
             async with lifespan(app):
@@ -57,8 +52,8 @@ class TestLifespanAuthRequirement:
     @pytest.mark.asyncio
     async def test_refuses_with_disable_auth_true_without_env_development(self) -> None:
         """DISABLE_AUTH=true without ENV=development must raise RuntimeError."""
-        env = {"DISABLE_AUTH": "true", "ENV": "", "DATABASE_URL": ""}
-        with patch.dict(os.environ, env, clear=False), patch("api.server._api_key", None):
+        env = {"API_KEY": "", "DISABLE_AUTH": "true", "ENV": "", "DATABASE_URL": ""}
+        with patch.dict(os.environ, env, clear=False):
             from api.server import app, lifespan
 
             with pytest.raises(RuntimeError, match="DISABLE_AUTH=true requires ENV=development"):
@@ -68,8 +63,8 @@ class TestLifespanAuthRequirement:
     @pytest.mark.asyncio
     async def test_refuses_with_disable_auth_true_and_env_production(self) -> None:
         """DISABLE_AUTH=true with ENV=production must raise RuntimeError."""
-        env = {"DISABLE_AUTH": "true", "ENV": "production", "DATABASE_URL": ""}
-        with patch.dict(os.environ, env, clear=False), patch("api.server._api_key", None):
+        env = {"API_KEY": "", "DISABLE_AUTH": "true", "ENV": "production", "DATABASE_URL": ""}
+        with patch.dict(os.environ, env, clear=False):
             from api.server import app, lifespan
 
             with pytest.raises(RuntimeError, match="DISABLE_AUTH=true requires ENV=development"):
@@ -79,8 +74,8 @@ class TestLifespanAuthRequirement:
     @pytest.mark.asyncio
     async def test_starts_with_disable_auth_yes(self) -> None:
         """DISABLE_AUTH=yes with ENV=development should also be accepted."""
-        env = {"DISABLE_AUTH": "yes", "ENV": "development", "DATABASE_URL": ""}
-        with patch.dict(os.environ, env, clear=False), patch("api.server._api_key", None):
+        env = {"API_KEY": "", "DISABLE_AUTH": "yes", "ENV": "development", "DATABASE_URL": ""}
+        with patch.dict(os.environ, env, clear=False):
             from api.server import app, lifespan
 
             async with lifespan(app):
@@ -89,8 +84,8 @@ class TestLifespanAuthRequirement:
     @pytest.mark.asyncio
     async def test_starts_with_disable_auth_one(self) -> None:
         """DISABLE_AUTH=1 with ENV=development should also be accepted."""
-        env = {"DISABLE_AUTH": "1", "ENV": "development", "DATABASE_URL": ""}
-        with patch.dict(os.environ, env, clear=False), patch("api.server._api_key", None):
+        env = {"API_KEY": "", "DISABLE_AUTH": "1", "ENV": "development", "DATABASE_URL": ""}
+        with patch.dict(os.environ, env, clear=False):
             from api.server import app, lifespan
 
             async with lifespan(app):
@@ -99,8 +94,8 @@ class TestLifespanAuthRequirement:
     @pytest.mark.asyncio
     async def test_refuses_with_disable_auth_false(self) -> None:
         """DISABLE_AUTH=false should NOT bypass the requirement."""
-        env = {"DISABLE_AUTH": "false", "DATABASE_URL": ""}
-        with patch.dict(os.environ, env, clear=False), patch("api.server._api_key", None):
+        env = {"API_KEY": "", "DISABLE_AUTH": "false", "DATABASE_URL": ""}
+        with patch.dict(os.environ, env, clear=False):
             from api.server import app, lifespan
 
             with pytest.raises(RuntimeError, match="API_KEY environment variable is required"):
@@ -110,8 +105,8 @@ class TestLifespanAuthRequirement:
     @pytest.mark.asyncio
     async def test_refuses_with_disable_auth_random_string(self) -> None:
         """DISABLE_AUTH=please should NOT bypass the requirement."""
-        env = {"DISABLE_AUTH": "please", "DATABASE_URL": ""}
-        with patch.dict(os.environ, env, clear=False), patch("api.server._api_key", None):
+        env = {"API_KEY": "", "DISABLE_AUTH": "please", "DATABASE_URL": ""}
+        with patch.dict(os.environ, env, clear=False):
             from api.server import app, lifespan
 
             with pytest.raises(RuntimeError, match="API_KEY environment variable is required"):
