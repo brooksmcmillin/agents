@@ -244,10 +244,11 @@ class PRShepherd(PollingAgent[TrackedPR, PRDiagnosis, PRActionResult]):
                         message=f"git {git_cmd} failed",
                     )
         except TimeoutError:
-            # Terminate the orphaned subprocess to prevent accumulation
+            # Terminate and reap the orphaned subprocess to prevent zombies
             try:
                 proc.terminate()
-            except ProcessLookupError:
+                await asyncio.wait_for(proc.wait(), timeout=5)
+            except (ProcessLookupError, TimeoutError):
                 pass
             logger.error(f"Git operation timed out for {pr.repo}#{pr.number}")
             await github_ops.add_comment(
