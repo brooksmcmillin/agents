@@ -799,6 +799,8 @@ def upload_report(report_path: Path, url: str) -> None:
     data = report_path.read_bytes()
 
     # Validate URL scheme to prevent SSRF (urllib supports file:// by default)
+    # Note: This prevents file:// but allows http:// requests to internal network ranges
+    # (e.g. metadata services). This is acceptable for the current admin CLI usage.
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme not in ("http", "https"):
         logger.error("Invalid URL scheme: %s. Only http and https are allowed.", parsed.scheme)

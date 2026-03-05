@@ -40,8 +40,6 @@ class TestOAuthHandler:
             redirect_uri="http://localhost:8080/callback",
         )
 
-        from urllib.parse import urlparse
-
         parsed = urlparse(url)
         assert parsed.netloc == "twitter.com"
         assert "client_id=test_client_id" in url
@@ -55,8 +53,6 @@ class TestOAuthHandler:
             platform="linkedin",
             redirect_uri="http://localhost:8080/callback",
         )
-
-        from urllib.parse import urlparse
 
         parsed = urlparse(url)
         assert parsed.netloc == "www.linkedin.com"
