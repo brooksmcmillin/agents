@@ -416,6 +416,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "properties": {
                 "prompt": {
                     "type": "string",
+                    "maxLength": 100000,
                     "description": "The command/message to send to Claude Code",
                 },
                 "repo_url": {
