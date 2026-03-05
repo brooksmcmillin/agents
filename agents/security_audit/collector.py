@@ -36,6 +36,7 @@ import socket
 import stat
 import subprocess  # nosec B404 - collector must run system commands
 import urllib.request
+import urllib.parse
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -796,6 +797,12 @@ def upload_report(report_path: Path, url: str) -> None:
         url: URL to POST the report to.
     """
     data = report_path.read_bytes()
+
+    # Validate URL scheme to prevent SSRF (urllib supports file:// by default)
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        logger.error("Invalid URL scheme: %s. Only http and https are allowed.", parsed.scheme)
+        raise ValueError(f"Invalid URL scheme: {parsed.scheme}")
 
     req = urllib.request.Request(
         url,

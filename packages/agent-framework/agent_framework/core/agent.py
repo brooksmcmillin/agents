@@ -45,6 +45,7 @@ from agent_framework.security.context_trimming import (
 )
 from agent_framework.utils.errors import MissingAPIKeyError
 
+from ..utils.sanitize import sanitize_log_input
 from .config import settings
 from .mcp_client import MCPClient
 from .remote_mcp_client import RemoteMCPClient
@@ -1072,8 +1073,8 @@ class Agent(ABC):
             )
             context_token = _execution_context_var.set(new_context)
             logger.info(
-                f"Processing with context: {new_context.caller}, "
-                f"permissions: {new_context.permissions}"
+                f"Processing with context: {sanitize_log_input(str(new_context.caller))}, "
+                f"permissions: {sanitize_log_input(str(new_context.permissions))}"
             )
 
         # Start observability trace for this message
