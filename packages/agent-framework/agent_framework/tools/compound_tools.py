@@ -239,7 +239,12 @@ async def execute_in_workspace(
     timeout = min(timeout, _MAX_TIMEOUT)
     max_turns = min(max_turns, _MAX_TURNS)
 
-    # Validate working_dir_base to prevent path traversal
+    # Validate working_dir_base to prevent path traversal.
+    # Absolute paths are intentionally permitted because the default
+    # workspace base (DEFAULT_WORKSPACES_DIR in claude_code.py) is itself
+    # absolute (~/.claude_code_workspaces).  Callers use absolute paths to
+    # specify alternative workspace roots.  Path traversal (..) is the
+    # actual risk vector -- it allows escaping an intended base directory.
     if working_dir_base and ".." in working_dir_base:
         raise ValueError("working_dir_base cannot contain path traversal sequences (..)")
 
@@ -453,7 +458,11 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "working_dir_base": {
                     "type": "string",
                     "maxLength": 500,
-                    "description": "Base directory for workspaces (optional)",
+                    "description": (
+                        "Base directory for workspaces (optional). "
+                        "Absolute paths are permitted (default is ~/.claude_code_workspaces). "
+                        "Path traversal sequences (..) are rejected."
+                    ),
                 },
                 "custom_instructions": {
                     "type": "string",
