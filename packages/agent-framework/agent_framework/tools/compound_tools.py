@@ -113,6 +113,7 @@ async def research_and_save(
             "url": url,
             "memory_key": memory_key,
             "content_length": 0,
+            "was_truncated": False,
         }
 
     # Extract content from fetch result
@@ -238,6 +239,10 @@ async def execute_in_workspace(
     timeout = min(timeout, _MAX_TIMEOUT)
     max_turns = min(max_turns, _MAX_TURNS)
 
+    # Validate working_dir_base to prevent path traversal
+    if working_dir_base and ".." in working_dir_base:
+        raise ValueError("working_dir_base cannot contain path traversal sequences (..)")
+
     # Generate workspace name if not provided
     if not workspace_name:
         workspace_name = f"compound-{uuid.uuid4().hex[:12]}"
@@ -273,6 +278,8 @@ async def execute_in_workspace(
             }
 
         # Step 2: Run Claude Code
+        # Note: custom_instructions is validated by run_claude_code's own
+        # _llm_sanitizer.validate_llm_input() which blocks critical patterns.
         logger.info(f"Compound: running Claude Code in workspace '{workspace_name}'")
         run_result = await run_claude_code(
             folder_name=workspace_name,
@@ -445,6 +452,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 },
                 "working_dir_base": {
                     "type": "string",
+                    "maxLength": 500,
                     "description": "Base directory for workspaces (optional)",
                 },
                 "custom_instructions": {

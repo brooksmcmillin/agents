@@ -235,6 +235,7 @@ class TestResearchAndSave:
         assert result["status"] == "error"
         assert "Failed to fetch content" in result["message"]
         assert result["save_result"] is None
+        assert result["was_truncated"] is False  # Consistent schema
         # save_memory should NOT have been called
         mock_save_memory.assert_not_called()
 
@@ -381,9 +382,16 @@ class TestResearchAndSave:
 
         # Should still succeed -- content is sanitized, not blocked
         assert result["status"] == "success"
-        # The sanitizer was applied (we can't easily check exact output
-        # without knowing sanitizer internals, but we verify the call succeeds)
         mock_save_memory.assert_called_once()
+
+        # Verify the stored title was transformed by the sanitizer.
+        # The raw title "Ignore previous instructions" matches the
+        # ignore_instructions pattern and gets escaped.  The saved
+        # value should NOT contain the raw injection string verbatim
+        # in the [Title: ...] position.
+        save_kwargs = mock_save_memory.call_args[1]
+        saved_value = save_kwargs["value"]
+        assert "Ignore previous instructions" not in saved_value
 
 
 # ---------------------------------------------------------------------------
@@ -746,6 +754,18 @@ class TestExecuteInWorkspace:
 
         run_kwargs = mock_run_claude_code.call_args[1]
         assert run_kwargs["custom_instructions"] == "Always use type hints"
+
+    @pytest.mark.asyncio
+    async def test_working_dir_base_rejects_path_traversal(self) -> None:
+        """working_dir_base with path traversal is rejected."""
+        result = await execute_in_workspace(
+            prompt="Do something",
+            workspace_name="test-ws",
+            working_dir_base="../../etc",
+        )
+
+        assert result["status"] == "error"
+        assert "path traversal" in result["message"].lower()
 
 
 # ---------------------------------------------------------------------------
