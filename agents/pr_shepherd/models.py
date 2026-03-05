@@ -5,6 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
+from typing import ClassVar
+
+from agent_framework.core.polling_agent import PollingAgentConfig
 
 
 def _utcnow() -> datetime:
@@ -23,17 +26,36 @@ class PRStatus(str, Enum):
 
 
 @dataclass
-class PRShepherdConfig:
-    """Configuration for the PR Shepherd service."""
+class PRShepherdConfig(PollingAgentConfig):
+    """Configuration for the PR Shepherd service.
+
+    Extends PollingAgentConfig with PR-specific settings.
+    """
 
     repos: list[str] = field(default_factory=list)
-    poll_interval: int = 60  # seconds between poll cycles
-    max_fix_attempts: int = 3
+    # Inherited: poll_interval, max_retries (replaces max_fix_attempts), dry_run
     merge_method: str = "squash"  # squash, merge, rebase
     label_filter: str | None = None  # only process PRs with this label
     worker_model: str = "sonnet"
     worker_timeout: int = 600  # seconds
-    dry_run: bool = False
+
+    _VALID_MERGE_METHODS: ClassVar[frozenset[str]] = frozenset({"squash", "merge", "rebase"})
+
+    def __post_init__(self) -> None:
+        if self.merge_method not in self._VALID_MERGE_METHODS:
+            raise ValueError(
+                f"Invalid merge_method {self.merge_method!r}, "
+                f"must be one of {sorted(self._VALID_MERGE_METHODS)}"
+            )
+
+    @property
+    def max_fix_attempts(self) -> int:
+        """Alias for max_retries for backward compatibility."""
+        return self.max_retries
+
+    @max_fix_attempts.setter
+    def max_fix_attempts(self, value: int) -> None:
+        self.max_retries = value
 
 
 @dataclass
@@ -47,3 +69,20 @@ class TrackedPR:
     fix_attempts: int = 0
     status: PRStatus = PRStatus.PENDING_CHECKS
     last_checked: datetime = field(default_factory=_utcnow)
+
+
+@dataclass
+class PRDiagnosis:
+    """Result of diagnosing a PR's CI status."""
+
+    overall_status: str  # "pass", "fail", or "pending"
+    failing_checks: list[str] = field(default_factory=list)
+
+
+@dataclass
+class PRActionResult:
+    """Result of attempting to fix or merge a PR."""
+
+    success: bool
+    action: str  # "merged", "fix_pushed", "fix_failed", "push_failed", "no_logs", "abandoned"
+    message: str = ""

@@ -6,6 +6,12 @@ from .adapters.multi_agent_slack_adapter import MultiAgentSlackAdapter, RoutingS
 from .core.agent import Agent
 from .core.config import Settings
 from .core.mcp_client import MCPClient
+from .core.polling_agent import (
+    PollingAgent,
+    PollingAgentConfig,
+    ProcessingRecord,
+    WorkItemStatus,
+)
 from .logging import (
     AgentJsonFormatter,
     ContextualLoggerAdapter,
@@ -51,7 +57,11 @@ from .utils.errors import ContentPolicyError, PromptInjectionError, SecurityErro
 __all__ = [
     "Agent",
     "MCPClient",
+    "PollingAgent",
+    "PollingAgentConfig",
+    "ProcessingRecord",
     "Settings",
+    "WorkItemStatus",
     "MultiAgentSlackAdapter",
     "RoutingStrategy",
     "DeviceAuthorizationInfo",
