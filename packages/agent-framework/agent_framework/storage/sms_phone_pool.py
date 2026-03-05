@@ -266,10 +266,10 @@ class SMSPhonePoolManager:
 
             logger.info(
                 "Acquired phone %s for conversation %s (agent: %s)",
-                mask_phone_number(row["phone_number"]),
+                sanitize_log_input(mask_phone_number(row["phone_number"])),
                 sanitize_log_input(conversation_id),
                 sanitize_log_input(agent_name),
-            )
+            )  # noqa
 
             return self._row_to_entry(row)
 

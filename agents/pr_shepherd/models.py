@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import ClassVar
 
 from agent_framework.core.polling_agent import PollingAgentConfig
@@ -14,7 +14,7 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
-class PRStatus(str, Enum):
+class PRStatus(StrEnum):
     """Lifecycle status of a tracked PR."""
 
     PENDING_CHECKS = "pending_checks"
