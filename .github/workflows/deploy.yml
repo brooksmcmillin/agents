@@ -39,7 +39,7 @@ jobs:
           echo "Git Ref: ${{ github.ref }}" >> webui/dist/build-info.txt
 
       - name: Upload production build
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: production-build
           path: webui/dist/

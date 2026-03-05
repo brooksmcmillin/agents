@@ -9,45 +9,87 @@ These tests verify that:
 
 import os
 from datetime import UTC, datetime
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from pydantic import ValidationError
 
 
 class TestMemoryBackendSelection:
-    """Tests for _get_backend() function."""
+    """Tests for get_memory_backend() function."""
 
     def test_default_backend_is_file(self, monkeypatch):
         """Test that the default backend is 'file' when no env var is set."""
         monkeypatch.delenv("MEMORY_BACKEND", raising=False)
 
-        from agent_framework.tools.memory import _get_backend
+        from agent_framework.tools.memory import get_memory_backend
 
-        assert _get_backend() == "file"
+        assert get_memory_backend() == "file"
 
     def test_file_backend_from_env(self, monkeypatch):
         """Test that MEMORY_BACKEND=file returns 'file'."""
         monkeypatch.setenv("MEMORY_BACKEND", "file")
 
-        from agent_framework.tools.memory import _get_backend
+        from agent_framework.tools.memory import get_memory_backend
 
-        assert _get_backend() == "file"
+        assert get_memory_backend() == "file"
 
     def test_database_backend_from_env(self, monkeypatch):
         """Test that MEMORY_BACKEND=database returns 'database'."""
         monkeypatch.setenv("MEMORY_BACKEND", "database")
 
-        from agent_framework.tools.memory import _get_backend
+        from agent_framework.tools.memory import get_memory_backend
 
-        assert _get_backend() == "database"
+        assert get_memory_backend() == "database"
 
     def test_backend_case_insensitive(self, monkeypatch):
         """Test that backend selection is case-insensitive."""
         monkeypatch.setenv("MEMORY_BACKEND", "DATABASE")
 
-        from agent_framework.tools.memory import _get_backend
+        from agent_framework.tools.memory import get_memory_backend
 
-        assert _get_backend() == "database"
+        assert get_memory_backend() == "database"
+
+
+class TestSettingsMemoryBackend:
+    """Tests for the Settings.memory_backend field validator."""
+
+    def test_settings_default_is_file(self, monkeypatch, temp_dir: Path):
+        """Test that Settings.memory_backend defaults to 'file'."""
+        monkeypatch.delenv("MEMORY_BACKEND", raising=False)
+
+        from agent_framework.core.config import Settings
+
+        s = Settings(
+            token_storage_path=temp_dir / "tokens",
+            memory_storage_path=temp_dir / "memories",
+        )
+        assert s.memory_backend == "file"
+
+    def test_settings_normalizes_to_lowercase(self, monkeypatch, temp_dir: Path):
+        """Test that Settings.memory_backend lowercases the raw env var."""
+        monkeypatch.setenv("MEMORY_BACKEND", "DATABASE")
+
+        from agent_framework.core.config import Settings
+
+        s = Settings(
+            token_storage_path=temp_dir / "tokens",
+            memory_storage_path=temp_dir / "memories",
+        )
+        assert s.memory_backend == "database"
+
+    def test_settings_rejects_invalid_backend(self, monkeypatch, temp_dir: Path):
+        """Test that Settings raises on an unrecognized MEMORY_BACKEND value."""
+        monkeypatch.setenv("MEMORY_BACKEND", "redis")
+
+        from agent_framework.core.config import Settings
+
+        with pytest.raises(ValidationError, match="Invalid memory_backend"):
+            Settings(
+                token_storage_path=temp_dir / "tokens",
+                memory_storage_path=temp_dir / "memories",
+            )
 
 
 class TestDatabaseUrlResolution:

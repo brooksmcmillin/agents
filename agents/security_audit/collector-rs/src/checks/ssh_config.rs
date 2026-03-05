@@ -94,7 +94,7 @@ pub fn run() -> Value {
             let is_bad = if !check.bad_values.is_empty() {
                 check.bad_values.contains(&lower_val.as_str())
             } else if let Some(max_val) = check.max_int_value {
-                lower_val.parse::<u32>().map_or(false, |v| v > max_val)
+                lower_val.parse::<u32>().is_ok_and(|v| v > max_val)
             } else {
                 false
             };

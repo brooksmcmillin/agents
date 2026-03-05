@@ -411,6 +411,8 @@ LINKEDIN_CLIENT_SECRET=...
 ## Documentation
 
 - **[CLAUDE.md](CLAUDE.md)** - Comprehensive project documentation for Claude Code
+- **[docs/CLI.md](docs/CLI.md)** - CLI reference for `bin/run-agent` (flags, session management, permissions)
+- **[docs/AUTOMATION.md](docs/AUTOMATION.md)** - Automation scripts (`sprint-or-review`, `weekly-pr-review`, cron installers)
 - **[docs/TESTING.md](docs/TESTING.md)** - Testing and debugging guide (memory tools, logs, common issues)
 - **[GUIDES.md](docs/GUIDES.md)** - Feature guides (memory system, OAuth, deployment, voice interface)
 - **[REMOTE_MCP.md](docs/REMOTE_MCP.md)** - Remote MCP server setup and configuration

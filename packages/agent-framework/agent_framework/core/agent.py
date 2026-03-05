@@ -18,7 +18,7 @@ import sys
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TextIO, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from anthropic import APIConnectionError, APIStatusError, AsyncAnthropic
 from anthropic.types import (
@@ -45,6 +45,12 @@ from agent_framework.security.context_trimming import (
 )
 from agent_framework.utils.errors import MissingAPIKeyError
 
+from ..logging import setup_logging
+from ..telemetry.decision_logger import (
+    DECISION_TYPE_ERROR_HANDLING,
+    DECISION_TYPE_TOOL_SELECTION,
+    log_decision,
+)
 from ..utils.sanitize import sanitize_log_input
 from .config import settings
 from .mcp_client import MCPClient
@@ -189,160 +195,6 @@ def _read_multiline_input(prompt: str) -> str:
     return "\n".join(lines)
 
 
-class _StderrToLogFile:
-    """Wrapper that redirects stderr to a log file only (not console).
-
-    This captures stderr output (from subprocesses, exceptions, etc.) and
-    writes it only to the log file, keeping the console clean. The original
-    stderr is preserved for fileno() and isatty() compatibility but writes
-    are not echoed to it.
-    """
-
-    def __init__(self, log_file_path: Path, original_stderr: TextIO | None) -> None:
-        self.log_file_path = log_file_path
-        self.original_stderr = original_stderr
-        self._log_file = None
-
-    def _ensure_file_open(self) -> None:
-        """Open log file lazily."""
-        import contextlib
-
-        if self._log_file is None:
-            with contextlib.suppress(OSError):
-                self._log_file = open(  # noqa: SIM115
-                    self.log_file_path, "a", encoding="utf-8"
-                )
-
-    def write(self, data: str) -> None:
-        """Write to log file only (not echoed to console)."""
-        import contextlib
-
-        # Write only to log file - do NOT echo to console
-        self._ensure_file_open()
-        if self._log_file:
-            with contextlib.suppress(OSError):
-                self._log_file.write(data)
-                self._log_file.flush()
-
-    def flush(self) -> None:
-        """Flush the log file stream."""
-        import contextlib
-
-        if self._log_file:
-            with contextlib.suppress(OSError):
-                self._log_file.flush()
-
-    def fileno(self) -> int:
-        """Return file descriptor of original stderr."""
-        if self.original_stderr:
-            return self.original_stderr.fileno()
-        raise OSError("No stderr available")
-
-    def isatty(self) -> bool:
-        """Check if original stderr is a tty."""
-        if self.original_stderr:
-            return self.original_stderr.isatty()
-        return False
-
-    def close(self) -> None:
-        """Close the log file (but not original stderr)."""
-        import contextlib
-
-        if self._log_file:
-            with contextlib.suppress(OSError):
-                self._log_file.close()
-            self._log_file = None
-
-
-# Global reference to stderr wrapper for cleanup
-_stderr_wrapper: _StderrToLogFile | None = None
-
-
-def setup_logging(
-    agent_name: str,
-    console_level: int = logging.WARNING,
-    file_level: int = logging.DEBUG,
-    redirect_stderr: bool = True,
-    json_format: bool | None = None,
-) -> logging.Logger:
-    """
-    Set up logging with both file and console handlers.
-
-    Args:
-        agent_name: Name of the agent (used for log file name)
-        console_level: Log level for console output (default: WARNING)
-        file_level: Log level for file output (default: DEBUG)
-        redirect_stderr: If True, redirect sys.stderr to also write to log file (default: True)
-        json_format: If True, use JSON format for file logging (Loki-compatible).
-            If None, auto-detect from LOKI_ENABLED or LOG_FORMAT environment variables.
-            Console output always uses text format for readability.
-
-    Returns:
-        Configured logger instance
-    """
-    global _stderr_wrapper
-
-    # Auto-detect JSON format from settings if not explicitly specified
-    if json_format is None:
-        json_format = settings.loki_enabled or settings.log_format.lower() == "json"
-
-    # Get log file path using settings helper
-    log_file = settings.get_log_file(agent_name)
-
-    # Get the root logger for agent_framework
-    agent_logger = logging.getLogger("agent_framework")
-    agent_logger.setLevel(logging.DEBUG)  # Capture all levels
-    agent_logger.propagate = False  # Don't propagate to root logger (prevents duplicate output)
-
-    # Remove existing handlers to avoid duplicates on reload
-    agent_logger.handlers.clear()
-
-    # File handler - captures all debug info
-    file_handler = logging.FileHandler(log_file, encoding="utf-8")
-    file_handler.setLevel(file_level)
-
-    if json_format:
-        # Use JSON formatter for Loki compatibility
-        from ..logging import AgentJsonFormatter
-
-        file_handler.setFormatter(AgentJsonFormatter(agent_name=agent_name))
-    else:
-        # Use standard text formatter for human readability
-        file_handler.setFormatter(
-            logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-        )
-    agent_logger.addHandler(file_handler)
-
-    # Console handler - always text format for human readability
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(console_level)
-    console_handler.setFormatter(logging.Formatter("%(message)s"))
-    agent_logger.addHandler(console_handler)
-
-    # Also configure httpx and mcp loggers to file only
-    for lib_logger_name in ["httpx", "mcp", "mcp_server"]:
-        lib_logger = logging.getLogger(lib_logger_name)
-        lib_logger.setLevel(logging.DEBUG)
-        lib_logger.handlers.clear()
-        lib_logger.addHandler(file_handler)
-        lib_logger.propagate = False
-
-    # Redirect sys.stderr to also write to log file
-    if redirect_stderr:
-        import sys
-
-        # Only wrap if not already wrapped
-        if not isinstance(sys.stderr, _StderrToLogFile):
-            _stderr_wrapper = _StderrToLogFile(log_file, sys.stderr)
-            sys.stderr = _stderr_wrapper  # type: ignore[assignment]
-            agent_logger.debug("sys.stderr redirected to log file")
-
-    log_format_type = "JSON" if json_format else "text"
-    agent_logger.info(f"Logging initialized ({log_format_type} format). Log file: {log_file}")
-
-    return agent_logger
-
-
 class InvalidToolName(Exception):
     def __init__(self, message: str) -> None:
         super().__init__(f"{message} tool not found!")
@@ -399,6 +251,7 @@ class Agent(ABC):
         backup_model: str | None = None,
         backup_api_key: str | None = None,
         enable_delegation: bool = False,
+        persistent_mcp: bool = False,
     ):
         """
         Initialize the agent.
@@ -444,6 +297,11 @@ class Agent(ABC):
             enable_delegation: If True and delegation is configured (via
                 shared.delegation.setup_delegation), adds a ``request_agent`` tool
                 that lets this agent consult other specialized agents. Default: False
+            persistent_mcp: If True, the local MCP subprocess is kept alive
+                across tool calls within a turn and torn down between turns.
+                This reduces per-call subprocess startup overhead in production.
+                If False (default), a new subprocess is spawned for every tool
+                call, enabling hot reload of tools without restarting the agent.
         """
         # Set up logging first (need agent name, so call get_agent_name early)
         self.log_dir = settings.log_dir
@@ -483,6 +341,7 @@ class Agent(ABC):
             agent_name=self.get_agent_name(),
             stderr_log_file=self.log_file,
             allowed_tools=allowed_tools,
+            persistent=persistent_mcp,
         )
 
         # Initialize security guard (Lakera Guard) if enabled and available
@@ -1094,7 +953,7 @@ class Agent(ABC):
         exc_info: tuple | None = None
         try:
             return await self._process_message_internal(
-                user_message, trace_ctx, on_text_delta, on_tool_start
+                user_message, trace_ctx, on_text_delta, on_tool_start, session_id
             )
         except BaseException:
             import sys
@@ -1110,6 +969,10 @@ class Agent(ABC):
                 trace_ctx.__exit__(*exc_info)
             elif trace_ctx is not None:
                 trace_ctx.__exit__(None, None, None)
+
+            # In persistent mode, close the cached MCP connection at the end
+            # of each turn so that the next turn picks up any tool changes.
+            await self.mcp_client.end_turn()
 
     def _messages_for_api(self) -> list[MessageParam]:
         """Return a copy of self.messages with internal metadata stripped.
@@ -1279,6 +1142,7 @@ class Agent(ABC):
         tool_calls: list[ToolUseBlock],
         trace_ctx,
         on_tool_start: Callable[[str], None] | None = None,
+        session_id: str | None = None,
     ) -> list[dict[str, Any]]:
         """Execute a batch of tool calls and return their results.
 
@@ -1293,6 +1157,7 @@ class Agent(ABC):
             trace_ctx: Optional observability trace context.
             on_tool_start: Optional callback invoked when a tool call
                 begins, receiving the tool name.
+            session_id: Optional session ID for decision log correlation.
 
         Returns:
             A list of tool-result dicts ready to append to the conversation.
@@ -1378,6 +1243,21 @@ class Agent(ABC):
                         metadata={"error_type": "PermissionError"},
                     )
 
+                # Log permission error handling decision.
+                # Use type(e).__name__ rather than str(e) to avoid leaking
+                # sensitive permission details into the decision log.
+                log_decision(
+                    agent=self.get_agent_name(),
+                    decision_type=DECISION_TYPE_ERROR_HANDLING,
+                    inputs={
+                        "tool_name": tool_call.name,
+                        "error_type": type(e).__name__,
+                    },
+                    output={"action": "return_permission_error_to_model"},
+                    reasoning=type(e).__name__,
+                    session_id=session_id,
+                )
+
                 tool_results.append(
                     self._make_tool_error_result(tool_call.id, e, is_permission_error=True)
                 )
@@ -1394,6 +1274,22 @@ class Agent(ABC):
                         level="ERROR",
                         metadata={"error_type": type(e).__name__},
                     )
+
+                # Log tool execution error handling decision
+                # Use type name only — not str(e) — to avoid leaking
+                # sensitive data (API keys, connection strings, etc.) from
+                # exception messages into the decision log.
+                log_decision(
+                    agent=self.get_agent_name(),
+                    decision_type=DECISION_TYPE_ERROR_HANDLING,
+                    inputs={
+                        "tool_name": tool_call.name,
+                        "error_type": type(e).__name__,
+                    },
+                    output={"action": "return_tool_error_to_model"},
+                    reasoning=type(e).__name__,
+                    session_id=session_id,
+                )
 
                 tool_results.append(self._make_tool_error_result(tool_call.id, e))
 
@@ -1413,6 +1309,7 @@ class Agent(ABC):
         trace_ctx,
         on_text_delta: Callable[[str], None] | None = None,
         on_tool_start: Callable[[str], None] | None = None,
+        session_id: str | None = None,
     ) -> str:
         """Internal message processing with observability context.
 
@@ -1421,6 +1318,7 @@ class Agent(ABC):
             trace_ctx: Optional TraceContext for observability
             on_text_delta: Optional callback for streaming text deltas
             on_tool_start: Optional callback invoked when a tool call begins
+            session_id: Optional session ID for decision log correlation
 
         Returns:
             The agent's response as a string
@@ -1536,6 +1434,22 @@ class Agent(ABC):
                         )
                         return text_response
 
+                    # Log tool selection decision
+                    log_decision(
+                        agent=self.get_agent_name(),
+                        decision_type=DECISION_TYPE_TOOL_SELECTION,
+                        inputs={
+                            "iteration": iteration,
+                            "available_tool_count": sum(len(v) for v in self.tools.values()),
+                            "message_count": len(self.messages),
+                        },
+                        output={
+                            "selected_tools": [tc.name for tc in tool_calls],
+                            "tool_count": len(tool_calls),
+                        },
+                        session_id=session_id,
+                    )
+
                     # Add assistant response to conversation (with tool calls)
                     # Note: tool_use responses should always have content, but ensure non-empty
                     self.messages.append(
@@ -1547,7 +1461,7 @@ class Agent(ABC):
 
                     # Execute tool calls and collect results
                     tool_results = await self._execute_tool_calls(
-                        tool_calls, trace_ctx, on_tool_start
+                        tool_calls, trace_ctx, on_tool_start, session_id
                     )
 
                     # Add tool results to conversation
@@ -1869,12 +1783,14 @@ class Agent(ABC):
         Respects the configured MEMORY_BACKEND (file or database).
         """
         try:
-            import os
-
-            from ..tools.memory import get_database_memory_store, get_memory_store
+            from ..tools.memory import (
+                get_database_memory_store,
+                get_memory_backend,
+                get_memory_store,
+            )
 
             agent_name = self.get_agent_name()
-            backend = os.environ.get("MEMORY_BACKEND", "file").lower()
+            backend = get_memory_backend()
 
             if backend == "database":
                 store = await get_database_memory_store(agent_name=agent_name)

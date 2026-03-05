@@ -6,6 +6,12 @@ from .adapters.multi_agent_slack_adapter import MultiAgentSlackAdapter, RoutingS
 from .core.agent import Agent
 from .core.config import Settings
 from .core.mcp_client import MCPClient
+from .core.polling_agent import (
+    PollingAgent,
+    PollingAgentConfig,
+    ProcessingRecord,
+    WorkItemStatus,
+)
 from .logging import (
     AgentJsonFormatter,
     ContextualLoggerAdapter,
@@ -14,6 +20,7 @@ from .logging import (
     get_correlation_id,
     reset_correlation_id,
     set_correlation_id,
+    setup_logging,
 )
 from .oauth import DeviceAuthorizationCallback, DeviceAuthorizationInfo
 from .observability import (
@@ -34,12 +41,27 @@ from .permissions import (
 )
 from .security import LakeraGuard, LakeraSecurityResult, SecurityCheckError
 from .server.server import create_mcp_server
+from .telemetry import (
+    DECISION_TYPE_AUTONOMY_TIER,
+    DECISION_TYPE_DECOMPOSITION,
+    DECISION_TYPE_ERROR_HANDLING,
+    DECISION_TYPE_ROUTING,
+    DECISION_TYPE_TOOL_SELECTION,
+    configure_decision_logger,
+    get_decision_logger,
+    log_decision,
+    reset_decision_logger,
+)
 from .utils.errors import ContentPolicyError, PromptInjectionError, SecurityError
 
 __all__ = [
     "Agent",
     "MCPClient",
+    "PollingAgent",
+    "PollingAgentConfig",
+    "ProcessingRecord",
     "Settings",
+    "WorkItemStatus",
     "MultiAgentSlackAdapter",
     "RoutingStrategy",
     "DeviceAuthorizationInfo",
@@ -66,6 +88,7 @@ __all__ = [
     "get_correlation_id",
     "reset_correlation_id",
     "create_json_handler",
+    "setup_logging",
     # Permissions
     "AgentIdentity",
     "ExecutionContext",
@@ -74,4 +97,14 @@ __all__ = [
     "REMOTE_MCP_PERMISSIONS",
     "TOOL_PERMISSIONS",
     "get_required_permissions",
+    # Decision logging
+    "configure_decision_logger",
+    "get_decision_logger",
+    "log_decision",
+    "reset_decision_logger",
+    "DECISION_TYPE_TOOL_SELECTION",
+    "DECISION_TYPE_ROUTING",
+    "DECISION_TYPE_DECOMPOSITION",
+    "DECISION_TYPE_AUTONOMY_TIER",
+    "DECISION_TYPE_ERROR_HANDLING",
 ]

@@ -69,11 +69,12 @@ jobs:
 
       - run: uv sync
 
-      - name: Audit production dependencies
-        run: |
-          uv export --format requirements-txt --no-dev \
-            | grep -vE '^-e |agent-framework' > /tmp/reqs.txt
-          uv run --with 'pip-audit>=2.10,<3' pip-audit -r /tmp/reqs.txt
+      - name: Audit all dependencies with pip-audit
+        run: uv run pip-audit
+
+      - name: Audit all dependencies with safety
+        run: uv run safety scan
+        continue-on-error: true
 
   unit-tests:
     name: Unit Tests (${{ matrix.python-version }})
@@ -240,11 +241,47 @@ jobs:
           test -f webui/dist/index.html || exit 1
           test -d webui/dist/assets || exit 1
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: frontend-build
           path: webui/dist/
           retention-days: 7
+
+  rust-collector:
+    name: Rust Collector (security-audit-collector-rs)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            agents/security_audit/collector-rs/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('agents/security_audit/collector-rs/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Clippy (deny warnings)
+        working-directory: agents/security_audit/collector-rs
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Test
+        working-directory: agents/security_audit/collector-rs
+        run: cargo test
+
+      - name: Audit dependencies
+        uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          working-directory: agents/security_audit/collector-rs
 
   integration-tests:
     name: Integration Tests
@@ -277,7 +314,7 @@ jobs:
 
       - run: uv sync
 
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: frontend-build
           path: webui/dist/

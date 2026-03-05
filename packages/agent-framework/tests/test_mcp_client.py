@@ -19,6 +19,21 @@ class TestMCPClient:
         assert client.server_script_path == "test/server.py"
         assert client.session is None
         assert client.available_tools == {}
+        assert client.persistent is False
+
+    def test_mcp_client_persistent_flag(self):
+        """Test MCPClient stores persistent flag correctly."""
+        client_default = MCPClient()
+        assert client_default.persistent is False
+
+        client_persistent = MCPClient(persistent=True)
+        assert client_persistent.persistent is True
+
+    def test_mcp_client_persistent_initial_state(self):
+        """Test persistent mode client starts with no cached connection."""
+        client = MCPClient(persistent=True)
+        assert client.session is None
+        assert client._persistent_exit_stack is None
 
     def test_mcp_client_default_path(self):
         """Test MCPClient uses default server path."""
@@ -289,15 +304,18 @@ class TestMCPClientEnvironment:
 
         with patch.object(StdioServerParameters, "__init__", capture_init):
             # We can't fully run connect() without a real server,
-            # but we can inspect the implementation to verify env is passed
+            # but we can inspect the implementation to verify env is passed.
+            # The actual subprocess spawn happens in _build_server_params.
             import inspect
 
-            # Get the source of the connect method
-            source = inspect.getsource(client.connect)
+            build_params_source = inspect.getsource(client._build_server_params)
 
             # Verify the implementation passes environment
-            assert "env=dict(os.environ)" in source or "env=os.environ" in source, (
-                "MCPClient.connect() must pass environment variables to subprocess. "
+            assert (
+                "env=dict(os.environ)" in build_params_source
+                or "env=os.environ" in build_params_source
+            ), (
+                "MCPClient._build_server_params must pass environment variables to subprocess. "
                 "Without this, MEMORY_BACKEND and DATABASE_URL won't be available "
                 "in the MCP server subprocess."
             )
@@ -307,12 +325,165 @@ class TestMCPClientEnvironment:
         import inspect
 
         client = MCPClient()
-        source = inspect.getsource(client.connect)
+        # The env passing is centralised in _build_server_params
+        build_params_source = inspect.getsource(client._build_server_params)
 
         # Verify there's a comment explaining why env is passed
-        assert "MEMORY_BACKEND" in source or "environment" in source.lower(), (
-            "MCPClient.connect() should document why environment is passed"
+        assert (
+            "MEMORY_BACKEND" in build_params_source or "environment" in build_params_source.lower()
+        ), "MCPClient._build_server_params should document why environment is passed"
+
+
+class TestMCPClientPersistentMode:
+    """Tests for the persistent connection mode of MCPClient."""
+
+    @pytest.mark.asyncio
+    async def test_disconnect_noop_when_not_connected(self):
+        """Test that disconnect() is safe to call when not connected."""
+        client = MCPClient(persistent=True)
+        # Should not raise even though there's no active connection
+        await client.disconnect()
+        assert client.session is None
+        assert client._persistent_exit_stack is None
+
+    @pytest.mark.asyncio
+    async def test_end_turn_noop_in_nonpersistent_mode(self):
+        """Test that end_turn() is a no-op when persistent=False."""
+        client = MCPClient(persistent=False)
+        client.session = MagicMock()  # Simulate a session (shouldn't happen normally)
+        # end_turn in non-persistent mode should NOT close the session
+        await client.end_turn()
+        # Session unchanged — end_turn only acts when persistent=True
+        assert client.session is not None
+
+    @pytest.mark.asyncio
+    async def test_end_turn_disconnects_in_persistent_mode(self):
+        """Test that end_turn() calls disconnect() when persistent=True."""
+        client = MCPClient(persistent=True)
+
+        disconnect_called = False
+        original_disconnect = client.disconnect
+
+        async def mock_disconnect() -> None:
+            nonlocal disconnect_called
+            disconnect_called = True
+            await original_disconnect()
+
+        client.disconnect = mock_disconnect  # type: ignore[method-assign]
+        await client.end_turn()
+        assert disconnect_called
+
+    @pytest.mark.asyncio
+    async def test_persistent_connect_reuses_session(self):
+        """Test that persistent mode reuses an existing session."""
+        from unittest.mock import patch
+
+        client = MCPClient(persistent=True)
+
+        # Pre-populate a mock session to simulate an already-established connection
+        mock_session = MagicMock()
+        client.session = mock_session
+        client._persistent_exit_stack = MagicMock()
+
+        # Track whether _connect_fresh was called
+        fresh_connect_calls = 0
+
+        async def fake_fresh_connect():
+            nonlocal fresh_connect_calls
+            fresh_connect_calls += 1
+            yield client
+
+        # _connect_persistent should reuse session and NOT call _connect_fresh
+        with patch.object(client, "_connect_fresh", side_effect=fake_fresh_connect):
+            async with client.connect() as connected_client:
+                assert connected_client is client
+                assert connected_client.session is mock_session
+
+        # The fresh connect path should never have been invoked
+        assert fresh_connect_calls == 0
+
+    @pytest.mark.asyncio
+    async def test_disconnect_clears_session_and_stack(self):
+        """Test that disconnect() clears session and exit stack."""
+        client = MCPClient(persistent=True)
+
+        # Simulate a connected state with a mock exit stack
+        mock_stack = AsyncMock()
+        mock_stack.aclose = AsyncMock(return_value=None)
+        client.session = MagicMock()
+        client._persistent_exit_stack = mock_stack
+
+        await client.disconnect()
+
+        assert client.session is None
+        assert client._persistent_exit_stack is None
+        mock_stack.aclose.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_nonpersistent_mode_does_not_cache_session(self):
+        """Verify non-persistent mode never sets _persistent_exit_stack."""
+        client = MCPClient(persistent=False)
+
+        # _persistent_exit_stack should remain None throughout non-persistent use
+        assert client._persistent_exit_stack is None
+        # After normal operations it should still be None
+        await client.end_turn()
+        assert client._persistent_exit_stack is None
+
+    def test_persistent_connect_lock_exists(self):
+        """Test that a lock is created for preventing concurrent subprocess spawns."""
+        import asyncio
+
+        client = MCPClient(persistent=True)
+        assert hasattr(client, "_persistent_connect_lock")
+        assert isinstance(client._persistent_connect_lock, asyncio.Lock)
+
+    def test_persistent_exit_stack_type_annotation(self):
+        """Test that _persistent_exit_stack has the correct type (not Any)."""
+        import inspect
+
+        # Get the source and verify the type annotation uses AsyncExitStack, not Any
+        source = inspect.getsource(MCPClient.__init__)
+        assert "AsyncExitStack" in source, (
+            "_persistent_exit_stack should be typed as contextlib.AsyncExitStack | None"
         )
+
+    @pytest.mark.asyncio
+    async def test_lock_released_before_yield_allows_concurrent_callers(self):
+        """Test that the lock is released before yield so concurrent callers don't serialize.
+
+        When a session already exists, two concurrent connect() calls should be
+        able to proceed concurrently (both yield quickly) rather than one blocking
+        the other for the duration of its tool call.
+        """
+        import asyncio
+
+        client = MCPClient(persistent=True)
+
+        # Pre-populate a mock session to simulate an already-established connection
+        client.session = MagicMock()
+        client._persistent_exit_stack = MagicMock()
+
+        acquired_while_other_holding = False
+
+        async def caller_one():
+            async with client.connect():
+                # While we're inside the context, try to acquire the lock
+                # If the lock is still held, this would deadlock
+                nonlocal acquired_while_other_holding
+                acquired = client._persistent_connect_lock.locked()
+                acquired_while_other_holding = not acquired
+                # Give caller_two a chance to proceed
+                await asyncio.sleep(0)
+
+        async def caller_two():
+            await asyncio.sleep(0)  # Let caller_one enter first
+            async with client.connect():
+                pass
+
+        # Both should complete without deadlock
+        await asyncio.gather(caller_one(), caller_two())
+        assert acquired_while_other_holding, "Lock should be released before yield"
 
 
 class TestCreateMCPClient:
@@ -324,3 +495,11 @@ class TestCreateMCPClient:
         # We can't fully test this without a real MCP server,
         # but we can verify the function exists and is callable
         assert callable(create_mcp_client)
+
+    def test_create_mcp_client_accepts_persistent_flag(self):
+        """Test that create_mcp_client accepts and passes through the persistent flag."""
+        import inspect
+
+        sig = inspect.signature(create_mcp_client)
+        assert "persistent" in sig.parameters
+        assert sig.parameters["persistent"].default is False

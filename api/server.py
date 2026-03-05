@@ -25,26 +25,21 @@ Run with:
     uv run python -m api
 """
 
-import asyncio
-import ipaddress
 import logging
 import os
-import re
 import secrets
-import uuid
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from agent_framework.storage import SMSPhonePoolManager
 
 import anthropic
 from agent_framework import Agent
-from agent_framework.logging import correlation_id_var
 from agent_framework.storage import Conversation, DatabaseConversationStore, Message
 from agent_framework.utils.errors import PromptInjectionError
 from agent_framework.utils.sanitize import sanitize_log_input
@@ -56,16 +51,34 @@ from fastapi import (
     HTTPException,
     Query,
     Request,
-    Security,
     WebSocket,
-    WebSocketDisconnect,
 )
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 
+from .auth import (  # noqa: F401 - backward compat re-exports marked individually
+    _DISABLE_AUTH_DEFAULT_CIDRS,  # noqa: F401
+    _get_api_key,
+    _get_rate_limit_key,  # noqa: F401
+    _ip_in_cidr_list,  # noqa: F401
+    _parse_cidr_list,  # noqa: F401
+    check_session_token,
+    setup_rate_limiting,
+    verify_api_key,
+)
+from .auth import (
+    authenticate_websocket_connection as _authenticate_websocket,  # noqa: F401
+)
+from .auth import (
+    rate_limit as _rate_limit_func,
+)
 from .claude_code_sessions import ClaudeCodeSession, ClaudeCodeSessionManager
+from .middleware import (
+    _CORRELATION_ID_RE,  # noqa: F401 - re-exported for backward compat
+    _validate_cors_origin,  # noqa: F401 - re-exported for backward compat
+    setup_correlation_id_middleware,
+    setup_cors,
+)
 from .models import (
     AgentInfo,
     AgentListResponse,
@@ -92,8 +105,13 @@ from .models import (
     TokenUsage,
 )
 from .sessions import SessionManager
+from .websocket import claude_code_websocket_handler
 
 logger = logging.getLogger(__name__)
+
+# Backward-compatible module-level API key (used by lifespan and tests).
+# Auth functions in api.auth read from environment dynamically.
+_api_key = os.getenv("API_KEY")
 
 
 # ---------------------------------------------------------------------------
@@ -212,6 +230,19 @@ def _get_conversation_store() -> DatabaseConversationStore:
     return _conversation_store
 
 
+def _check_session_token(
+    session_id: str,
+    x_session_token: str | None,
+) -> ClaudeCodeSession:
+    """Verify session ownership and return the session object.
+
+    Delegates to auth.check_session_token with the session looked up
+    from claude_code_mgr.
+    """
+    session = claude_code_mgr.get_session(session_id)
+    return check_session_token(session, session_id, x_session_token, _DUMMY_SESSION_TOKEN)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Start background tasks on startup, clean up on shutdown."""
@@ -242,7 +273,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "you intentionally want to run without authentication."
         )
 
-    if not _api_key:
+    if not _get_api_key():
         if _disable_auth:
             allowed_ips_raw = os.getenv("DISABLE_AUTH_ALLOWED_IPS", "127.0.0.0/8,::1/128")
             logger.warning(
@@ -282,288 +313,24 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Configure CORS middleware
+setup_cors(app)
 
-def _validate_cors_origin(origin: str) -> bool:
-    """Validate a CORS origin string.
+# Configure correlation ID middleware
+setup_correlation_id_middleware(app)
 
-    Rejects wildcards, empty strings, and non-http(s) schemes.
-    """
-    if not origin or origin == "*":
-        return False
-    return origin.startswith(("http://", "https://"))
+# Configure rate limiting
+limiter = setup_rate_limiting(app)
 
 
-# Configure CORS for web UI
-# Use explicit localhost origins plus any configured extras (even in dev mode)
-allow_origins = [
-    "http://localhost:5173",  # Vite dev server
-    "http://localhost:8080",  # Production (same origin)
-    "http://127.0.0.1:5173",  # Vite dev server (IP)
-    "http://127.0.0.1:8080",  # Production (IP)
-]
-if extra_origins := os.getenv("CORS_ALLOWED_ORIGINS"):
-    for origin in extra_origins.split(","):
-        origin = origin.strip()
-        if origin and _validate_cors_origin(origin):
-            allow_origins.append(origin)
-        elif origin:
-            logger.warning("Ignoring invalid CORS origin: %s", origin)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=allow_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+def rate_limit(limit_string: str) -> Any:
+    """Apply rate limit decorator only if rate limiting is enabled."""
+    return _rate_limit_func(limit_string, limiter)
 
 
 # ---------------------------------------------------------------------------
-# Correlation ID Middleware (for distributed tracing)
+# Token usage tracking
 # ---------------------------------------------------------------------------
-
-# Allow alphanumeric characters and hyphens, 1-64 chars.
-# Rejects header injection / log forgery payloads.
-_CORRELATION_ID_RE = re.compile(r"^[a-zA-Z0-9\-]{1,64}$")
-
-
-@app.middleware("http")
-async def add_correlation_id(
-    request: Request, call_next: Callable[[Request], Awaitable[Response]]
-) -> Response:
-    """Add correlation ID to each request for distributed tracing.
-
-    If X-Correlation-ID header is present and passes validation, use it.
-    Otherwise, generate a new UUID. The correlation ID is stored in a
-    ContextVar for use by logging throughout the request lifecycle.
-    """
-    raw_id = request.headers.get("X-Correlation-ID")
-    if raw_id and _CORRELATION_ID_RE.match(raw_id):
-        correlation_id = raw_id
-    else:
-        correlation_id = str(uuid.uuid4())
-
-    # Set correlation ID in context var for logging
-    token = correlation_id_var.set(correlation_id)
-    try:
-        response = await call_next(request)
-        # Add correlation ID to response headers for tracing
-        response.headers["X-Correlation-ID"] = correlation_id
-        return response
-    finally:
-        # Reset to prevent context leaking between requests
-        correlation_id_var.reset(token)
-
-
-# ---------------------------------------------------------------------------
-# Authentication
-# ---------------------------------------------------------------------------
-
-_api_key = os.getenv("API_KEY")
-_security = HTTPBearer(auto_error=False)
-
-# Default CIDR list when DISABLE_AUTH_ALLOWED_IPS is not set.
-_DISABLE_AUTH_DEFAULT_CIDRS = "127.0.0.0/8,::1/128"
-
-
-def _parse_cidr_list(raw: str) -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
-    """Parse a comma-separated list of CIDR strings into network objects.
-
-    Invalid entries are logged and skipped.
-
-    Args:
-        raw: Comma-separated CIDR strings, e.g. "127.0.0.0/8,::1/128".
-
-    Returns:
-        List of parsed IPv4Network or IPv6Network objects (strict=False).
-    """
-    networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
-    for entry in raw.split(","):
-        entry = entry.strip()
-        if not entry:
-            continue
-        try:
-            networks.append(ipaddress.ip_network(entry, strict=False))
-        except ValueError:
-            logger.warning("DISABLE_AUTH_ALLOWED_IPS: ignoring invalid CIDR %r", entry)
-    return networks
-
-
-def _ip_in_cidr_list(
-    ip_str: str,
-    networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network],
-) -> bool:
-    """Return True if *ip_str* falls within any network in *networks*.
-
-    Args:
-        ip_str: IP address string (IPv4 or IPv6).
-        networks: List of network objects to check against.
-
-    Returns:
-        True if the address is contained in at least one network.
-    """
-    try:
-        addr = ipaddress.ip_address(ip_str)
-    except ValueError:
-        return False
-    return any(addr in net for net in networks)
-
-
-async def verify_api_key(
-    request: Request,
-    credentials: HTTPAuthorizationCredentials | None = Security(_security),
-) -> None:
-    """Verify API key.
-
-    Requires a valid Authorization: Bearer <API_KEY> header when API_KEY
-    is set. When DISABLE_AUTH=true (no API_KEY) and ENV=development, requests
-    are only allowed from IPs listed in DISABLE_AUTH_ALLOWED_IPS (defaults to
-    loopback only: 127.0.0.0/8 and ::1/128).
-
-    Uses constant-time comparison to prevent timing attacks.
-    """
-    if not _api_key:
-        # Auth disabled – enforce IP allowlist from DISABLE_AUTH_ALLOWED_IPS.
-        allowed_ips_raw = os.getenv("DISABLE_AUTH_ALLOWED_IPS", _DISABLE_AUTH_DEFAULT_CIDRS)
-        allowed_networks = _parse_cidr_list(allowed_ips_raw)
-        client_host = request.client.host if request.client else ""
-        try:
-            ipaddress.ip_address(client_host)
-        except ValueError:
-            # Host is not a parseable IP address (e.g. a hostname or test client stub).
-            # Log a warning and allow, since CIDR filtering is best-effort for non-IP
-            # hosts; the startup check (ENV=development) is the primary guard.
-            logger.warning(
-                "DISABLE_AUTH: client host %r is not a parseable IP, skipping CIDR check",
-                client_host,
-            )
-            return
-        if not _ip_in_cidr_list(client_host, allowed_networks):
-            logger.warning(
-                "DISABLE_AUTH: rejected request from non-allowlisted IP %r",
-                client_host,
-            )
-            raise HTTPException(
-                status_code=403,
-                detail="Access denied: client IP not in DISABLE_AUTH_ALLOWED_IPS",
-            )
-        return
-    if not credentials or not secrets.compare_digest(
-        credentials.credentials.encode("utf-8"),
-        _api_key.encode("utf-8"),
-    ):
-        raise HTTPException(status_code=401, detail="Invalid or missing API key")
-
-
-async def _authenticate_websocket(websocket: WebSocket) -> dict | None:
-    """Authenticate a WebSocket connection via initial message exchange.
-
-    Always waits for an auth message from the client::
-
-        {"type": "auth", "api_key": "...", "session_token": "..."}
-
-    When API_KEY is not configured the ``api_key`` field is not checked, but the
-    message must still be sent so that the ``session_token`` (required for
-    session-ownership verification) can be read.
-
-    Returns:
-        The parsed auth payload dict on success, or ``None`` on failure.
-
-    Uses constant-time comparison to prevent timing attacks.
-    Credentials never appear in query strings, avoiding leakage via
-    server logs, browser history, referrer headers, or proxy logs.
-    """
-    try:
-        data = await asyncio.wait_for(websocket.receive_json(), timeout=10.0)
-    except Exception:  # TimeoutError, WebSocketDisconnect, JSONDecodeError, etc.
-        return None
-    if not isinstance(data, dict) or data.get("type") != "auth":
-        return None
-    if _api_key:
-        ws_key = data.get("api_key")
-        if not isinstance(ws_key, str):
-            return None
-        if not secrets.compare_digest(ws_key.encode("utf-8"), _api_key.encode("utf-8")):
-            return None
-    return data
-
-
-def _check_session_token(
-    session_id: str,
-    x_session_token: str | None,
-) -> ClaudeCodeSession:
-    """Verify session ownership and return the session object.
-
-    Called by REST endpoints that mutate session state (input, permission,
-    resize, delete).  Raises HTTP 403 on mismatch to avoid leaking whether
-    the session exists via a differential response.
-
-    Args:
-        session_id: The session ID from the URL path.
-        x_session_token: Value of the ``X-Session-Token`` request header.
-
-    Returns:
-        The verified session object.
-
-    Raises:
-        HTTPException: 403 if the session is not found or the token is wrong.
-    """
-    session = claude_code_mgr.get_session(session_id)
-    # Always run compare_digest to avoid timing side-channels.  When the session
-    # doesn't exist or the provided token is not a string, we compare a dummy
-    # value so the response time is indistinguishable from a wrong-token attempt.
-    stored_token = session.session_token if session is not None else _DUMMY_SESSION_TOKEN
-    candidate = x_session_token if isinstance(x_session_token, str) else ""
-    digest_ok = secrets.compare_digest(
-        candidate.encode("utf-8"),
-        stored_token.encode("utf-8"),
-    )
-    if session is None or not digest_ok:
-        raise HTTPException(status_code=403, detail="Session not found or invalid token")
-    return session
-
-
-# ---------------------------------------------------------------------------
-# Rate Limiting (optional)
-# ---------------------------------------------------------------------------
-
-_rate_limit_enabled = os.getenv("RATE_LIMIT_ENABLED", "true").lower() == "true"
-
-
-def _get_rate_limit_key(request: Request) -> str:
-    """Extract a rate-limit key from the request.
-
-    Keys on the Bearer token prefix (first 16 chars) so that rate limits
-    are tied to the authenticated identity rather than a spoofable IP.
-    Falls back to the connecting client IP (request.client.host) when no
-    Authorization header is present -- this avoids reading X-Forwarded-For,
-    which clients can trivially forge.
-    """
-    auth_header: str | None = request.headers.get("authorization")
-    if auth_header and auth_header.lower().startswith("bearer "):
-        token = auth_header[7:].strip()  # strip "Bearer " and any whitespace
-        if token:
-            # Use a prefix so we never store full secrets in rate-limit backends.
-            return f"apikey:{token[:16]}"
-    # Unauthenticated / health-check traffic: fall back to real peer IP.
-    if request.client:
-        return f"ip:{request.client.host}"
-    return "ip:unknown"
-
-
-if _rate_limit_enabled:
-    from slowapi import Limiter, _rate_limit_exceeded_handler
-    from slowapi.errors import RateLimitExceeded
-
-    limiter = Limiter(key_func=_get_rate_limit_key)
-    app.state.limiter = limiter
-    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
-    logger.info("Rate limiting enabled (keyed on API key, not IP)")
-else:
-    limiter = None
-
-
-F = TypeVar("F", bound=Callable[..., Any])
 
 
 class _TokenSnapshot:
@@ -602,17 +369,6 @@ class _TokenSnapshot:
         )
 
 
-def rate_limit(limit_string: str) -> Callable[[F], F]:
-    """Apply rate limit decorator only if rate limiting is enabled."""
-
-    def decorator(func: F) -> F:
-        if limiter is not None:
-            return limiter.limit(limit_string)(func)  # type: ignore[return-value]
-        return func
-
-    return decorator
-
-
 # ---------------------------------------------------------------------------
 # Health & discovery
 # ---------------------------------------------------------------------------
@@ -649,18 +405,11 @@ async def stateless_message(
     A fresh agent is created, processes the message, and is discarded.
     Use this for simple request/response patterns where you don't need
     multi-turn context.
-
-    ⚠️ SECURITY: Untrusted Input
-
-    The message content (body.message) is user-supplied input and should
-    be treated as untrusted. The agent will process potentially adversarial
-    input that may include prompt injection payloads.
     """
     agent = _create_agent(agent_name)
 
     try:
         async with _TokenSnapshot(agent) as snap:
-            # ⚠️ UNTRUSTED: body.message is user-supplied input
             response_text = await agent.process_message(body.message)
     except PromptInjectionError as e:
         logger.warning(
@@ -718,12 +467,6 @@ async def session_message(
     """Send a message within an existing session.
 
     Conversation history is preserved from prior calls in this session.
-
-    ⚠️ SECURITY: Untrusted Content in Session History
-
-    The agent's session message history may contain untrusted user input
-    from prior messages in the session. The agent will be given a context
-    window that includes potentially adversarial input.
     """
     session = session_mgr.get(session_id)
     if session is None:
@@ -733,7 +476,6 @@ async def session_message(
 
     try:
         async with _TokenSnapshot(agent) as snap:
-            # ⚠️ UNTRUSTED: body.message plus session history may contain user-supplied input
             response_text = await agent.process_message(
                 body.message,
                 session_id=session_id,  # For Langfuse tracing
@@ -814,11 +556,7 @@ async def list_conversations(
     offset: int = Query(0, ge=0, description="Number to skip for pagination"),
     _: None = Depends(verify_api_key),
 ) -> ConversationListResponse:
-    """List all persistent conversations.
-
-    Conversations are stored in PostgreSQL and survive server restarts.
-    Use the agent query parameter to filter by specific agent type.
-    """
+    """List all persistent conversations."""
     store = _get_conversation_store()
     conversations = await store.list_conversations(agent_name=agent, limit=limit, offset=offset)
 
@@ -843,11 +581,7 @@ async def create_conversation(
     body: ConversationCreateRequest,
     _: None = Depends(verify_api_key),
 ) -> ConversationInfo:
-    """Create a new persistent conversation.
-
-    This creates a database record for the conversation. Use
-    POST /conversations/{id}/message to add messages.
-    """
+    """Create a new persistent conversation."""
     # Validate agent exists
     registry = _get_registry()
     if body.agent not in registry:
@@ -906,25 +640,9 @@ async def conversation_message(
     body: MessageRequest,
     _: None = Depends(verify_api_key),
 ) -> MessageResponse:
-    """Send a message to a persistent conversation.
-
-    This loads the conversation history, creates a fresh agent instance,
-    processes the message, and saves both the user message and response
-    to the database.
-
-    ⚠️ SECURITY: Untrusted Message Content
-
-    Message content loaded from conversation history may contain prompt
-    injection payloads or other untrusted user input. The agent's
-    process_message() method receives a message history that includes
-    untrusted content. Agents should be aware that conversation context
-    may include adversarial input.
-
-    Message storage is verbatim - no sanitization is performed.
-    """
+    """Send a message to a persistent conversation."""
     store = _get_conversation_store()
 
-    # Load conversation (⚠️ messages contain untrusted user input)
     conv = await store.get_conversation_with_messages(conversation_id)
     if conv is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
@@ -933,13 +651,8 @@ async def conversation_message(
     agent = _create_agent(conv.agent_name)
 
     # Restore conversation history into agent
-    # ⚠️ WARNING: msg.content may contain untrusted user input / prompt injection payloads
-    # This content is being restored exactly as stored without sanitization.
-    # The agent's process_message() will receive potentially adversarial input in its context.
-    # Type cast needed because msg.role is str but MessageParam expects Literal
     for msg in conv.messages:
         if msg.role in ("user", "assistant"):
-            # ⚠️ UNTRUSTED: msg.content is user-supplied and stored verbatim
             agent.messages.append({"role": msg.role, "content": msg.content})  # type: ignore[arg-type]
 
     try:
@@ -970,10 +683,6 @@ async def conversation_message(
     )
 
     # Auto-generate title on first message if no title set.
-    # We check len(conv.messages) which reflects the state when we loaded the conversation,
-    # before we saved the new messages. This is intentional - we want to generate a title
-    # only for the first message exchange. Note: concurrent requests to a new conversation
-    # could both trigger title generation, with the last one winning.
     is_first_message = len(conv.messages) == 0
     if is_first_message and not conv.title:
         title = await _generate_conversation_title(body.message, response_text)
@@ -1172,19 +881,12 @@ async def create_claude_code_session(
     body: ClaudeCodeSessionCreateRequest,
     _: None = Depends(verify_api_key),
 ) -> ClaudeCodeSessionInfo:
-    """Create a new Claude Code session.
-
-    This creates a session but doesn't start it - use the WebSocket endpoint
-    to connect and receive output.
-    """
+    """Create a new Claude Code session."""
     try:
         session = await claude_code_mgr.create_session(
             workspace_name=body.workspace,
             initial_prompt=body.initial_prompt,
         )
-        # session_token is only included in the creation response so the caller
-        # can prove ownership when opening the WebSocket.  Subsequent GET calls
-        # omit it to avoid exposing the secret unnecessarily.
         return ClaudeCodeSessionInfo(
             session_id=session.session_id,
             workspace=session.workspace_path.name,
@@ -1226,13 +928,8 @@ async def delete_claude_code_session(
     _: None = Depends(verify_api_key),
     x_session_token: str | None = Header(default=None),
 ) -> None:
-    """Terminate a Claude Code session.
-
-    Requires the ``X-Session-Token`` header matching the token returned when
-    the session was created.
-    """
+    """Terminate a Claude Code session."""
     session = _check_session_token(session_id, x_session_token)
-    # Use the verified session object directly rather than looking it up again
     await claude_code_mgr.terminate_session(session.session_id)
 
 
@@ -1243,11 +940,7 @@ async def send_claude_code_input(
     _: None = Depends(verify_api_key),
     x_session_token: str | None = Header(default=None),
 ) -> None:
-    """Send input to a Claude Code session (alternative to WebSocket).
-
-    Requires the ``X-Session-Token`` header matching the token returned when
-    the session was created.
-    """
+    """Send input to a Claude Code session (alternative to WebSocket)."""
     session = _check_session_token(session_id, x_session_token)
 
     try:
@@ -1263,11 +956,7 @@ async def respond_claude_code_permission(
     _: None = Depends(verify_api_key),
     x_session_token: str | None = Header(default=None),
 ) -> None:
-    """Respond to a permission request in a Claude Code session.
-
-    Requires the ``X-Session-Token`` header matching the token returned when
-    the session was created.
-    """
+    """Respond to a permission request in a Claude Code session."""
     session = _check_session_token(session_id, x_session_token)
 
     try:
@@ -1283,11 +972,7 @@ async def resize_claude_code_terminal(
     _: None = Depends(verify_api_key),
     x_session_token: str | None = Header(default=None),
 ) -> None:
-    """Resize the terminal for a Claude Code session.
-
-    Requires the ``X-Session-Token`` header matching the token returned when
-    the session was created.
-    """
+    """Resize the terminal for a Claude Code session."""
     session = _check_session_token(session_id, x_session_token)
 
     await session.resize_terminal(body.rows, body.cols)
@@ -1295,122 +980,13 @@ async def resize_claude_code_terminal(
 
 @app.websocket("/ws/claude-code/{session_id}")
 async def claude_code_websocket(websocket: WebSocket, session_id: str) -> None:
-    """WebSocket endpoint for real-time Claude Code interaction.
-
-    Events sent from server:
-    - {"type": "output", "data": "...", "timestamp": "..."}
-    - {"type": "permission_request", "data": {...}, "timestamp": "..."}
-    - {"type": "state_change", "data": {"state": "..."}, "timestamp": "..."}
-    - {"type": "error", "data": "...", "timestamp": "..."}
-    - {"type": "completed", "data": {"exit_code": ...}, "timestamp": "..."}
-
-    Commands from client:
-    - {"type": "input", "text": "..."}
-    - {"type": "permission", "approved": true/false}
-    - {"type": "resize", "rows": 40, "cols": 120}
-    - {"type": "abort"}
-
-    Authentication (when API_KEY is configured):
-    The first message after connecting MUST be:
-        {"type": "auth", "api_key": "...", "session_token": "<token from POST /claude-code/sessions>"}
-    If auth fails or times out (10s), the connection is closed with code 4001.
-    When API_KEY is not configured, only the session_token is required:
-        {"type": "auth", "session_token": "<token>"}
-    The session_token proves ownership of the specific session and prevents any
-    other authenticated caller from connecting to sessions they did not create.
-    """
-    await websocket.accept()
-
-    auth_data = await _authenticate_websocket(websocket)
-    if auth_data is None:
-        await websocket.close(code=4001, reason="Invalid or missing API key")
-        return
-
-    session = claude_code_mgr.get_session(session_id)
-
-    # Verify session ownership via per-session token before revealing whether
-    # the session exists.  Returning the same close code for "session not found"
-    # and "wrong token" prevents authenticated callers from enumerating valid
-    # session IDs by observing differential responses.
-    #
-    # Always run compare_digest to avoid timing side-channels: use
-    # _DUMMY_SESSION_TOKEN so the work done when the session doesn't exist is
-    # indistinguishable from a real wrong-token check.
-    stored_token = session.session_token if session is not None else _DUMMY_SESSION_TOKEN
-    provided_token = auth_data.get("session_token")
-    candidate = provided_token if isinstance(provided_token, str) else ""
-    digest_ok = secrets.compare_digest(
-        candidate.encode("utf-8"),
-        stored_token.encode("utf-8"),
+    """WebSocket endpoint for real-time Claude Code interaction."""
+    await claude_code_websocket_handler(
+        websocket=websocket,
+        session_id=session_id,
+        claude_code_mgr=claude_code_mgr,
+        dummy_session_token=_DUMMY_SESSION_TOKEN,
     )
-    if session is None or not digest_ok:
-        await websocket.close(code=4003, reason="Session not found or invalid token")
-        return
-
-    async def send_events() -> None:
-        """Send session events to WebSocket client."""
-        try:
-            async for event in session.events():
-                await websocket.send_json(event.to_dict())
-        except WebSocketDisconnect:
-            pass
-        except Exception as e:
-            logger.error(f"Error sending events: {e}")
-
-    async def receive_commands() -> None:
-        """Receive and process commands from WebSocket client."""
-        try:
-            while True:
-                data = await websocket.receive_json()
-                cmd_type = data.get("type")
-
-                if cmd_type == "input":
-                    text = data.get("text", "")
-                    await session.send_input(text)
-
-                elif cmd_type == "permission":
-                    approved = data.get("approved", False)
-                    await session.respond_permission(approved)
-
-                elif cmd_type == "resize":
-                    rows = data.get("rows", 40)
-                    cols = data.get("cols", 120)
-                    await session.resize_terminal(rows, cols)
-
-                elif cmd_type == "abort":
-                    await session.terminate()
-                    break
-
-        except WebSocketDisconnect:
-            pass
-        except Exception as e:
-            logger.error(f"Error receiving commands: {e}")
-
-    # Run both tasks concurrently
-    send_task = asyncio.create_task(send_events())
-    receive_task = asyncio.create_task(receive_commands())
-
-    try:
-        # Wait for either task to complete
-        done, pending = await asyncio.wait(
-            [send_task, receive_task],
-            return_when=asyncio.FIRST_COMPLETED,
-        )
-
-        # Cancel pending tasks
-        for task in pending:
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
-
-    except Exception as e:
-        logger.error(f"WebSocket error: {e}")
-    finally:
-        # Don't terminate session on disconnect - it might be intentional
-        # to reconnect later
-        pass
 
 
 # ---------------------------------------------------------------------------
@@ -1447,10 +1023,7 @@ def _get_sms_phone_pool() -> "SMSPhonePoolManager | None":
 
 
 def _validate_twilio_signature(url: str, params: dict[str, str], signature: str) -> bool:
-    """Validate Twilio request signature.
-
-    Uses HMAC-SHA1 with the Twilio auth token to verify request authenticity.
-    """
+    """Validate Twilio request signature."""
     import base64
     import hashlib
     import hmac
@@ -1480,25 +1053,7 @@ def _validate_twilio_signature(url: str, params: dict[str, str], signature: str)
 
 @app.post("/webhooks/sms/incoming")
 async def handle_incoming_sms(request: Request) -> Response:
-    """
-    Receive incoming SMS from Twilio and route to the correct conversation.
-
-    Twilio sends POST requests with form data including:
-    - From: sender phone number (the admin)
-    - To: Twilio phone number from our pool
-    - Body: message text
-    - MessageSid: unique message identifier
-
-    The webhook:
-    1. Validates the Twilio signature (in production)
-    2. Looks up which conversation the Twilio number is locked to
-    3. Adds the admin's reply as a user message
-    4. Processes through the agent
-    5. Sends the agent's response back via SMS
-    6. Releases the phone back to the pool
-
-    Returns TwiML response (empty for async processing).
-    """
+    """Receive incoming SMS from Twilio and route to the correct conversation."""
     # Parse form data and sanitize for safe logging
     form = await request.form()
     from_phone = sanitize_log_input(str(form.get("From", "")))
@@ -1646,17 +1201,7 @@ async def _send_sms_response(
     body: str,
     agent_name: str | None,
 ) -> bool:
-    """Send SMS response back to admin.
-
-    Args:
-        to_phone: Admin phone number
-        from_phone: Twilio phone number
-        body: Message body
-        agent_name: Agent name for prefix
-
-    Returns:
-        True if sent successfully
-    """
+    """Send SMS response back to admin."""
     from urllib.parse import quote
 
     import httpx

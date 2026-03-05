@@ -212,6 +212,7 @@ class TestConvertMCPToolsWithWebSearch:
                 mock_mcp_instance.connect.return_value.__aexit__ = AsyncMock()
 
                 agent = ConcreteAgent().create(enable_web_search=True)
+                mock_mcp_instance.end_turn = AsyncMock()
                 agent.mcp_client = mock_mcp_instance
 
                 tools = await agent._convert_mcp_tools_to_anthropic()
@@ -236,6 +237,7 @@ class TestConvertMCPToolsWithWebSearch:
                 mock_mcp_instance.connect.return_value.__aexit__ = AsyncMock()
 
                 agent = ConcreteAgent().create(enable_web_search=False)
+                mock_mcp_instance.end_turn = AsyncMock()
                 agent.mcp_client = mock_mcp_instance
 
                 tools = await agent._convert_mcp_tools_to_anthropic()
@@ -368,6 +370,7 @@ class TestWebSearchAgentIntegration:
                 mock_mcp_instance.connect.return_value.__aexit__ = AsyncMock()
 
                 agent = ConcreteAgent().create(enable_web_search=True)
+                mock_mcp_instance.end_turn = AsyncMock()
                 agent.mcp_client = mock_mcp_instance
 
                 result = await agent.process_message("Search for Python news")

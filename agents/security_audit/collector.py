@@ -35,8 +35,8 @@ import re
 import socket
 import stat
 import subprocess  # nosec B404 - collector must run system commands
-import urllib.request
 import urllib.parse
+import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any

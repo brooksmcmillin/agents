@@ -23,7 +23,7 @@ dependencies = [
     "fastapi>=0.115.0",
     "slowapi>=0.1.9",
     "markdown>=3.10.1",
-    "pypdf>=6.7.5",
+    "pypdf>=6.7.5",  # Updated from >=6.7.4 to fix CVE-2026-28804
 ]
 
 [tool.uv]
@@ -52,6 +52,7 @@ browser = [
     "agent-framework[browser]",
 ]
 dev = [
+    "pip-audit>=2.10.0",
     "pre-commit>=4.5.1",
     "pyright>=1.1.408",
     "pytest>=9.0.2",
@@ -60,6 +61,7 @@ dev = [
     "pytest-testmon>=2.2.0",
     "pytest-xdist>=3.8.0",
     "ruff>=0.14.10",
+    "safety>=3.7.0",
 ]
 voice = [
     "chasm",
