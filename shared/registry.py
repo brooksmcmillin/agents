@@ -19,7 +19,7 @@ _GITHUB_PAT_PREFIXES = ("ghp_", "github_pat_", "gho_", "ghu_", "ghs_", "ghr_")
 # Agents whose kwargs include a GitHub MCP config that requires GITHUB_MCP_PAT.
 # Their kwargs are built lazily so that --list / health checks don't fail when
 # the env var is unset.
-GITHUB_MCP_AGENTS = frozenset({"security", "business"})
+GITHUB_MCP_AGENTS = frozenset({"security"})
 
 AgentEntry = tuple[type[Agent], dict[str, Any] | None, str]
 
@@ -70,12 +70,9 @@ def build_agent_registry() -> dict[str, AgentEntry]:
     Returns:
         Mapping of agent short name to (AgentClass, kwargs, description).
     """
-    from agents.business_advisor.main import BusinessAdvisorAgent
     from agents.chatbot.main import ChatbotAgent
     from agents.code_analysis.main import CodeAnalysisAgent
-    from agents.events.main import EventsAgent
     from agents.log_analysis.main import LogAnalysisAgent
-    from agents.pr_agent.main import PRAgent
     from agents.red_team.main import RedTeamAgent
     from agents.security_audit.main import SecurityAuditAgent
     from agents.security_researcher.main import SecurityResearcherAgent
@@ -120,20 +117,10 @@ def build_agent_registry() -> dict[str, AgentEntry]:
             {**mcp_task_config, **delegation_config},
             "Repository analysis agent for security, logic, performance, and architecture improvements",
         ),
-        "events": (
-            EventsAgent,
-            None,
-            "Local events discovery with preference learning",
-        ),
         "log-analysis": (
             LogAnalysisAgent,
             None,
             "Log analysis agent with automatic pinning of critical findings",
-        ),
-        "pr": (
-            PRAgent,
-            delegation_config,
-            "PR and content strategy assistant",
         ),
         "red-team": (
             RedTeamAgent,
@@ -149,11 +136,6 @@ def build_agent_registry() -> dict[str, AgentEntry]:
             SecurityResearcherAgent,
             None,  # kwargs built lazily via github_mcp_config()
             "Security research assistant",
-        ),
-        "business": (
-            BusinessAdvisorAgent,
-            None,  # kwargs built lazily via github_mcp_config()
-            "Business strategy and monetization advisor",
         ),
         "security-audit": (
             SecurityAuditAgent,

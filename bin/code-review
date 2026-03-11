@@ -5,7 +5,7 @@ set -euo pipefail
 # Uses --allowedTools instead of --dangerously-skip-permissions.
 
 CREDENTIALS_FILE="${HOME}/.claude/.credentials.json"
-NTFY_URL="https://ntfy.brooksmcmillin.com/mcp-alerts"
+NTFY_URL="https://ntfy.example.com/mcp-alerts"
 AGENTS_DIR="${HOME}/.claude/agents"
 
 # Load NTFY_TOKEN from .env if not already set
@@ -88,7 +88,7 @@ sys.exit(1)
   local introspect_result
   introspect_result=$(printf 'token=%s' "$access_token" | \
     curl -sf --max-time 10 \
-    -X POST "https://mcp-auth.brooksmcmillin.com/introspect" \
+    -X POST "https://your-mcp-auth.example.com/" \
     --data-binary @- 2>/dev/null) || {
     echo "Warning: could not reach introspection endpoint, trusting local expiry" >&2
     return 0
@@ -149,7 +149,7 @@ done
 # Preflight: verify MCP token (skip for dry-run)
 if ! $DRY_RUN; then
   if ! check_mcp_token; then
-    notify_token_expired "TaskManager MCP OAuth token is expired or invalid. Code review cannot create tasks. Re-authenticate at https://mcp-auth.brooksmcmillin.com/"
+    notify_token_expired "TaskManager MCP OAuth token is expired or invalid. Code review cannot create tasks. Re-authenticate at https://your-mcp-auth.example.com/"
     exit 1
   fi
 fi

@@ -223,7 +223,7 @@ Code using the API should:
 
 ### For Remote MCP Users
 
-If using the `mcp-relay.brooksmcmillin.com` or similar remote MCP servers:
+If using the `your-mcp-relay.example.com` or similar remote MCP servers:
 
 1. **All message content is untrusted** - Tools may receive user input from conversations
 2. **Validate in tools** - Tool implementations should sanitize input

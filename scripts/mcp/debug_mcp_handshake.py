@@ -37,7 +37,7 @@ class LoggingAuth(httpx.Auth):
 
 async def main():
     storage = TokenStorage()
-    token_set = storage.load_token("https://mcp.brooksmcmillin.com/mcp/")
+    token_set = storage.load_token("https://your-mcp-server.example.com/mcp/")
 
     if not token_set:
         print("No token found. Run the agent first to authenticate.")
@@ -50,7 +50,7 @@ async def main():
     try:
         print("\n🔌 Attempting MCP connection with logging...")
         async with streamablehttp_client(
-            "https://mcp.brooksmcmillin.com/mcp/", auth=auth, timeout=10
+            "https://your-mcp-server.example.com/mcp/", auth=auth, timeout=10
         ) as (read_stream, write_stream, get_session_id):
             print(f"\n✅ Connected! Session ID: {get_session_id()}")
 

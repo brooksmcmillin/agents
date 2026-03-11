@@ -61,7 +61,7 @@ FASTMAIL_API_TOKEN=...
 FASTMAIL_ACCOUNT_ID=...
 
 # Required for task creation via "Add task:" emails
-MCP_SERVER_URL=https://mcp.brooksmcmillin.com/mcp
+MCP_SERVER_URL=https://your-mcp-server.example.com/mcp
 ```
 
 ## Security Model
@@ -78,4 +78,3 @@ Standalone script using FastMail JMAP API directly (via `agent_framework.tools.f
 ## Related Documentation
 
 - [CLAUDE.md](../../CLAUDE.md) — project overview
-- [agents/notifier/](../notifier/) — another standalone notification service

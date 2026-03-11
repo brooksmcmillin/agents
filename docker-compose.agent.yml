@@ -11,8 +11,9 @@
 #   AGENT_NAME=chatbot AGENT_MODE=oneshot MESSAGE="Hello!" docker compose -f docker-compose.agent.yml up --build
 #
 # AGENT_NAME must be the directory name under agents/ (underscored form):
-#   chatbot, code_analysis, events, pr_agent, red_team,
-#   task_manager, security_researcher, business_advisor
+#   chatbot, code_analysis, log_analysis, red_team, task_manager,
+#   security_researcher, security_audit, system_admin, web_analysis,
+#   website_tester
 
 services:
   agent:

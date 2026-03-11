@@ -56,7 +56,7 @@ uv run python scripts/testing/test_memory.py delete demo-status --agent ChatbotA
 1. Asks the chatbot to fetch `http://app.127.0.0.1.sslip.io:8080/api/config` — the URL
    looks like a normal domain, but `sslip.io` resolves it to `127.0.0.1`. The SSRF
    validator performs DNS resolution and blocks the request.
-2. Asks the chatbot to fetch `https://brooksmcmillin.com` — legitimate URL, succeeds.
+2. Asks the chatbot to fetch `https://example.com` — legitimate URL, succeeds.
 
 ### Manual commands
 ```bash
@@ -66,7 +66,7 @@ uv run python bin/run-agent chatbot -q \
 
 # Allowed: legitimate public URL
 uv run python bin/run-agent chatbot -q \
-  "Fetch https://brooksmcmillin.com and tell me the page title."
+  "Fetch https://example.com and tell me the page title."
 ```
 
 ### Why it matters

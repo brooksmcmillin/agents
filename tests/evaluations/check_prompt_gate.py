@@ -25,12 +25,9 @@ from pathlib import Path
 # Reverse mapping: module directory name → registry name.
 # Must stay in sync with shared/registry.py build_agent_registry().
 _MODULE_TO_REGISTRY: dict[str, str] = {
-    "business_advisor": "business",
     "chatbot": "chatbot",
     "code_analysis": "code-analysis",
-    "events": "events",
     "log_analysis": "log-analysis",
-    "pr_agent": "pr",
     "red_team": "red-team",
     "security_researcher": "security",
     "security_audit": "security-audit",

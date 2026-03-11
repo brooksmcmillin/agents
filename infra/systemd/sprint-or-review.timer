@@ -1,9 +1,0 @@
-[Unit]
-Description=Run sprint-or-review daily at 2:30am
-
-[Timer]
-OnCalendar=*-*-* 02:30:00
-Persistent=true
-
-[Install]
-WantedBy=timers.target

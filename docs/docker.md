@@ -1,6 +1,6 @@
 # Docker Deployment Guide
 
-This guide explains how to run the agents webui using Docker and Docker Compose.
+This guide explains how to run the agents system using Docker and Docker Compose.
 
 ## Quick Start
 
@@ -10,8 +10,6 @@ This guide explains how to run the agents webui using Docker and Docker Compose.
 - Docker Compose 2.0+
 - Anthropic API key
 - Remote PostgreSQL database (for persistent conversations)
-
-**Note:** If running locally without Docker, you'll need Node.js 20.19+ or 22.12+ for the frontend.
 
 ### Setup
 
@@ -38,22 +36,15 @@ This guide explains how to run the agents webui using Docker and Docker Compose.
    docker-compose -f docker-compose.dev.yml up
    ```
 
-4. **Configure local DNS (optional but recommended):**
-   ```bash
-   # Add to /etc/hosts (Linux/Mac) or C:\Windows\System32\drivers\etc\hosts (Windows)
-   127.0.0.1 agents.lan
-   ```
-
-5. **Access the web UI:**
-   - Production: http://agents.lan:8080 (or http://localhost:8080)
-   - Development: http://agents.lan:5173 (or http://localhost:5173)
-   - Backend API: http://agents.lan:8080 (or http://localhost:8080)
+4. **Access the API:**
+   - API: http://localhost:8080
+   - API Docs: http://localhost:8080/docs
 
 ## Architecture
 
-The Docker setup includes two services:
+The Docker setup runs the backend API service:
 
-### 1. Backend API (`backend`)
+### Backend API (`backend`)
 - **Build:** Custom Dockerfile with Python 3.12 + uv
 - **Port:** 8080
 - **Purpose:** FastAPI server with agent endpoints
@@ -64,29 +55,18 @@ The Docker setup includes two services:
   - RESTful API for agents
   - Health checks
 
-### 2. Frontend (`frontend`)
-- **Build:** Multi-stage Node.js 18 + nginx
-- **Port:** 80 (internal), proxied through nginx
-- **Purpose:** React web UI
-- **Features:**
-  - Optimized production build
-  - Static asset caching
-  - API proxy to backend
-  - SPA routing support
-
 ## Configuration Files
 
 ### `docker-compose.yml` (Production)
 - Optimized for production deployment
-- Built frontend served by nginx
 - Backend with uvicorn
 - Connects to remote PostgreSQL database
 
 ### `docker-compose.dev.yml` (Development)
-- Hot reload for both frontend and backend
+- Hot reload for backend
 - Source code mounted as volumes
 - Debug logging enabled
-- Development servers (Vite + uvicorn --reload)
+- Development server (uvicorn --reload)
 - Connects to remote PostgreSQL database
 
 ### `Dockerfile` (Backend)
@@ -94,12 +74,6 @@ The Docker setup includes two services:
 - Installs system dependencies (git, curl, build tools)
 - Uses uv for Python dependency management
 - Includes health check endpoint
-
-### `webui/frontend/Dockerfile` (Frontend)
-- Multi-stage build for optimized image size
-- Stage 1: Node.js for building React app
-- Stage 2: nginx alpine for serving static files
-- Includes nginx configuration for SPA routing
 
 ## Usage
 
@@ -139,15 +113,12 @@ docker-compose -f docker-compose.dev.yml down
 ### Accessing Services
 
 **Production:**
-- Web UI: http://agents.lan:8080 (or http://localhost:8080)
-- API Docs: http://agents.lan:8080/docs
+- API: http://localhost:8080
+- API Docs: http://localhost:8080/docs
 
 **Development:**
-- Frontend (Vite): http://agents.lan:5173 (or http://localhost:5173)
-- Backend API: http://agents.lan:8080 (or http://localhost:8080)
-- API Docs: http://agents.lan:8080/docs
-
-**Note:** Add `127.0.0.1 agents.lan` to `/etc/hosts` to use the `agents.lan` hostname.
+- API: http://localhost:8080
+- API Docs: http://localhost:8080/docs
 
 ## Environment Variables
 
@@ -198,10 +169,6 @@ curl http://localhost:8080/conversations/stats
 2. Check database connection: `docker-compose logs backend | grep DATABASE`
 3. Verify DATABASE_URL is correct in `.env`
 4. Ensure remote PostgreSQL is accessible from the container
-
-### Frontend build fails
-1. Clear node_modules: `rm -rf webui/frontend/node_modules`
-2. Rebuild: `docker-compose build --no-cache frontend`
 
 ### Database connection errors
 1. Verify DATABASE_URL format: `postgresql://user:password@host:port/dbname`  <!-- pragma: allowlist secret -->
@@ -333,12 +300,14 @@ The deploy script maps CLI names to directory names:
 |----------|-----------|
 | `chatbot` | `agents/chatbot/` |
 | `code-analysis` | `agents/code_analysis/` |
-| `events` | `agents/events/` |
-| `pr` | `agents/pr_agent/` |
+| `log-analysis` | `agents/log_analysis/` |
 | `red-team` | `agents/red_team/` |
 | `tasks` | `agents/task_manager/` |
 | `security` | `agents/security_researcher/` |
-| `business` | `agents/business_advisor/` |
+| `security-audit` | `agents/security_audit/` |
+| `sysadmin` | `agents/system_admin/` |
+| `web-analysis` | `agents/web_analysis/` |
+| `website-tester` | `agents/website_tester/` |
 
 ## Production Considerations
 
@@ -382,24 +351,10 @@ uv add package-name
 docker-compose build backend
 ```
 
-### Installing new npm packages
-```bash
-# Add to package.json locally
-cd webui/frontend
-npm install package-name
-
-# Rebuild container
-docker-compose build frontend
-```
-
 ### Debugging inside containers
 ```bash
 # Backend shell
 docker-compose exec backend bash
-
-# Frontend shell (dev mode)
-docker-compose exec frontend sh
-
 ```
 
 ### Viewing live logs
@@ -449,7 +404,7 @@ docker-compose down -v
 
 # Remove images
 docker-compose rm -f
-docker rmi agents-backend agents-frontend
+docker rmi agents-backend
 
 # Rebuild from scratch
 docker-compose build --no-cache

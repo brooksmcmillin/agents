@@ -158,7 +158,7 @@ emails = await get_emails(mailbox_id="inbox", limit=50)
 
 ### Send Agent Reports to Admin
 ```python
-# From address auto-derived from agent name (e.g., chatbot@brooksmcmillin.com)
+# From address auto-derived from agent name (e.g., chatbot@yourdomain.com)
 # To address auto-filled from ADMIN_EMAIL_ADDRESS env var
 result = await send_agent_report(
     subject="Daily Task Summary",
@@ -169,9 +169,9 @@ result = await send_agent_report(
 **Agent Email Configuration:**
 ```bash
 ADMIN_EMAIL_ADDRESS=you@example.com
-AGENT_EMAIL_DOMAIN=brooksmcmillin.com  # optional, default
+AGENT_EMAIL_DOMAIN=yourdomain.com  # optional, default
 FASTMAIL_API_TOKEN=your_token_here
-INTAKE_EMAIL_ADDRESS=tasks@brooksmcmillin.com  # optional
+INTAKE_EMAIL_ADDRESS=tasks@yourdomain.com  # optional
 INTAKE_SHARED_SECRET=your_random_secret_here   # REQUIRED for email intake
 ```
 

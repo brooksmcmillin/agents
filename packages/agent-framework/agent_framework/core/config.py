@@ -95,9 +95,9 @@ class Settings(BaseSettings):
         "Used by send_agent_report tool.",
     )
     agent_email_domain: str = Field(
-        default="brooksmcmillin.com",
+        default="yourdomain.com",
         description="Domain for agent email addresses. Each agent sends from "
-        "{agent_name}@{domain} (e.g., chatbot@brooksmcmillin.com).",
+        "{agent_name}@{domain} (e.g., chatbot@yourdomain.com).",
     )
     allowed_email_recipients: str | None = Field(
         default=None,

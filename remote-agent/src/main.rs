@@ -20,12 +20,12 @@ struct Cli {
     /// Relay REST API base URL
     #[arg(
         long,
-        default_value = "https://mcp-relay.brooksmcmillin.com/api"
+        default_value = "https://your-mcp-relay.example.com/api"
     )]
     relay_url: String,
 
     /// OAuth discovery URL
-    #[arg(long, default_value = "https://mcp-relay.brooksmcmillin.com")]
+    #[arg(long, default_value = "https://your-mcp-relay.example.com")]
     auth_url: String,
 
     /// Token storage path

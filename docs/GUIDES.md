@@ -7,7 +7,6 @@ Comprehensive guides for key features in the agent framework.
 1. [Memory System Guide](#memory-system-guide)
 2. [OAuth Integration Guide](#oauth-integration-guide)
 3. [Deployment Guide](#deployment-guide)
-4. [Voice Interface Guide](#voice-interface-guide)
 
 ---
 
@@ -455,9 +454,9 @@ PROVIDERS = {
 Create systemd service file:
 
 ```ini
-# /etc/systemd/system/agent-notifier.service
+# /etc/systemd/system/agent-email-intake.service
 [Unit]
-Description=Task Notifier Agent
+Description=Email Intake Agent
 After=network.target
 
 [Service]
@@ -465,7 +464,7 @@ Type=simple
 User=your-user
 WorkingDirectory=/path/to/agents
 Environment="PATH=/path/to/.local/bin:/usr/bin"
-ExecStart=/path/to/uv run python -m agents.notifier.main
+ExecStart=/path/to/uv run python -m agents.email_intake.main
 Restart=on-failure
 RestartSec=60
 
@@ -475,9 +474,9 @@ WantedBy=multi-user.target
 
 Enable and start:
 ```bash
-sudo systemctl enable agent-notifier
-sudo systemctl start agent-notifier
-sudo systemctl status agent-notifier
+sudo systemctl enable agent-email-intake
+sudo systemctl start agent-email-intake
+sudo systemctl status agent-email-intake
 ```
 
 #### Option 2: Docker
@@ -523,16 +522,6 @@ volumes:
 Build and run:
 ```bash
 docker-compose up -d
-```
-
-#### Option 3: Cron Job (Scheduled Tasks)
-
-For notifier agent:
-
-```bash
-# crontab -e
-# Run every hour
-0 * * * * cd /path/to/agents && /path/to/uv run python -m agents.notifier.main >> /var/log/agent-notifier.log 2>&1
 ```
 
 ### Remote MCP Deployment
@@ -662,173 +651,6 @@ LINKEDIN_CLIENT_SECRET=production_secret
 - [ ] Implement rate limiting on API endpoints
 - [ ] Monitor for unusual activity
 - [ ] Keep dependencies updated (`uv sync --upgrade`)
-
----
-
-## Voice Interface Guide
-
-The optional voice interface (`chasm` package) enables voice conversations with agents using Deepgram (STT) and Cartesia (TTS).
-
-### Prerequisites
-
-1. **System dependency**: PortAudio
-   ```bash
-   # macOS
-   brew install portaudio
-
-   # Ubuntu/Debian
-   sudo apt-get install portaudio19-dev
-
-   # Fedora
-   sudo dnf install portaudio-devel
-   ```
-
-2. **API Keys**:
-   - Deepgram API key (speech-to-text)
-   - Cartesia API key (text-to-speech)
-
-### Installation
-
-```bash
-# Install voice dependencies
-uv sync --group voice
-```
-
-### Configuration
-
-```bash
-# .env
-DEEPGRAM_API_KEY=your_deepgram_key
-CARTESIA_API_KEY=your_cartesia_key
-
-# Optional: Voice settings
-CARTESIA_VOICE_ID=default  # Voice ID from Cartesia
-DEEPGRAM_MODEL=nova-2      # STT model
-```
-
-### Running Voice-Enabled Agents
-
-Voice mode is provided by the `bin/run-voice-agent` script, which wraps any
-registered agent with the chasm `VoiceAdapter`:
-
-```bash
-# Start voice interface for the chatbot agent
-uv run python bin/run-voice-agent chatbot
-
-# List available agents
-uv run python bin/run-voice-agent --list
-```
-
-### User Experience
-
-```
-$ uv run python bin/run-voice-agent chatbot
-
-Voice interface started
-Listening... (Press Ctrl+C to exit)
-
-[User speaks: "What is prompt injection?"]
-Transcribed: "What is prompt injection?"
-Agent: "Prompt injection is a security vulnerability..."
-[Text-to-speech plays response]
-
-Listening...
-```
-
-### Troubleshooting
-
-#### PortAudio Not Found
-
-```bash
-# Install PortAudio system library
-# See Prerequisites section above
-
-# Verify installation
-python -c "import pyaudio; print('PortAudio OK')"
-```
-
-#### Deepgram API Errors
-
-```bash
-# Verify API key
-curl -X POST "https://api.deepgram.com/v1/listen" \
-  -H "Authorization: Token $DEEPGRAM_API_KEY" \
-  -H "Content-Type: audio/wav" \
-  --data-binary @test.wav
-
-# Check quota/billing
-# Visit https://console.deepgram.com/
-```
-
-#### Cartesia API Errors
-
-```bash
-# Verify API key
-curl "https://api.cartesia.ai/voices" \
-  -H "X-API-Key: $CARTESIA_API_KEY"
-
-# Check quota/billing
-# Visit Cartesia dashboard
-```
-
-#### Audio Device Issues
-
-```python
-# List available audio devices
-import pyaudio
-p = pyaudio.PyAudio()
-for i in range(p.get_device_count()):
-    print(p.get_device_info_by_index(i))
-```
-
-Configure specific device:
-```bash
-# .env
-AUDIO_INPUT_DEVICE_INDEX=0   # Your microphone
-AUDIO_OUTPUT_DEVICE_INDEX=1  # Your speakers
-```
-
-### Architecture
-
-The voice integration uses the `chasm` library's `VoiceAdapter`:
-
-```
-User Voice → PyAudio → Deepgram (STT) → Agent (Claude + MCP Tools) → Cartesia (TTS) → PyAudio → Speaker
-                                              ↓
-                                         MCP Server
-                                         (All Tools)
-```
-
-**How voice wrapping works:**
-1. `bin/run-voice-agent` looks up the agent class in the shared registry
-2. Instantiates the agent and dynamically adds voice-optimized prompt guidance
-3. Passes the agent to chasm's `VoiceAdapter` and GUI
-4. User interactions flow: Audio → STT → Agent → TTS → Audio
-
-The voice wrapper preserves all agent functionality: MCP tool access, conversation history, memory persistence, and token tracking.
-
-### Adding Agents to Voice Mode
-
-Any agent registered in `shared/registry.py` is automatically available for voice mode:
-
-```bash
-uv run python bin/run-voice-agent --list
-uv run python bin/run-voice-agent your-agent
-```
-
-### Voice Settings
-
-```python
-# Customize voice interface
-voice = VoiceInterface(
-    agent=agent,
-    voice_id="cartesia_voice_id",  # Specific voice
-    model="deepgram-nova-2",        # STT model
-    language="en-US",               # Language
-    enable_vad=True,                # Voice activity detection
-    silence_threshold=1.5,          # Seconds of silence to end utterance
-)
-```
 
 ---
 
