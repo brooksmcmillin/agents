@@ -580,12 +580,12 @@ async def send_agent_report(
 
     This tool is designed for agents to send status updates, reports, and
     notifications. The sender email is automatically derived from the agent name
-    (e.g., chatbot@brooksmcmillin.com) and the recipient is the configured
+    (e.g., chatbot@yourdomain.com) and the recipient is the configured
     admin email address.
 
     IMPORTANT: This tool requires:
     1. ADMIN_EMAIL_ADDRESS environment variable set
-    2. AGENT_EMAIL_DOMAIN environment variable (defaults to brooksmcmillin.com)
+    2. AGENT_EMAIL_DOMAIN environment variable (defaults to yourdomain.com)
     3. The agent's email identity configured in FastMail
 
     The agent_name parameter is automatically injected by the Agent class.

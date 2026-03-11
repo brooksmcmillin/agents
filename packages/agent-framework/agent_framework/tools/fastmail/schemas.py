@@ -307,7 +307,7 @@ TOOL_SCHEMAS = [
             "Send a report/notification email from this agent to the admin. "
             "Use this to send status updates, reports, task completions, alerts, or any "
             "notification to the system administrator. The sender email is automatically "
-            "derived from your agent name (e.g., chatbot@brooksmcmillin.com) and the "
+            "derived from your agent name (e.g., chatbot@yourdomain.com) and the "
             "recipient is the configured admin email address. Requires ADMIN_EMAIL_ADDRESS "
             "to be configured and the agent's email identity set up in FastMail."
         ),

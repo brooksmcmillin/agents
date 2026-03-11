@@ -2,7 +2,7 @@
 
 import os
 
-_target_url = os.getenv("REDTEAM_TARGET_URL", "https://todo.brooksmcmillin.com")
+_target_url = os.getenv("REDTEAM_TARGET_URL", "https://your-app.example.com")
 
 SYSTEM_PROMPT = f"""You are an authorized penetration tester performing dynamic security testing against a target web application. You have explicit authorization to test the target for vulnerabilities using detection-only techniques.
 

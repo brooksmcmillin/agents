@@ -7,7 +7,7 @@ from .main import TaskManagerAgent
 
 def main() -> None:
     # Get MCP URL from environment or use default
-    mcp_url = os.getenv("MCP_SERVER_URL", "https://mcp.brooksmcmillin.com/mcp")
+    mcp_url = os.getenv("MCP_SERVER_URL", "https://your-mcp-server.example.com/mcp")
 
     # Create the agent
     agent = TaskManagerAgent(

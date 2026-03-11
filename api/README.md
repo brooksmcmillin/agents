@@ -61,7 +61,7 @@ Access all 13 interactive agents via REST API:
 
 3. **Optional**: Remote MCP server for task manager agent
    ```bash
-   MCP_SERVER_URL=https://mcp.brooksmcmillin.com/mcp
+   MCP_SERVER_URL=https://your-mcp-server.example.com/mcp
    ```
 
 4. **Optional**: GitHub PAT for business advisor agent
@@ -85,7 +85,7 @@ Copy `.env.example` to `.env` and configure:
 ANTHROPIC_API_KEY=sk-ant-...
 
 # Optional - Task Manager (requires remote MCP)
-MCP_SERVER_URL=https://mcp.brooksmcmillin.com/mcp
+MCP_SERVER_URL=https://your-mcp-server.example.com/mcp
 
 # Optional - Business Advisor (GitHub analysis)
 GITHUB_MCP_PAT=ghp_...
@@ -622,7 +622,7 @@ responses.forEach((r, i) => console.log(`Response ${i + 1}: ${r}`));
 ANTHROPIC_API_KEY=sk-ant-...
 
 # Task Manager Agent (requires remote MCP)
-MCP_SERVER_URL=https://mcp.brooksmcmillin.com/mcp
+MCP_SERVER_URL=https://your-mcp-server.example.com/mcp
 
 # Business Advisor (optional GitHub analysis)
 GITHUB_MCP_PAT=ghp_...
@@ -716,7 +716,7 @@ Requires remote MCP server:
 echo $MCP_SERVER_URL
 
 # Test MCP server connectivity
-curl https://mcp.brooksmcmillin.com/mcp/health
+curl https://your-mcp-server.example.com/mcp/health
 
 # Check logs for connection errors
 tail -f ~/.agents/logs/agent_$(date +%Y-%m-%d).log

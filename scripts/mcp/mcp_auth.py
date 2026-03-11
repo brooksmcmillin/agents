@@ -28,7 +28,7 @@ from dotenv import load_dotenv, set_key
 load_dotenv()
 
 # MCP Server Configuration
-MCP_SERVER_BASE = os.getenv("MCP_SERVER_URL", "https://mcp.brooksmcmillin.com/mcp")
+MCP_SERVER_BASE = os.getenv("MCP_SERVER_URL", "https://your-mcp-server.example.com/mcp")
 
 
 def discover_oauth_endpoints() -> dict[str, str]:

@@ -36,7 +36,7 @@ Assigns relative priorities (1-10 scale) based on:
    ANTHROPIC_API_KEY=your_key_here
    ```
 
-2. **Remote MCP Server**: Running at `https://mcp.brooksmcmillin.com/mcp` with task management tools
+2. **Remote MCP Server**: Running at `https://your-mcp-server.example.com/mcp` with task management tools
 
 ### Required MCP Tools
 
@@ -148,7 +148,7 @@ Search tasks by keyword.
 ### Start the Agent
 
 ```bash
-# Default MCP URL (https://mcp.brooksmcmillin.com/mcp)
+# Default MCP URL (https://your-mcp-server.example.com/mcp)
 uv run python -m agents.task_manager.main
 
 # Custom MCP URL (via environment variable)
@@ -242,7 +242,7 @@ The agent maintains conversation context across multiple turns and can execute m
 ANTHROPIC_API_KEY=sk-ant-...
 
 # Optional
-MCP_SERVER_URL=https://mcp.brooksmcmillin.com/mcp  # Default if not set
+MCP_SERVER_URL=https://your-mcp-server.example.com/mcp  # Default if not set
 LOG_LEVEL=INFO  # DEBUG, INFO, WARNING, ERROR
 ```
 
@@ -258,7 +258,7 @@ You can customize the agent's behavior by editing `agents/task_manager/prompts.p
 
 ```bash
 # Test MCP server connectivity
-curl https://mcp.brooksmcmillin.com/mcp/health
+curl https://your-mcp-server.example.com/mcp/health
 
 # Check server logs
 # Ensure tools are properly exposed
@@ -300,7 +300,7 @@ import asyncio
 from shared.remote_mcp_client import RemoteMCPClient
 
 async def test():
-    async with RemoteMCPClient('https://mcp.brooksmcmillin.com/mcp') as mcp:
+    async with RemoteMCPClient('https://your-mcp-server.example.com/mcp') as mcp:
         tools = await mcp.list_tools()
         print(f'Available tools: {[t[\"name\"] for t in tools]}')
 

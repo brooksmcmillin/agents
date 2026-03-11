@@ -15,7 +15,7 @@ from agent_framework.oauth import generate_pkce_pair
 from aiohttp import web
 
 # OAuth configuration
-AUTH_SERVER = "https://mcp-auth.brooksmcmillin.com"
+AUTH_SERVER = "https://your-mcp-auth.example.com"
 REDIRECT_URI = "http://localhost:8889/callback"
 SCOPES = "read"
 

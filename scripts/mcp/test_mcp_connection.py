@@ -8,7 +8,7 @@ from agent_framework.oauth import TokenStorage
 
 async def main():
     storage = TokenStorage()
-    token_set = storage.load_token("https://mcp.brooksmcmillin.com/mcp/")
+    token_set = storage.load_token("https://your-mcp-server.example.com/mcp/")
 
     if not token_set:
         print("No token found. Run the agent first to authenticate.")
@@ -38,7 +38,7 @@ async def main():
     async with httpx.AsyncClient() as client:
         print("\n📤 Sending initialize request...")
         response = await client.post(
-            "https://mcp.brooksmcmillin.com/mcp/",
+            "https://your-mcp-server.example.com/mcp/",
             headers=headers,
             json=init_message,
             timeout=10.0,

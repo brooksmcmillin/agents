@@ -12,8 +12,8 @@ ENV_SLACK_APP_TOKEN = "SLACK_APP_TOKEN"  # nosec B105  # pragma: allowlist secre
 ENV_ANTHROPIC_API_KEY = "ANTHROPIC_API_KEY"  # pragma: allowlist secret
 
 # Default URLs
-DEFAULT_MCP_SERVER_URL = "https://mcp.brooksmcmillin.com/mcp"
-DEFAULT_MCP_RELAY_URL = "https://mcp-relay.brooksmcmillin.com/mcp"
+DEFAULT_MCP_SERVER_URL = "https://your-mcp-server.example.com/mcp"
+DEFAULT_MCP_RELAY_URL = "https://your-mcp-relay.example.com/mcp"
 
 # ---------------------------------------------------------------------------
 # MCP Relay sender field — SECURITY NOTE

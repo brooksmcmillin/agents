@@ -21,7 +21,7 @@ sys.path = [p for p in sys.path if os.path.abspath(p) != _scripts_dir]
 
 from agent_framework.core.remote_mcp_client import RemoteMCPClient  # noqa: E402
 
-DEFAULT_MCP_SERVER_URL = "https://mcp.brooksmcmillin.com/mcp"
+DEFAULT_MCP_SERVER_URL = "https://your-mcp-server.example.com/mcp"
 ENV_MCP_SERVER_URL = "MCP_SERVER_URL"
 
 

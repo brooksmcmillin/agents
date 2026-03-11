@@ -152,7 +152,7 @@ cd your-mcp-server/
 python -m server --host 0.0.0.0 --port 8000
 
 # Note the URL for agent configuration
-# Example: https://mcp.brooksmcmillin.com/mcp
+# Example: https://your-mcp-server.example.com/mcp
 ```
 
 ---

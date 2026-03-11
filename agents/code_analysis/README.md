@@ -45,7 +45,7 @@ Agent: [identifies N+1 queries, unnecessary I/O, missing caching, files tasks]
 ANTHROPIC_API_KEY=sk-ant-...
 
 # Required for task creation
-MCP_SERVER_URL=https://mcp.brooksmcmillin.com/mcp
+MCP_SERVER_URL=https://your-mcp-server.example.com/mcp
 
 # Optional
 FILESYSTEM_ALLOWED_DIRS=/home/user/projects  # directories the agent can read

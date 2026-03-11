@@ -13,7 +13,7 @@ Authorized penetration testing agent that performs dynamic security testing agai
 ## Quick Start
 
 ```bash
-# Set target URL (defaults to https://todo.brooksmcmillin.com)
+# Set target URL (defaults to https://your-app.example.com)
 export REDTEAM_TARGET_URL=https://your-authorized-target.com
 
 uv run bin/run-agent red-team
@@ -48,7 +48,7 @@ Agent: [compiles findings from memory, sends via email]
 # Required
 ANTHROPIC_API_KEY=sk-ant-...
 
-# Optional — target URL (default: https://todo.brooksmcmillin.com)
+# Optional — target URL (default: https://your-app.example.com)
 REDTEAM_TARGET_URL=https://your-target.com
 
 # Optional — report delivery

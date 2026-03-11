@@ -61,7 +61,7 @@ FASTMAIL_API_TOKEN=...
 FASTMAIL_ACCOUNT_ID=...
 
 # Required for task creation via "Add task:" emails
-MCP_SERVER_URL=https://mcp.brooksmcmillin.com/mcp
+MCP_SERVER_URL=https://your-mcp-server.example.com/mcp
 ```
 
 ## Security Model

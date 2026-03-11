@@ -241,7 +241,7 @@ async def demo_ssrf() -> None:
 
     await run_agent_cmd(
         "chatbot",
-        "Fetch https://brooksmcmillin.com and tell me the page title.",
+        "Fetch https://example.com and tell me the page title.",
         "Chatbot fetches a legitimate URL:",
     )
 
