@@ -10,7 +10,7 @@ import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from enum import Enum, IntEnum
+from enum import IntEnum, StrEnum
 from typing import Any
 
 from shared.constants import KNOWN_MODELS, MODEL_ALIASES, resolve_model
@@ -83,7 +83,7 @@ class AutonomyTier(IntEnum):
     MANUAL_ONLY = 4  # Notify human, do not attempt autonomous work
 
 
-class TaskStatus(str, Enum):
+class TaskStatus(StrEnum):
     """Status of a task in the orchestration pipeline."""
 
     PENDING = "pending"
@@ -95,7 +95,7 @@ class TaskStatus(str, Enum):
     BLOCKED = "blocked"
 
 
-class Phase(str, Enum):
+class Phase(StrEnum):
     """Orchestrator state machine phases."""
 
     IDLE = "idle"

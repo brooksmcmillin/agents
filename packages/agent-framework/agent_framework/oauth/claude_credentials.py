@@ -10,6 +10,7 @@ import logging
 import time
 from pathlib import Path
 
+from ..utils.sanitize import sanitize_log_input
 from .oauth_tokens import TokenSet
 
 logger = logging.getLogger(__name__)
@@ -35,18 +36,18 @@ def load_claude_credential(
     try:
         raw = path.read_text()
     except (OSError, FileNotFoundError):
-        logger.debug("Claude credentials file not found at %s", path)
+        logger.debug("Claude auth file not found at %s", sanitize_log_input(str(path)))
         return None
 
     try:
         data = json.loads(raw)
     except (json.JSONDecodeError, ValueError):
-        logger.debug("Claude credentials file is not valid JSON")
+        logger.debug("Claude auth file is not valid JSON")
         return None
 
     mcp_oauth: dict = data.get("mcpOAuth", {})
     if not mcp_oauth:
-        logger.debug("No mcpOAuth entries in Claude credentials")
+        logger.debug("No mcpOAuth entries in Claude auth file")
         return None
 
     # Normalize for comparison: strip trailing slashes
@@ -59,7 +60,7 @@ def load_claude_credential(
 
         access_token = entry.get("accessToken")
         if not access_token:
-            logger.debug("Claude credential for %s has no accessToken", server_url)
+            logger.debug("Auth entry for %s has no access token", sanitize_log_input(server_url))
             return None
 
         # Check expiry — expiresAt is milliseconds since epoch
@@ -67,7 +68,7 @@ def load_claude_credential(
         if expires_at_ms is not None:
             now_ms = time.time() * 1000
             if now_ms >= (expires_at_ms - 60_000):  # 60s buffer
-                logger.debug("Claude credential for %s is expired", server_url)
+                logger.debug("Auth entry for %s is expired", sanitize_log_input(server_url))
                 return None
 
         # Compute expires_in from expiresAt for TokenSet
@@ -75,7 +76,7 @@ def load_claude_credential(
         if expires_at_ms is not None:
             expires_in = max(1, int((expires_at_ms / 1000) - time.time()))
 
-        logger.info("Loaded Claude Code credential for %s", server_url)
+        logger.info("Loaded Claude Code auth for %s", sanitize_log_input(server_url))
         return TokenSet(
             access_token=access_token,
             refresh_token=entry.get("refreshToken"),
@@ -86,5 +87,5 @@ def load_claude_credential(
             client_secret=entry.get("clientSecret"),
         )
 
-    logger.debug("No Claude credential matching %s", server_url)
+    logger.debug("No Claude auth entry matching %s", sanitize_log_input(server_url))
     return None

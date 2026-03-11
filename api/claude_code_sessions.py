@@ -23,7 +23,7 @@ import termios
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -37,7 +37,7 @@ DEFAULT_WORKSPACES_DIR = os.environ.get(
 )
 
 
-class SessionState(str, Enum):
+class SessionState(StrEnum):
     """State of a Claude Code session."""
 
     STARTING = "starting"
@@ -49,7 +49,7 @@ class SessionState(str, Enum):
     TERMINATED = "terminated"
 
 
-class EventType(str, Enum):
+class EventType(StrEnum):
     """Types of events emitted by Claude Code sessions."""
 
     OUTPUT = "output"  # Regular terminal output

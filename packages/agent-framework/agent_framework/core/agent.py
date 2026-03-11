@@ -51,6 +51,7 @@ from ..telemetry.decision_logger import (
     DECISION_TYPE_TOOL_SELECTION,
     log_decision,
 )
+from ..utils.sanitize import sanitize_log_input
 from .config import settings
 from .mcp_client import MCPClient
 from .remote_mcp_client import RemoteMCPClient
@@ -533,7 +534,9 @@ class Agent(ABC):
                 f"Missing: {missing_names}."
             )
 
-        logger.debug(f"Permission check passed for {tool_name}: {context.caller.name}")
+        logger.debug(
+            f"Permission check passed for {sanitize_log_input(tool_name)}: {sanitize_log_input(context.caller.name)}"
+        )
 
     async def _call_mcp_tool_with_reconnect(
         self, tool_name: str, arguments: dict[str, Any]
@@ -638,12 +641,15 @@ class Agent(ABC):
         failed_urls: list[str] = []
         results: dict[str, list[dict[str, Any]]] = {}
         for url in self.mcp_urls:
-            logger.debug(f"Getting tools from {url}")
+            logger.debug(f"Getting tools from {sanitize_log_input(url)}")
             try:
                 results[url] = await self._collect_remote_tools(url)
             except (ConnectionError, TimeoutError, OSError, ValueError, RuntimeError) as e:
                 if self.skip_failed_mcp_urls:
-                    logger.warning(f"Skipping failed remote MCP server {url}: {e}")
+                    logger.warning(
+                        f"Skipping failed remote MCP server {sanitize_log_input(url)}: "
+                        f"{sanitize_log_input(str(e))}"
+                    )
                     failed_urls.append(url)
                 else:
                     raise
@@ -763,7 +769,9 @@ class Agent(ABC):
                     print(f"✅ Found {len(tools)} tools\n", flush=True)
             except TimeoutError:
                 if self.skip_failed_mcp_urls:
-                    logger.warning(f"Timeout connecting to remote MCP server at {url}, skipping")
+                    logger.warning(
+                        f"Timeout connecting to remote MCP server at {sanitize_log_input(url)}, skipping"
+                    )
                     print(f"⚠️  Skipping {url} (timeout)", flush=True)
                     failed_urls.append(url)
                     continue
@@ -773,7 +781,8 @@ class Agent(ABC):
             except (ConnectionError, OSError, ValueError, RuntimeError) as e:
                 if self.skip_failed_mcp_urls:
                     logger.warning(
-                        f"Failed to connect to remote MCP server at {url}: {e}, skipping"
+                        f"Failed to connect to remote MCP server at {sanitize_log_input(url)}: "
+                        f"{sanitize_log_input(str(e))}, skipping"
                     )
                     print(f"⚠️  Skipping {url} ({type(e).__name__})", flush=True)
                     failed_urls.append(url)
@@ -931,8 +940,8 @@ class Agent(ABC):
             )
             context_token = _execution_context_var.set(new_context)
             logger.info(
-                f"Processing with context: {new_context.caller}, "
-                f"permissions: {new_context.permissions}"
+                f"Processing with context: {sanitize_log_input(str(new_context.caller))}, "
+                f"permissions: {sanitize_log_input(str(new_context.permissions))}"
             )
 
         # Start observability trace for this message
@@ -1163,7 +1172,7 @@ class Agent(ABC):
         """
         tool_results: list[dict[str, Any]] = []
         for tool_call in tool_calls:
-            logger.info(f"Executing tool: {tool_call.name}")
+            logger.info(f"Executing tool: {sanitize_log_input(tool_call.name)}")
             if on_tool_start is not None:
                 on_tool_start(tool_call.name)
 
@@ -1630,7 +1639,7 @@ class Agent(ABC):
             elif isinstance(block, ServerToolUseBlock):
                 if block.name == "web_search":
                     query = block.input.get("query", "") if isinstance(block.input, dict) else ""
-                    logger.info(f"Web search performed with query: {query}")
+                    logger.info(f"Web search performed with query: {sanitize_log_input(query)}")
             # Handle web search results - extract source citations
             elif (
                 isinstance(block, WebSearchToolResultBlock)

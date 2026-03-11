@@ -40,7 +40,8 @@ class TestOAuthHandler:
             redirect_uri="http://localhost:8080/callback",
         )
 
-        assert "twitter.com" in url
+        parsed = urlparse(url)
+        assert parsed.netloc == "twitter.com"
         assert "client_id=test_client_id" in url
         assert "redirect_uri=http" in url
         assert "response_type=code" in url
@@ -53,7 +54,8 @@ class TestOAuthHandler:
             redirect_uri="http://localhost:8080/callback",
         )
 
-        assert "linkedin.com" in url
+        parsed = urlparse(url)
+        assert parsed.netloc == "www.linkedin.com"
         assert "client_id=test_client_id" in url
 
     def test_authorization_url_always_includes_state(self, oauth_handler: OAuthHandler):

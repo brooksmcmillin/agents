@@ -25,6 +25,8 @@ import sys
 import time
 from pathlib import Path
 
+from agent_framework.utils.sanitize import sanitize_log_input
+
 # Ensure project root for imports
 project_root = Path(__file__).parent.parent.parent
 os.chdir(project_root)
@@ -52,7 +54,7 @@ async def test_text_generation(model: str, api_key: str | None) -> bool:
     """Test basic text generation via the backup model."""
     from agent_framework.core.backup_model import call_backup_model
 
-    print(f"\n--- Test 1: Text generation ({model}) ---")
+    print(f"\n--- Test 1: Text generation ({sanitize_log_input(model)}) ---")  # noqa
     start = time.monotonic()
     try:
         result = await call_backup_model(
@@ -81,7 +83,7 @@ async def test_streaming(model: str, api_key: str | None) -> bool:
     """Test streaming text generation."""
     from agent_framework.core.backup_model import call_backup_model
 
-    print(f"\n--- Test 2: Streaming ({model}) ---")
+    print(f"\n--- Test 2: Streaming ({sanitize_log_input(model)}) ---")  # noqa
     chunks: list[str] = []
     start = time.monotonic()
     try:
@@ -124,7 +126,7 @@ async def test_tool_calling(model: str, api_key: str | None) -> bool:
     from agent_framework.core.backup_model import call_backup_model
     from anthropic.types import ToolUseBlock
 
-    print(f"\n--- Test 3: Tool calling ({model}) ---")
+    print(f"\n--- Test 3: Tool calling ({sanitize_log_input(model)}) ---")  # noqa
     tools = [
         {
             "name": "get_weather",
@@ -175,7 +177,7 @@ async def test_simulate_fallback(model: str, api_key: str | None) -> bool:
 
     from anthropic import APIConnectionError
 
-    print(f"\n--- Test 4: Full agent fallback simulation ({model}) ---")
+    print(f"\n--- Test 4: Full agent fallback simulation ({sanitize_log_input(model)}) ---")  # noqa
     start = time.monotonic()
     try:
         with patch("agent_framework.core.agent.AsyncAnthropic") as mock_cls:
@@ -236,7 +238,7 @@ async def main():
     args = parser.parse_args()
 
     model, api_key = _check_config()
-    print(f"Backup model: {model}")
+    print(f"Backup model: {sanitize_log_input(model)}")  # noqa
 
     results: list[tuple[str, bool]] = []
 
