@@ -81,7 +81,7 @@ Commands:
 Examples:
     ./deploy/deploy-agent.sh build chatbot
     ./deploy/deploy-agent.sh deploy security
-    REGISTRY=ghcr.io/myorg TAG=v1.2 ./deploy/deploy-agent.sh deploy pr
+    REGISTRY=ghcr.io/myorg TAG=v1.2 ./deploy/deploy-agent.sh deploy security
     AGENT_MODE=oneshot MESSAGE="Hello" ./deploy/deploy-agent.sh run chatbot
 USAGE
     exit 0

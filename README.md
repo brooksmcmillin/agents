@@ -12,7 +12,7 @@ Running autonomous LLM agents in production means dealing with untrusted inputs,
 ## Architecture
 
 ```
-User Input (CLI / API / Slack)
+User Input (CLI / API)
     → Agent (agents/*/main.py)
         → Claude API (Sonnet 4.6)
             → MCP Client (agent-framework)
@@ -32,7 +32,7 @@ If you can't enumerate what an agent *can* do, you can't reason about what it *s
 
 | Agent | Allowed Tools | Permissions |
 |-------|--------------|-------------|
-| Task Manager | web, memory, Slack, email | READ, WRITE, SEND |
+| Task Manager | web, memory, email | READ, WRITE, SEND |
 | Security Researcher | web, memory, RAG search | READ only |
 | Email Intake | email read, email send | READ, SEND |
 | Chatbot | all 53 tools | Full (general purpose) |
