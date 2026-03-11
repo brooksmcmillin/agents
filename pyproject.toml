@@ -45,7 +45,6 @@ constraint-dependencies = [
 
 [tool.uv.sources]
 agent-framework = { path = "packages/agent-framework", editable = true }
-chasm = { path = "packages/chasm", editable = true }
 
 [dependency-groups]
 browser = [
@@ -62,9 +61,6 @@ dev = [
     "pytest-xdist>=3.8.0",
     "ruff>=0.14.10",
     "safety>=3.7.0",
-]
-voice = [
-    "chasm",
 ]
 
 [tool.pytest.ini_options]

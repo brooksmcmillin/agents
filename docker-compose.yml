@@ -47,27 +47,10 @@ services:
     restart: unless-stopped
     command: uv run python -m api
 
-  # Frontend build and serve (production mode)
-  # For development, run "npm run dev" locally instead
-  frontend:
-    build:
-      context: ./webui/frontend
-      dockerfile: Dockerfile
-    container_name: agents-frontend
-    environment:
-      VITE_API_BASE_URL: http://localhost:8080
-    volumes:
-      # Copy built assets to backend's static directory
-      - frontend_dist:/app/dist
-    networks:
-      - agents-network
-
 networks:
   agents-network:
     driver: bridge
 
 volumes:
-  frontend_dist:
-    driver: local
   mcp_tool_logs:
     driver: local

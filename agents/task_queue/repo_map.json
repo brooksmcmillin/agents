@@ -1,6 +1,0 @@
-{
-  "agents": "git@github.com:brooksmcmillin/agents.git",
-  "task manager": "git@github.com:brooksmcmillin/taskmanager.git",
-  "taskmanager": "git@github.com:brooksmcmillin/taskmanager.git",
-  "chasm": "git@github.com:brooksmcmillin/chasm.git"
-}

@@ -40,12 +40,14 @@ fi
 KNOWN_AGENTS=(
     chatbot
     code-analysis
-    events
-    pr
+    log-analysis
     red-team
     tasks
     security
-    business
+    security-audit
+    sysadmin
+    web-analysis
+    website-tester
 )
 
 # Map agent names to their directory under agents/
@@ -53,12 +55,14 @@ KNOWN_AGENTS=(
 declare -A AGENT_DIRS=(
     [chatbot]=chatbot
     [code-analysis]=code_analysis
-    [events]=events
-    [pr]=pr_agent
+    [log-analysis]=log_analysis
     [red-team]=red_team
     [tasks]=task_manager
     [security]=security_researcher
-    [business]=business_advisor
+    [security-audit]=security_audit
+    [sysadmin]=system_admin
+    [web-analysis]=web_analysis
+    [website-tester]=website_tester
 )
 
 # ── Helpers ──────────────────────────────────────────────────────────────────

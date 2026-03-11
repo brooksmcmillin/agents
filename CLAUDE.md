@@ -7,27 +7,24 @@ This file provides guidance to Claude Code when working with this repository.
 Multi-agent system built with Claude (Anthropic SDK) and Model Context Protocol (MCP).
 
 **Architecture:**
-1. **Agents** (`agents/`) - Individual agent implementations (chatbot, pr_agent, security_researcher, business_advisor, task_manager, email_intake, notifier, orchestrator, red_team, events, code_analysis, log_analysis, security_audit, system_admin, web_analysis, website_tester)
+1. **Agents** (`agents/`) - Individual agent implementations (chatbot, security_researcher, task_manager, email_intake, orchestrator, red_team, code_analysis, log_analysis, security_audit, system_admin, web_analysis, website_tester)
 2. **API Server** (`api/`) - FastAPI REST server for HTTP access to agents
-3. **Web UI** (`webui/`) - React web interface for agents
-4. **MCP Server** (`mcp_server/`) - MCP server config and OAuth infrastructure
-5. **Infrastructure** (`infra/`) - Systemd service files
-6. **Shared Utilities** (`shared/`) - Common code reusable across agents
-7. **Packages** (`packages/`) - Internal libraries:
+3. **MCP Server** (`mcp_server/`) - MCP server config and OAuth infrastructure
+4. **Infrastructure** (`infra/`) - Systemd service files
+5. **Shared Utilities** (`shared/`) - Common code reusable across agents
+6. **Packages** (`packages/`) - Internal libraries:
    - `agent-framework/` - Base Agent class, MCP tools, MCP client, security utilities
-   - `chasm/` - Voice interface (optional, `uv sync --group voice`)
-8. **Documentation** (`docs/`) - Project docs and guides
-9. **Entry Points** (`bin/`) - Executable scripts
-10. **Runtime Data** (`.data/`) - Logs, memories, tokens
+7. **Documentation** (`docs/`) - Project docs and guides
+8. **Entry Points** (`bin/`) - Executable scripts
+9. **Runtime Data** (`.data/`) - Logs, memories, tokens
 
 ## Development Setup
 
 ```bash
 uv sync                                          # Install dependencies
-uv run python bin/run-agent <name>                # Run any agent (chatbot, pr, security, etc.)
+uv run python bin/run-agent <name>                # Run any agent (chatbot, security, tasks, etc.)
 uv run python bin/run-agent <name> "message"      # One-off message
 uv run python -m api                              # REST API server (localhost:8080)
-cd webui/frontend && npm install && npm run dev    # Web UI dev server (localhost:5173)
 uv run python -m mcp_server.server                # MCP server standalone
 ```
 
@@ -119,19 +116,17 @@ uv run python -m mcp_server.server
 
 ## Current State
 
-**Working:** Full agentic loop (Claude Sonnet 4.6), 13 interactive agents + 6 services, 53 MCP tools, web scraping, RAG search, FastMail email, Twilio SMS, persistent memory, hot reload, OAuth infrastructure, REST API, Web UI, Langfuse observability.
+**Working:** Full agentic loop (Claude Sonnet 4.6), 10 interactive agents + orchestrator, 53 MCP tools, web scraping, RAG search, FastMail email, Twilio SMS, persistent memory, hot reload, OAuth infrastructure, REST API, Langfuse observability.
 
-**Needs work:** Social media tools use mock data, rate limiting, multi-user support, security hardening for public deployments.
+**Needs work:** Rate limiting, multi-user support, security hardening for public deployments.
 
 ## Extended Documentation
 
 - [docs/tools.md](docs/tools.md) - MCP tools reference (all 53 tools + usage examples)
+- [docs/SECURITY_UNTRUSTED_CONTENT.md](docs/SECURITY_UNTRUSTED_CONTENT.md) - Security hardening guide
 - [docs/api.md](docs/api.md) - REST API endpoints and database schema
-- [docs/oauth.md](docs/oauth.md) - OAuth infrastructure setup
 - [docs/observability.md](docs/observability.md) - Langfuse tracing and monitoring
-- [docs/GUIDES.md](docs/GUIDES.md) - Feature guides (memory, OAuth, deployment)
 - [docs/TESTING.md](docs/TESTING.md) - Testing and debugging guide
 - [docs/HOT_RELOAD.md](docs/HOT_RELOAD.md) - Hot reload development workflow
 - [docs/REMOTE_MCP.md](docs/REMOTE_MCP.md) - Remote MCP setup
 - [docs/docker.md](docs/docker.md) - Docker deployment
-- [docs/CLAUDE_CODE_TOOLS.md](docs/CLAUDE_CODE_TOOLS.md) - Claude Code automation tools

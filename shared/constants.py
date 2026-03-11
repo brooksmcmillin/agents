@@ -48,7 +48,6 @@ RESERVED_RELAY_SENDER_NAMES: frozenset[str] = frozenset(
 
 # Service identifiers
 SERVICE_NAME_SLACK_ADAPTER = "slack-adapter"
-SERVICE_NAME_TASK_NOTIFIER = "task-notifier"
 
 # ---------------------------------------------------------------------------
 # Tool group constants

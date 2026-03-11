@@ -382,24 +382,6 @@ class TestDatasetCoverage:
 
 
 class TestPromptVariants:
-    def test_business_variants_exist(self):
-        from agents.business_advisor.prompts import PROMPT_VARIANTS
-
-        assert "concise" in PROMPT_VARIANTS
-        assert "no-guardrails" in PROMPT_VARIANTS
-
-    def test_business_variants_are_nonempty_strings(self):
-        from agents.business_advisor.prompts import PROMPT_VARIANTS
-
-        for name, prompt in PROMPT_VARIANTS.items():
-            assert isinstance(prompt, str), f"Variant {name} must be a string"
-            assert len(prompt) > 100, f"Variant {name} seems too short"
-
-    def test_load_prompts_module_business(self):
-        mod = _load_prompts_module("business")
-        assert mod is not None
-        assert hasattr(mod, "PROMPT_VARIANTS")
-
     def test_load_prompts_module_unknown_returns_none(self):
         mod = _load_prompts_module("nonexistent-agent-xyz")
         assert mod is None
@@ -504,12 +486,12 @@ class TestPromptChangeGate:
     def test_extract_changed_agents_finds_prompts(self):
         files = [
             "agents/chatbot/prompts.py",
-            "agents/business_advisor/prompts.py",
+            "agents/log_analysis/prompts.py",
             "agents/chatbot/main.py",
             "shared/registry.py",
         ]
         agents = extract_changed_agents(files)
-        assert agents == ["business", "chatbot"]
+        assert agents == ["chatbot", "log-analysis"]
 
     def test_extract_changed_agents_ignores_non_prompts(self):
         files = [
@@ -524,19 +506,19 @@ class TestPromptChangeGate:
         files = [
             "agents/system_admin/prompts.py",
             "agents/task_manager/prompts.py",
-            "agents/pr_agent/prompts.py",
+            "agents/security_researcher/prompts.py",
         ]
         agents = extract_changed_agents(files)
-        assert agents == ["pr", "sysadmin", "tasks"]
+        assert agents == ["security", "sysadmin", "tasks"]
 
     def test_extract_changed_baselines(self):
         files = [
             "tests/evaluations/results/chatbot.json",
-            "tests/evaluations/results/business.json",
+            "tests/evaluations/results/security.json",
             "tests/evaluations/datasets/chatbot.jsonl",
         ]
         baselines = extract_changed_baselines(files)
-        assert baselines == {"chatbot", "business"}
+        assert baselines == {"chatbot", "security"}
 
     def test_extract_changed_baselines_ignores_ad_hoc(self):
         """Defense-in-depth: ad-hoc filenames don't match agent names.

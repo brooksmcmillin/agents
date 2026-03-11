@@ -86,5 +86,3 @@ The orchestrator is a state machine (`state_machine.py`) that manages tasks thro
 ## Related Documentation
 
 - [CLAUDE.md](../../CLAUDE.md) — project overview
-- [docs/CLAUDE_CODE_TOOLS.md](../../docs/CLAUDE_CODE_TOOLS.md) — Claude Code integration
-- [agents/task_queue/](../task_queue/) — batch pipeline that feeds into the orchestrator

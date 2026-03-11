@@ -1,539 +1,217 @@
-# Multi-Agent System
+# Building Secure Agentic Systems
 
 [![Tests](https://github.com/brooksmcmillin/agents/workflows/Tests/badge.svg)](https://github.com/brooksmcmillin/agents/actions/workflows/tests.yml)
-[![Integration](https://github.com/brooksmcmillin/agents/workflows/Integration%20Tests/badge.svg)](https://github.com/brooksmcmillin/agents/actions/workflows/integration.yml)
-[![Deploy](https://github.com/brooksmcmillin/agents/workflows/Deploy/badge.svg)](https://github.com/brooksmcmillin/agents/actions/workflows/deploy.yml)
+[![Security](https://github.com/brooksmcmillin/agents/workflows/Security/badge.svg)](https://github.com/brooksmcmillin/agents/actions/workflows/security.yml)
 
-A multi-agent system built with Claude (Anthropic SDK) and Model Context Protocol (MCP). This repository supports multiple specialized agents that share common infrastructure for content analysis, task management, and persistent memory.
+A production multi-agent system built with Claude and Model Context Protocol (MCP), focused on the security architecture required to run LLM agents as daily drivers. Companion code for the [un]prompted talk *"Building Secure Agentic Systems: Lessons from Daily-Driver Agents."*
 
-## Overview
+## The Problem
 
-This project demonstrates production-ready patterns for building LLM-powered agents with external tool integrations. It includes:
-
-- **Multiple Agents** - 13 interactive CLI agents (chatbot, PR, security, business, tasks, code analysis, events, red team, log analysis, security audit, sysadmin, web analysis, website tester) and 6 standalone services (code reviewer, email intake, notifier, orchestrator, PR shepherd, task queue)
-- **Web UI** - Modern React interface for chatting with agents via persistent conversations
-- **Shared MCP Tools** - 53 tools including web analysis, memory, RAG document search, email management, HTTP client, filesystem, Claude Code, and communication
-- **Hot Reload** - Edit tools without restarting agents
-- **OAuth Infrastructure** - Ready for real API integration
-- **Remote MCP Support** - Deploy tools separately from agents
-
-## Quick Start
-
-### Prerequisites
-
-- Python 3.12 or higher
-- `uv` package manager
-- Anthropic API key
-
-### Installation
-
-```bash
-# Install uv (if not already installed)
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Install dependencies
-uv sync
-
-# Optional: Install voice interface dependencies
-# Requires PortAudio system library (sudo apt-get install portaudio19-dev on Ubuntu)
-uv sync --group voice
-
-# Configure environment
-cp .env.example .env
-# Edit .env and add: ANTHROPIC_API_KEY=your_key_here
-```
-
-### Run an Agent
-
-```bash
-# Chatbot - General-purpose assistant with all tools
-uv run bin/run-agent chatbot
-
-# PR Agent - Content strategy assistant
-uv run bin/run-agent pr
-
-# Security Researcher - AI security expert with RAG
-uv run bin/run-agent security
-
-# Business Advisor - Monetization and strategy expert
-uv run bin/run-agent business
-
-# Task Manager - Interactive task management
-uv run bin/run-agent tasks
-
-# REST API Server - HTTP access to agents
-uv run python -m api
-
-# Web UI - Modern React interface for agents
-# (requires npm and built frontend)
-cd webui/frontend && npm install && npm run build
-cd ../.. && uv run python -m api
-# Visit http://localhost:8080
-
-# Notifier - Send Slack notifications about tasks
-uv run python -m agents.notifier.main
-
-# MCP server standalone
-uv run python -m mcp_server.server
-```
-
-### Interactive Commands
-
-Once an agent is running:
-- `exit` or `quit` - End session
-- `stats` - Show token usage statistics
-- `reload` - Reconnect to MCP server and discover updated tools
+Running autonomous LLM agents in production means dealing with untrusted inputs, shared state, unbounded tool access, and context window limits — all of which create attack surface. This project implements layered defenses for each.
 
 ## Architecture
 
-### System Overview
-
 ```
-User Input → Agent → Claude API → MCP Client → MCP Server → Tools
-                ↑                                               ↓
-                └────────────── Tool Results ←──────────────────┘
+User Input (CLI / API / Slack)
+    → Agent (agents/*/main.py)
+        → Claude API (Sonnet 4.6)
+            → MCP Client (agent-framework)
+                → MCP Server (stdio transport)
+                    → Tools (53 implementations)
 ```
 
-### Components
+**12 agents. 53 tools. 6 permission levels. 10 max iterations per turn.**
 
-**1. Agents** (`agents/`)
-- Individual agent implementations extending `agent-framework`
-- Each agent has its own system prompt and behavior
-- Share common MCP tools and infrastructure
+Each agent gets a scoped set of tools and permissions — not blanket access. Unknown tools default to `ADMIN` (deny by default).
 
-**2. MCP Server** (`mcp_server/`)
-- Exposes tools via Model Context Protocol
-- Handles authentication and tool execution
-- Can run locally (stdio) or remotely (HTTP/SSE)
+## Defense Layers
 
-**3. Shared Utilities** (`shared/`)
-- Common code reusable across agents
-- Remote MCP client implementation
-- OAuth helpers and utilities
+### 1. Capability Bounding + Permission Control
 
-**4. Packages** (`packages/`)
-- `agent-framework/` - Shared library with MCP tools, base agent classes, and security utilities
-- `chasm/` - Voice interface library (Deepgram STT + Cartesia TTS) - optional dependency
+If you can't enumerate what an agent *can* do, you can't reason about what it *shouldn't* do.
 
-### Agentic Loop
+| Agent | Allowed Tools | Permissions |
+|-------|--------------|-------------|
+| Task Manager | web, memory, Slack, email | READ, WRITE, SEND |
+| Security Researcher | web, memory, RAG search | READ only |
+| Email Intake | email read, email send | READ, SEND |
+| Chatbot | all 53 tools | Full (general purpose) |
 
 ```python
-while not done:
-    # 1. Call Claude with conversation history + available tools
-    response = await client.messages.create(messages=history, tools=tools)
-
-    # 2. If Claude wants to use tools, execute them via MCP
-    if response.stop_reason == "tool_use":
-        async with mcp_client.connect():  # Fresh connection (hot reload)
-            results = await mcp_client.call_tool(name, args)
-        history.append(tool_results)
-        # Loop continues - Claude analyzes results
-
-    # 3. Claude provides final text response
-    else:
-        return response.content
+# Fail-safe: unknown tools → ADMIN → deny by default
+def get_required_permissions(tool):
+    return TOOL_MAP.get(tool, {ADMIN})
 ```
 
-**Key Feature:** The agent reconnects to MCP server for each tool call, enabling hot reload of tools without losing conversation context.
+New tools are locked down by default. You opt *in* to access, not out. See [`packages/agent-framework/agent_framework/permissions/`](packages/agent-framework/agent_framework/permissions/) for the implementation.
 
-## Available Agents
+### 2. Memory Isolation
 
-### Interactive CLI Agents
+All agents share the same PostgreSQL memory backend. Without namespacing, one agent's memories leak into another's responses — and worse, an attacker who controls untrusted input (e.g., email) can poison shared memory to influence all agents.
 
-Run via `uv run bin/run-agent <name>`. These are registered in `shared/registry.py` and accessible through the REST API and Web UI.
+**The fix:** `agent_name` is auto-injected by the MCP server into every memory tool call. Queries are always filtered by namespace.
 
-| Agent | Run As | Description | Docs |
-|-------|--------|-------------|------|
-| **Chatbot** | `chatbot` | General-purpose assistant with all 53 MCP tools | [docs](agents/chatbot/README.md) |
-| **PR Agent** | `pr` | Content strategy, SEO, social media, Claude Code editing | [docs](agents/pr_agent/README.md) |
-| **Security Researcher** | `security` | AI/ML security research with RAG knowledge base | [docs](agents/security_researcher/README.md) |
-| **Business Advisor** | `business` | Monetization strategy, market analysis, GitHub analysis | [docs](agents/business_advisor/README.md) |
-| **Task Manager** | `tasks` | Task management via remote MCP server | [docs](agents/task_manager/README.md) |
-| **Code Analysis** | `code-analysis` | Repository review for security, logic, performance | [docs](agents/code_analysis/README.md) |
-| **Events** | `events` | Local events discovery with preference learning | [docs](agents/events/README.md) |
-| **Red Team** | `red-team` | Authorized penetration testing via HTTP tools | [docs](agents/red_team/README.md) |
-| **Log Analysis** | `log-analysis` | Log file investigation with automatic pinning of critical findings | [docs](agents/log_analysis/README.md) |
-| **Security Audit** | `security-audit` | Analyzes JSON security audit reports from the non-LLM collector | [docs](agents/security_audit/README.md) |
-| **Sysadmin** | `sysadmin` | Network discovery, port scanning, and system security assessment | [docs](agents/system_admin/README.md) |
-| **Web Analysis** | `web-analysis` | Website auditing with automatic task creation for issues found | [docs](agents/web_analysis/README.md) |
-| **Website Tester** | `website-tester` | Automated website auditing with headless Playwright browser | [docs](agents/website_tester/README.md) |
+```
+BEFORE                          AFTER
+┌──────────┐                    ┌──────────┐
+│ memories │ ← all agents       │ns:tasks  │ ← Task Manager
+│ key|value│   write here       │ns:security│ ← Security Researcher
+│ (no isolation)                │ns:email  │ ← Email Intake
+└──────────┘                    └──────────┘
+```
 
-### Standalone Services
+See [`packages/agent-framework/agent_framework/storage/`](packages/agent-framework/agent_framework/storage/) for the namespaced memory implementation.
 
-Run directly — these are not in the agent registry and don't use `bin/run-agent`.
+### 3. Prompt Injection Detection
 
-| Service | Invocation | Description | Docs |
-|---------|-----------|-------------|------|
-| **Email Intake** | `uv run python -m agents.email_intake.main` | Monitors inbox, routes tasks to agents | [docs](agents/email_intake/README.md) |
-| **Notifier** | `uv run python -m agents.notifier.main` | Slack notifications about open tasks | [docs](agents/notifier/README.md) |
-| **Orchestrator** | `uv run python -m agents.orchestrator.main "task"` | Task decomposition and Claude Code workers | [docs](agents/orchestrator/README.md) |
-| **PR Shepherd** | `PRShepherd(config).run()` | Polls PRs, fixes CI, auto-merges | [docs](agents/pr_shepherd/README.md) |
-| **Task Queue** | `TaskQueueRunner(config).run()` | Batch task triage and orchestrator dispatch | [docs](agents/task_queue/README.md) |
+Out-of-box AI firewall configuration was too aggressive — legitimate queries got blocked:
 
-### REST API Server
+- *"Clear your context and focus on xyz"* → BLOCKED (legitimate task instruction)
+- *"What are the top prompt injection techniques?"* → BLOCKED (security research query)
 
-HTTP/REST interface for accessing all 13 interactive agents:
-- Stateless single-shot requests and stateful multi-turn sessions
-- Automatic session management with TTL
-- Token usage tracking per request
+**Solution:** Per-agent threshold configuration. Security researcher gets relaxed thresholds for injection-related queries. Email intake (untrusted input) gets strictest settings. If the firewall API is down, log a warning and continue — availability over perfect security.
 
-**Run:** `uv run python -m api` | **[Documentation](api/README.md)**
+### 4. Context-Aware Trimming
 
-## Web UI
+When the context window fills up, which messages get dropped? Without care, an attacker waits for trimming, then retries the same attack — and the agent has no memory of the previous attempt.
 
-A modern React web interface for interacting with agents via persistent conversations.
+**What gets pinned (survives trimming):** Permission denials, SSRF blocks, prompt injection flags, system security warnings.
 
-**Features:**
-- Choose from 13 interactive agents (chatbot, PR, tasks, security, business, code analysis, events, red team, log analysis, security audit, sysadmin, web analysis, website tester)
-- Database-backed conversations that survive server restarts
-- Create, rename, delete, and switch between conversations
-- Real-time chat with token usage tracking
-- Dark mode support
-- Responsive design for desktop and mobile
+See [`packages/agent-framework/agent_framework/core/`](packages/agent-framework/agent_framework/core/) for the trimming implementation.
 
-**Setup:**
+### 5. SSRF Protection
+
+Agents that fetch URLs need protection against server-side request forgery. All HTTP tools validate targets against private IP ranges and dangerous redirects.
+
+See [`packages/agent-framework/agent_framework/security/`](packages/agent-framework/agent_framework/security/) for the SSRF protection implementation.
+
+## Observability
+
+Every decision point is observable and costed.
+
+- **Langfuse traces** — Per-turn traces with tool call spans, token counts, latency
+- **Grafana dashboards** — Per-agent cost, daily breakdown, budget alerts, most expensive tools
+- **Security audit trail** — Permission denials and SSRF blocks logged with full context + agent ID
+
+In week one of cost tracking, found **10x token waste**: system prompt was injecting ALL memories on every turn, including low-importance ones. Fix: filter by importance >= 7. Result: 80% token reduction.
+
+## Agents
+
+| Agent | Description | Key Security Feature |
+|-------|------------|---------------------|
+| **Chatbot** | General-purpose assistant | Full tool access (baseline) |
+| **Security Researcher** | AI/ML security research with RAG | READ-only permissions |
+| **Email Intake** | Inbox monitor for untrusted input | Strictest injection detection |
+| **Task Manager** | Task management via remote MCP | Memory isolation demo |
+| **Log Analysis** | Log investigation | Context-aware pinning |
+| **Red Team** | Authorized penetration testing | Scoped HTTP tools |
+| **Security Audit** | Audit report analysis | Read-only structured input |
+| **System Admin** | Network security assessment | Scoped network tools |
+| **Code Analysis** | Repository security review | Scoped filesystem tools |
+| **Web Analysis** | Website auditing | Tool allowlist + task creation |
+| **Website Tester** | Automated Playwright testing | Browser sandbox |
+| **Orchestrator** | Multi-agent delegation | Delegation chain permissions |
+
+## Quick Start
+
 ```bash
-# Install Node.js dependencies
-cd webui/frontend
-npm install
+# Install
+uv sync
+cp .env.example .env  # Add ANTHROPIC_API_KEY
 
-# Development mode (hot reload)
-# Terminal 1: Backend
-uv run python -m api
+# Run an agent
+uv run bin/run-agent chatbot          # Full-access general assistant
+uv run bin/run-agent security         # READ-only security researcher
+uv run bin/run-agent tasks            # Task management with memory isolation
 
-# Terminal 2: Frontend
-npm run dev
-# Visit http://localhost:5173
+# REST API
+uv run python -m api                  # localhost:8080
 
-# Production build
-npm run build
-uv run python -m api
-# Visit http://localhost:8080
+# One-shot mode
+uv run bin/run-agent chatbot "What tools do you have access to?"
 ```
-
-**Requirements:**
-- Node.js 18+
-- PostgreSQL database (set `DATABASE_URL` environment variable)
-
-See [webui/README.md](webui/README.md) for detailed documentation.
-
-## MCP Tools
-
-The MCP server exposes **53 tools** across 14 categories to agents:
-
-### Web Analysis (2 tools)
-- `fetch_web_content` - Fetch and read web content as clean markdown for analysis
-- `analyze_website` - Analyze website for SEO, tone, and engagement metrics
-
-### Memory (6 tools)
-- `save_memory` - Save information with key/value/category/tags/importance (1-10 scale)
-- `get_memories` - Retrieve memories with filtering by category/tags/importance
-- `search_memories` - Search memories by keyword
-- `delete_memory` - Delete a memory by key
-- `get_memory_stats` - Get memory system statistics (total, categories, avg importance)
-- `configure_memory_store` - Configure memory backend (file or database)
-
-Memory persists across conversations (default: `memories/memories.json`, optional: PostgreSQL).
-
-### RAG Document Search (6 tools)
-*Requires PostgreSQL database and OpenAI API key for embeddings*
-
-- `add_document` - Add document to knowledge base for semantic search
-- `search_documents` - Search documents by query with similarity threshold
-- `get_document` - Retrieve full document by ID
-- `list_documents` - List all documents in knowledge base
-- `delete_document` - Delete document by ID
-- `get_rag_stats` - Get RAG system statistics (total docs, chunks, DB size)
-
-### Email Management - FastMail (9 tools)
-*Requires FastMail API token and account ID*
-
-- `list_mailboxes` - List all mailboxes
-- `get_emails` - Get emails from a mailbox with limit
-- `get_email` - Get single email by ID
-- `search_emails` - Search emails by query
-- `send_email` - Send an email with to/cc/bcc/subject/body
-- `send_agent_report` - Send report/notification from agent to admin
-- `move_email` - Move email to different mailbox
-- `update_email_flags` - Update email flags (seen, flagged)
-- `delete_email` - Delete an email permanently
-
-### Communication (1 tool)
-- `send_slack_message` - Send Slack notification via webhook
-
-### Social Media (1 tool)
-- `get_social_media_stats` - Get Twitter/LinkedIn stats (currently mock data, ready for OAuth integration)
-
-### Content Suggestions (1 tool)
-- `suggest_content_topics` - Generate content topic ideas (currently mock data)
-
-**Plus:** HTTP Client (7 tools), Markdown Files (4 tools), Filesystem (6 tools), Claude Code (5 tools), Twilio SMS (5 tools). **Total: 53 tools** available to agents via MCP. See [docs/tools.md](docs/tools.md) for complete reference and [GUIDES.md](docs/GUIDES.md) for usage guides.
 
 ## Project Structure
 
 ```
 agents/                    # Agent implementations
-├── chatbot/               # General-purpose assistant (interactive)
-├── pr_agent/              # Content strategy assistant (interactive)
-├── security_researcher/   # AI security research (interactive)
-├── business_advisor/      # Business strategy (interactive)
-├── task_manager/          # Task management (interactive)
-├── code_analysis/         # Repository analysis (interactive)
-├── events/                # Local events discovery (interactive)
-├── red_team/              # Penetration testing (interactive)
-├── log_analysis/          # Log file investigation (interactive)
-├── security_audit/        # Security audit report analysis (interactive)
-├── system_admin/          # Network and system security assessment (interactive)
-├── web_analysis/          # Website auditing with task creation (interactive)
-├── website_tester/        # Automated website testing (interactive)
-├── email_intake/          # Email inbox monitor (standalone)
-├── notifier/              # Slack notifications (standalone)
-├── orchestrator/          # Task decomposition + workers (standalone)
-├── pr_shepherd/           # CI fix + auto-merge daemon (standalone)
-└── task_queue/            # Batch task triage pipeline (standalone)
-api/                       # REST API server (FastAPI)
-webui/                     # React frontend
-mcp_server/                # Shared MCP server and tools
-infra/                     # Infrastructure configs (systemd service files)
-docs/                      # Documentation
-packages/                  # Internal libraries (monorepo)
-├── agent-framework/       # Base agent classes, MCP client, and tools
-└── chasm/                 # Voice interface library
-shared/                    # Common utilities
-bin/                       # Executable scripts
-tests/                     # Test suite
-scripts/                   # Utility scripts
+├── chatbot/               # General-purpose (full access)
+├── security_researcher/   # READ-only security research
+├── email_intake/          # Untrusted input handling
+├── task_manager/          # Memory isolation demo
+├── log_analysis/          # Context-aware trimming
+├── red_team/              # Scoped penetration testing
+├── security_audit/        # Audit report analysis
+├── system_admin/          # Network security assessment
+├── code_analysis/         # Repository review
+├── web_analysis/          # Website auditing
+├── website_tester/        # Playwright browser testing
+└── orchestrator/          # Multi-agent delegation
+packages/
+└── agent-framework/       # Core library
+    └── agent_framework/
+        ├── core/          # Base Agent, MCP client, context trimming
+        ├── tools/         # 53 MCP tool implementations
+        ├── security/      # SSRF protection, filesystem validation
+        ├── permissions/   # 6-level permission system
+        ├── storage/       # Namespaced memory backend
+        ├── observability/ # Langfuse integration
+        └── telemetry/     # Token usage tracking
+api/                       # FastAPI REST server
+mcp_server/                # MCP server + OAuth infrastructure
+shared/                    # Registry, delegation, agent factory
+bin/                       # CLI entry points
+docs/                      # Security guides, tool reference, deployment
+tests/                     # Unit + integration + evaluation tests
 ```
 
-## Development Workflow
+## Key Implementation Files
 
-### Hot Reload - Edit Tools Without Restarting
+| Concept | File |
+|---------|------|
+| Permission system | `packages/agent-framework/agent_framework/permissions/` |
+| SSRF protection | `packages/agent-framework/agent_framework/security/ssrf_protection.py` |
+| Memory namespacing | `packages/agent-framework/agent_framework/storage/` |
+| Context trimming | `packages/agent-framework/agent_framework/core/agent.py` |
+| Tool allowlists | `agents/*/main.py` (per-agent `allowed_tools`) |
+| Agent registry | `shared/registry.py` |
+| MCP tool definitions | `packages/agent-framework/agent_framework/tools/` |
 
-1. Start agent: `uv run bin/run-agent pr`
-2. Edit tool code in `packages/agent-framework/agent_framework/tools/*.py`
-3. Save changes
-4. Next tool call automatically picks up changes
-5. Type `reload` to force reconnection if needed
+## Lessons Learned
 
-The agent reconnects to MCP server for each tool call instead of maintaining a persistent connection. This enables editing tools while the agent is running without losing conversation context.
+**What worked:**
+- Permission system + tool allowlists early on
+- MCP separation creates natural trust boundaries
+- Fail-safe defaults: unknown → ADMIN → deny
+- Context-aware trimming for security event persistence
+- Cost dashboard: found 10x waste in week one
 
-### Adding a New Tool
+**What I'd do differently:**
+- Namespace agent memory from day one
+- Tune prompt injection detection before deploying
+- Cost tracking from the start, not after surprise bill
+- PII detection on outputs — added retroactively
+- Design scoped delegation up front, not after bugs
 
-See [docs/tools.md](docs/tools.md#adding-a-new-tool) for the complete guide on creating and registering MCP tools.
-
-### Adding a New Agent
-
-1. Create agent directory: `mkdir -p agents/your_agent`
-2. Create `main.py` extending `Agent` class from `agent-framework`
-3. Create `prompts.py` with system prompt and greeting
-4. Create `__init__.py` with version info
-5. Register in `shared/registry.py` inside `build_agent_registry()` as a 3-tuple `(AgentClass, kwargs_or_None, "description")` and run: `uv run bin/run-agent your-agent`
-
-All agents automatically have access to the shared MCP tools.
-
-See [CLAUDE.md](CLAUDE.md#adding-new-agents) for detailed instructions.
-
-## Features
-
-### Persistent Memory
-- Agents can save and recall information across conversations
-- Category-based organization (preferences, facts, goals, insights)
-- Importance-based prioritization (1-10 scale)
-- Tag-based filtering
-- Easily migrated from file storage to database
-
-### OAuth Support
-- Complete OAuth 2.0 implementation (Authorization Code Flow + Client Credentials)
-- Automatic token refresh
-- Encrypted token storage (Fernet)
-- Ready for Twitter, LinkedIn, and other social media APIs
-- File-based storage with easy migration path to database/vault
-
-### Remote MCP
-- Host MCP server separately from agents
-- Multiple agents can share one server
-- HTTP/SSE transport for cloud deployment
-- Local (stdio) and remote (HTTP) modes supported
-
-### Error Handling
-- Comprehensive error logging
-- Graceful failure handling
-- Tool errors returned to Claude as `is_error` results
-- Max iteration limits to prevent infinite loops
-
-## Current Status vs Production
-
-**Working Now:**
-- Full agentic loop with Claude Sonnet 4.6
-- 13 interactive agents + 6 standalone services
-- 53 MCP tools (web, memory, RAG, email, HTTP client, filesystem, Claude Code, communication)
-- Real web scraping and content analysis
-- RAG document search with semantic similarity
-- FastMail email integration
-- Persistent memory across conversations (file or database backend)
-- Hot reload for tool development
-- OAuth infrastructure (ready for production integration)
-- Token usage tracking
-- Remote MCP support for distributed deployments
-- REST API server for HTTP access to agents
-
-**For Production:**
-- Integrate real social media APIs (Twitter, LinkedIn)
-- Migrate to PostgreSQL/Redis for memory and tokens
-- Add rate limiting
-- Add multi-user support (user_id to memory/auth)
-- Deploy MCP server remotely
-- Add monitoring and metrics
-
-## Configuration
-
-### Environment Variables
-
-See `.env.example` for all available options. Key variables:
-
-```bash
-# Required
-ANTHROPIC_API_KEY=your_api_key_here
-
-# Optional - MCP Server
-MCP_SERVER_URL=https://mcp.brooksmcmillin.com/mcp  # For remote MCP
-
-# Optional - Logging
-LOG_LEVEL=INFO  # DEBUG, INFO, WARNING, ERROR
-
-# Optional - Social Media OAuth (when ready)
-TWITTER_CLIENT_ID=...
-TWITTER_CLIENT_SECRET=...
-LINKEDIN_CLIENT_ID=...
-LINKEDIN_CLIENT_SECRET=...
-```
+**Still unsolved:**
+- Multi-user support (user_id not propagated everywhere)
+- Rate limiting per agent (budget caps exist, throttling doesn't)
+- Delegation chains: A→B→C permission escalation risks
 
 ## Documentation
 
-- **[CLAUDE.md](CLAUDE.md)** - Comprehensive project documentation for Claude Code
-- **[docs/CLI.md](docs/CLI.md)** - CLI reference for `bin/run-agent` (flags, session management, permissions)
-- **[docs/AUTOMATION.md](docs/AUTOMATION.md)** - Automation scripts (`sprint-or-review`, `weekly-pr-review`, cron installers)
-- **[docs/TESTING.md](docs/TESTING.md)** - Testing and debugging guide (memory tools, logs, common issues)
-- **[GUIDES.md](docs/GUIDES.md)** - Feature guides (memory system, OAuth, deployment, voice interface)
-- **[REMOTE_MCP.md](docs/REMOTE_MCP.md)** - Remote MCP server setup and configuration
-- **[HOT_RELOAD.md](docs/HOT_RELOAD.md)** - Hot reload development workflow
-- **Agent READMEs** - See `agents/*/README.md` for agent-specific docs
-- **Code Comments** - Extensive inline documentation
+- [docs/SECURITY_UNTRUSTED_CONTENT.md](docs/SECURITY_UNTRUSTED_CONTENT.md) — Security hardening for untrusted content
+- [docs/tools.md](docs/tools.md) — Complete MCP tools reference (53 tools)
+- [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) — Live demo script (memory isolation, SSRF, trimming)
+- [docs/CLI.md](docs/CLI.md) — CLI reference for `bin/run-agent`
+- [docs/observability.md](docs/observability.md) — Langfuse tracing and Grafana dashboards
+- [docs/TESTING.md](docs/TESTING.md) — Testing and debugging guide
+- [docs/docker.md](docs/docker.md) — Docker deployment
 
-## Troubleshooting
+## Technology
 
-### Agent Issues
-
-```bash
-# Check logs
-tail -f ~/.agents/logs/agent_$(date +%Y-%m-%d).log
-
-# Enable debug logging
-# In .env: LOG_LEVEL=DEBUG
-
-# Test MCP server starts
-uv run python -m mcp_server.server
-```
-
-### MCP Connection Issues
-
-```bash
-# Test MCP server starts
-uv run python -m mcp_server.server
-
-# Test remote MCP connection
-curl https://mcp.brooksmcmillin.com/mcp/health
-```
-
-### Memory Issues
-
-```bash
-# View memories
-cat memories/memories.json | python -m json.tool
-
-# Clear all memories
-rm memories/memories.json
-```
-
-## Technology Stack
-
-- **Python 3.12+**
-- **anthropic** - Official Anthropic SDK for Claude
-- **agent-framework** - Base agent class and MCP client (local package)
-- **chasm** - Voice interface library (local package, optional)
-- **mcp** - Model Context Protocol SDK
-- **httpx** - Async HTTP client
-- **authlib** - OAuth 2.0 implementation
-- **cryptography** - Token encryption (Fernet)
-- **pydantic** - Data validation and settings
-- **python-dotenv** - Environment management
-
-### Optional Dependencies
-
-- **voice** - Voice interface support via `chasm` (requires PortAudio system library)
-  - Install with: `uv sync --group voice`
-  - System requirements: `sudo apt-get install portaudio19-dev` (Ubuntu/Debian)
-
-## Code Style
-
-- Modern Python typing (dict/list not typing.Dict/List, `str | None` not Optional[str])
-- All functions have type hints including return types
-- All async I/O operations use async/await
-- Comprehensive docstrings (Google style)
-- Errors logged before returning to user
-- JSON for all tool results
-
-## CI/CD
-
-Automated testing and deployment with GitHub Actions.
-
-### Workflows
-
-**Tests (`tests.yml`)** - Runs on every push and PR
-- ✅ Backend tests (pytest with PostgreSQL)
-- ✅ Frontend tests (vitest)
-- ✅ Linting (ruff, eslint)
-- ✅ Type checking (TypeScript)
-- ✅ Build verification
-
-**Integration (`integration.yml`)** - Full integration tests
-- ✅ Database integration tests
-- ✅ API endpoint testing
-- 🚧 E2E tests (placeholder for Playwright)
-
-**Deploy (`deploy.yml`)** - Build and publish on tags
-- ✅ Production frontend build
-- ✅ Artifact upload
-- ✅ GitHub releases
-
-### Running Checks Locally
-
-```bash
-# Run all CI checks locally
-.github/workflows/test-local.sh
-
-# Or run individually:
-uv run pytest api/test_server.py -v --cov
-cd webui/frontend && npm test -- --run
-uv run ruff check . && uv run ruff format --check .
-```
-
-See [.github/workflows/README.md](.github/workflows/README.md) for detailed documentation.
-
-## Contributing
-
-To extend this project:
-1. Follow existing code patterns
-2. Add type hints to all functions
-3. Write docstrings (Google style)
-4. **Run tests locally** before pushing: `.github/workflows/test-local.sh`
-5. Ensure CI passes on your PR
-6. Update documentation
-
-## License
-
-This is a demonstration project for educational purposes.
+Python 3.12+ · Claude Sonnet 4.6 · Model Context Protocol · FastAPI · Langfuse · PostgreSQL · Playwright
 
 ---
 
-**Built with Claude Sonnet 4.6 and Model Context Protocol**
+*Presented at [un]prompted: The AI Practitioner Conference*

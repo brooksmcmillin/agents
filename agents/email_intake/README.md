@@ -78,4 +78,3 @@ Standalone script using FastMail JMAP API directly (via `agent_framework.tools.f
 ## Related Documentation
 
 - [CLAUDE.md](../../CLAUDE.md) — project overview
-- [agents/notifier/](../notifier/) — another standalone notification service
