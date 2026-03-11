@@ -4,64 +4,49 @@ Automated CI/CD pipelines for the agents project.
 
 ## Workflows
 
-### 1. Tests (`ci.yml`)
+### 1. CI (`ci.yml`)
 
-**Triggers:** Push to `main`/`develop`, Pull Requests
+**Triggers:** Push to `main`, Pull Requests, Merge groups
 
 **Jobs:**
-- **backend-tests** - Run Python tests with pytest
-  - Sets up PostgreSQL service
-  - Installs dependencies with `uv`
-  - Runs tests with coverage
-  - Uploads coverage to Codecov
-
-- **lint** - Code quality checks
-  - Python: ruff linter + formatter
-  - Type checking: pyright
+- **Lint** — ruff check + format
+- **Dependency Audit** — pip-audit + safety
+- **Unit Tests** (3.12, 3.13) — `tests/unit/` + `packages/agent-framework/tests/`
+- **Database Tests** (3.12, 3.13) — PostgreSQL-dependent tests (conversation store, memory store, API conversations)
+- **Eval Dataset Validation** — validates eval datasets and coverage
+- **Prompt Change Gate** — checks eval baselines when prompts change (PRs only)
+- **Rust Collector** — clippy, tests, and cargo audit for `security_audit/collector-rs`
+- **Integration Tests** — starts API server with PostgreSQL, tests endpoints
 
 ### 2. Security (`security.yml`)
 
 **Triggers:** Push, Pull Requests, Schedule
 
 **Jobs:**
-- Security scanning for vulnerabilities
+- CodeQL analysis, Semgrep, Trivy, dependency review
 
-### 3. Deploy (`deploy.yml`)
-
-**Triggers:** Tags (`v*`)
-
-**Jobs:**
-- Build and publish production artifacts
-- Create GitHub releases
-
-### 4. Claude Review (`claude-review.yml`)
+### 3. Claude Review (`claude-review.yml`)
 
 **Triggers:** Pull Requests
 
 **Jobs:**
-- Automated code review gate using Claude
+- Code review, security review, and review gate
 
-## Required Secrets
+### 4. Deploy (`deploy.yml`)
 
-| Secret | Required | Description |
-|--------|----------|-------------|
-| `ANTHROPIC_API_KEY` | Optional | For Claude review gate |
-| `CODECOV_TOKEN` | Optional | For coverage reports |
+**Triggers:** Tags (`v*`)
+
+**Jobs:**
+- Run unit tests, create release archive, publish GitHub release
 
 ## Local Testing
 
 ```bash
-# Run all checks locally
+# Run all local checks
 .github/workflows/test-local.sh
 
 # Or individually:
-uv run pytest -v --cov
+uv run pytest tests/unit/ -v
 uv run ruff check .
 uv run ruff format --check .
-uv run pyright
 ```
-
-## Resources
-
-- [GitHub Actions Documentation](https://docs.github.com/en/actions)
-- [pytest Documentation](https://docs.pytest.org/)

@@ -1,6 +1,6 @@
 # Building Secure Agentic Systems
 
-[![Tests](https://github.com/brooksmcmillin/agents/workflows/Tests/badge.svg)](https://github.com/brooksmcmillin/agents/actions/workflows/tests.yml)
+[![CI](https://github.com/brooksmcmillin/agents/workflows/CI/badge.svg)](https://github.com/brooksmcmillin/agents/actions/workflows/ci.yml)
 [![Security](https://github.com/brooksmcmillin/agents/workflows/Security/badge.svg)](https://github.com/brooksmcmillin/agents/actions/workflows/security.yml)
 
 A production multi-agent system built with Claude and Model Context Protocol (MCP), focused on the security architecture required to run LLM agents as daily drivers. Companion code for the [un]prompted talk *"Building Secure Agentic Systems: Lessons from Daily-Driver Agents."*
@@ -20,7 +20,7 @@ User Input (CLI / API / Slack)
                     → Tools (53 implementations)
 ```
 
-**12 agents. 53 tools. 6 permission levels. 10 max iterations per turn.**
+**10 registered agents + 2 standalone services. 53 tools. 6 permission levels. 10 max iterations per turn.**
 
 Each agent gets a scoped set of tools and permissions — not blanket access. Unknown tools default to `ADMIN` (deny by default).
 

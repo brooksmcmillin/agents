@@ -39,9 +39,6 @@ services:
       - mcp_tool_logs:/var/log/mcp-tools
     ports:
       - "8080:8080"
-    extra_hosts:
-      # Direct IP bypass for Cloudflare (allows direct database access)
-      - "todo.brooksmcmillin.com:172.236.250.226"
     networks:
       - agents-network
     restart: unless-stopped
