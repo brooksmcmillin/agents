@@ -32,8 +32,8 @@ For each task, quickly assess:
 - **Proceed** if the task has a clear, implementable description.
 
 For each task you'll proceed with, choose a model for the sub-agent based on complexity:
-- **haiku** — trivial tasks: typo fixes, config changes, simple one-file edits, documentation updates
-- **sonnet** — moderate tasks: single-feature implementation, bug fixes with clear reproduction, tests, straightforward refactors
+- **haiku** — trivial tasks: typo fixes, config changes, documentation updates, or simple one-file edits where the task description fully specifies the file and change. **Do not use haiku if the task requires navigating an unfamiliar codebase to locate the relevant code** — haiku is slower at exploration, making sonnet a better choice even for small changes.
+- **sonnet** — moderate tasks: single-feature implementation, bug fixes with clear reproduction, tests, straightforward refactors, or any task where the agent needs to explore the codebase to understand context
 - **opus** — complex tasks: multi-file architectural changes, ambiguous requirements needing judgment, tasks requiring deep codebase understanding or careful design decisions
 
 Show me the list of tasks you found, which ones you'll attempt, which you're skipping (with reasons), and the model you've chosen for each (with a brief justification). Then proceed without waiting.
@@ -68,8 +68,17 @@ For each task you're proceeding with:
    6. Stage and commit with a conventional commit message:
       - Format: `feat(scope): description (task #<ID>)` or `fix(scope): description (task #<ID>)`
       - Include `Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>`
+      - **If the commit is blocked by a pre-commit hook**: fix the underlying issue, re-stage the affected files, and retry. Never use `--no-verify`.
    7. Push the branch: `git push -u origin feat/<slug>`
-   8. Create a PR: `gh pr create --fill`
+   8. Create a PR with the task URL explicitly in the description body:
+      ```
+      gh pr create --title "<conventional-commit-title>" --body "$(cat <<'EOF'
+      <one-sentence summary of what was changed and why>
+
+      Task: https://todo.brooksmcmillin.com/task/<ID>
+      EOF
+      )"
+      ```
    9. Capture the PR URL from the output.
    10. Add the PR URL as a comment on the TaskManager task.
 
@@ -80,11 +89,16 @@ For each task you're proceeding with:
    1. Wait ~30 seconds, then check CI status with `gh pr checks`.
    2. If checks are still pending, wait another 30 seconds and check again. Repeat up to 10 times (5 minutes max).
    3. If any checks fail:
-      a. Fetch failed logs: `gh run view <run-id> --log-failed`
-      b. Fix the issue in the worktree.
-      c. Run tests locally to verify.
-      d. Commit, push.
-      e. Restart the fix loop from step 1.
+      a. **First, determine if the failure is infrastructure-related** (runner authorization errors, artifact download failures, GitHub Actions infrastructure timeouts — not your code). If so, re-trigger without code changes:
+         ```
+         gh run rerun <run-id> --failed
+         ```
+         Wait for the re-run. If it passes, continue. Infrastructure re-runs do **not** count toward the 5-iteration limit.
+      b. If the failure is code-related: fetch failed logs: `gh run view <run-id> --log-failed`
+      c. Fix the issue in the worktree.
+      d. Run tests locally to verify.
+      e. Commit, push.
+      f. Restart the fix loop from step 1.
    4. Check for CI reviewer feedback (the Review Gate is a required status check that fails when issues exist):
       a. Fetch CI reviewer issue comments (these are posted by the Claude Review workflow):
          ```
