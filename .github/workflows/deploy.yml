@@ -35,7 +35,7 @@ jobs:
             pyproject.toml uv.lock README.md CLAUDE.md
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: agents-${{ github.ref_name }}.tar.gz
           generate_release_notes: true
