@@ -23,7 +23,7 @@ dependencies = [
     "fastapi>=0.115.0",
     "slowapi>=0.1.9",
     "markdown>=3.10.1",
-    "pypdf>=6.7.5",  # Updated from >=6.7.4 to fix CVE-2026-28804
+    "pypdf>=6.10.2",  # Updated from >=6.7.4 to fix CVE-2026-28804
 ]
 
 [tool.uv]
