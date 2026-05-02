@@ -16,7 +16,7 @@ dependencies = [
     "authlib>=1.6.11",
     "cryptography>=44.0.0",
     "python-json-logger>=2.0.7",
-    "beautifulsoup4>=4.12.0",
+    "beautifulsoup4>=4.14.3",
     "lxml>=6.1.0",
     "markdownify>=1.2.0",
     "agent-framework",
@@ -38,7 +38,7 @@ constraint-dependencies = [
     "pydantic-settings>=2.6.0",
     "python-dotenv>=1.0.0",
     "cryptography>=44.0.0",
-    "beautifulsoup4>=4.12.0",
+    "beautifulsoup4>=4.14.3",
     "markdownify>=1.2.0",
     "lxml>=6.1.0",
 ]
