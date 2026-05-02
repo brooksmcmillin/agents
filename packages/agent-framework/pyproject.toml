@@ -35,7 +35,7 @@ dependencies = [
     # RAG-specific dependencies
     "openai>=1.0.0",
     "pypdf>=6.7.5",  # Updated from >=4.0.0 to fix CVE-2026-27628 and CVE-2026-28804
-    "lxml>=6.0.2",
+    "lxml>=6.1.0",
     # Observability
     "langfuse>=3.0.0",
     "opentelemetry-instrumentation-anthropic>=0.38.0",
