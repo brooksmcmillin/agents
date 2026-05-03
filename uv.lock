@@ -7,7 +7,7 @@ constraints = [
     { name = "aiohttp", specifier = ">=3.13.3" },
     { name = "anthropic", specifier = ">=0.97.0" },
     { name = "beautifulsoup4", specifier = ">=4.14.3" },
-    { name = "cryptography", specifier = ">=46.0.7" },
+    { name = "cryptography", specifier = ">=47.0.0" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "lxml", specifier = ">=6.1.0" },
     { name = "markdownify", specifier = ">=1.2.2" },
@@ -15,7 +15,7 @@ constraints = [
     { name = "pydantic", specifier = ">=2.12.5" },
     { name = "pydantic-settings", specifier = ">=2.6.0" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
-    { name = "python-multipart", specifier = ">=0.0.26" },
+    { name = "python-multipart", specifier = ">=0.0.27" },
 ]
 
 [[package]]
@@ -55,7 +55,7 @@ requires-dist = [
     { name = "anthropic", specifier = ">=0.40.0" },
     { name = "asyncpg", specifier = ">=0.30.0" },
     { name = "beautifulsoup4", specifier = ">=4.12.0" },
-    { name = "cryptography", specifier = ">=46.0.7" },
+    { name = "cryptography", specifier = ">=47.0.0" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "langfuse", specifier = ">=3.0.0" },
     { name = "litellm", specifier = ">=1.83.7" },
@@ -144,7 +144,7 @@ requires-dist = [
     { name = "anthropic", specifier = ">=0.97.0" },
     { name = "authlib", specifier = ">=1.6.11" },
     { name = "beautifulsoup4", specifier = ">=4.14.3" },
-    { name = "cryptography", specifier = ">=46.0.7" },
+    { name = "cryptography", specifier = ">=47.0.0" },
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "lxml", specifier = ">=6.1.0" },
