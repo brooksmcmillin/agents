@@ -14,7 +14,7 @@ dependencies = [
     "pydantic>=2.12.5",
     "pydantic-settings>=2.6.0",
     "authlib>=1.6.11",
-    "cryptography>=44.0.0",
+    "cryptography>=46.0.7",  # Updated from >=44.0.0 to fix CVE-2026-39892 (buffer overflow)
     "python-json-logger>=2.0.7",
     "beautifulsoup4>=4.14.3",
     "lxml>=6.1.0",
@@ -37,10 +37,11 @@ constraint-dependencies = [
     "pydantic>=2.12.5",
     "pydantic-settings>=2.6.0",
     "python-dotenv>=1.0.0",
-    "cryptography>=44.0.0",
+    "cryptography>=46.0.7",
     "beautifulsoup4>=4.14.3",
     "markdownify>=1.2.2",
     "lxml>=6.1.0",
+    "python-multipart>=0.0.26",  # Transitive via mcp; floor fixes CVE-2026-40347 (DoS)
 ]
 
 [tool.uv.sources]
