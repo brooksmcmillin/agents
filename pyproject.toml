@@ -10,7 +10,7 @@ dependencies = [
     "aiohttp>=3.13.5",  # Updated from >=3.11.0 to fix 8 CVEs (DoS, request smuggling)
     "starlette>=0.41.0",
     "uvicorn>=0.46.0",
-    "python-dotenv>=1.0.0",
+    "python-dotenv>=1.2.2",
     "pydantic>=2.12.5",
     "pydantic-settings>=2.14.0",
     "authlib>=1.6.11",
@@ -36,7 +36,7 @@ constraint-dependencies = [
     "aiohttp>=3.13.5",
     "pydantic>=2.12.5",
     "pydantic-settings>=2.14.0",
-    "python-dotenv>=1.0.0",
+    "python-dotenv>=1.2.2",
     "cryptography>=48.0.0",
     "beautifulsoup4>=4.14.3",
     "markdownify>=1.2.2",
