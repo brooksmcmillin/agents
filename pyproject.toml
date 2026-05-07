@@ -67,7 +67,7 @@ dev = [
     "pytest-cov>=7.1.0",
     "pytest-testmon>=2.2.0",
     "pytest-xdist>=3.8.0",
-    "ruff>=0.15.10",
+    "ruff>=0.15.12",
     "safety>=3.7.0",
 ]
 
