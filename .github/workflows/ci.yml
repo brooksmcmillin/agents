@@ -55,7 +55,18 @@ jobs:
         # CVE-2026-3219: pip tar/ZIP interpretation conflict. Project uses uv,
         # not pip, for installs; no upstream fix available. Re-evaluate when
         # pip publishes a patched release.
-        run: uv run pip-audit --ignore-vuln CVE-2026-3219
+        # PYSEC-2024-277 (joblib), PYSEC-2026-89 (markdown), PYSEC-2026-97
+        # (nltk), PYSEC-2025-183 (pyjwt): pip-audit false positives. OSV
+        # ranges declare last_affected versions (1.4.2, 3.8, 3.9.2, 2.10.1)
+        # all strictly below our resolved versions, but pip-audit lacking a
+        # `fixed` event flags any later version as vulnerable.
+        run: >
+          uv run pip-audit
+          --ignore-vuln CVE-2026-3219
+          --ignore-vuln PYSEC-2024-277
+          --ignore-vuln PYSEC-2026-89
+          --ignore-vuln PYSEC-2026-97
+          --ignore-vuln PYSEC-2025-183
 
       - name: Audit all dependencies with safety
         run: uv run safety scan
