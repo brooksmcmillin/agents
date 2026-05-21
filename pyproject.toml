@@ -17,7 +17,7 @@ dependencies = [
     "cryptography>=48.0.0",  # Updated from >=44.0.0 to fix CVE-2026-39892 (buffer overflow)
     "python-json-logger>=4.1.0",
     "beautifulsoup4>=4.14.3",
-    "lxml>=6.1.0",
+    "lxml>=6.1.1",
     "markdownify>=1.2.2",
     "agent-framework",
     "fastapi>=0.136.1",
@@ -40,7 +40,7 @@ constraint-dependencies = [
     "cryptography>=48.0.0",
     "beautifulsoup4>=4.14.3",
     "markdownify>=1.2.2",
-    "lxml>=6.1.0",
+    "lxml>=6.1.1",
     "python-multipart>=0.0.27",  # Transitive via mcp; floor fixes CVE-2026-40347 (DoS)
 ]
 # litellm>=1.83.7,<1.83.14 pins python-dotenv==1.0.1 and litellm==1.83.14 pins
