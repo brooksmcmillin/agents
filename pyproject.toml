@@ -68,7 +68,7 @@ dev = [
     "pytest-testmon>=2.2.0",
     "pytest-xdist>=3.8.0",
     "ruff>=0.15.14",
-    "safety>=3.7.0",
+    "safety>=3.8.0",
 ]
 
 [tool.pytest.ini_options]
