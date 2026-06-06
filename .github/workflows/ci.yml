@@ -52,9 +52,9 @@ jobs:
       - run: uv sync
 
       - name: Audit all dependencies with pip-audit
-        # CVE-2026-3219: pip tar/ZIP interpretation conflict. Project uses uv,
-        # not pip, for installs; no upstream fix available. Re-evaluate when
-        # pip publishes a patched release.
+        # CVE-2026-3219, PYSEC-2026-196: pip vulnerabilities in the runner
+        # environment. Project uses uv, not pip, for installs so these are not
+        # exploitable here. Re-evaluate when pip publishes a patched release.
         # PYSEC-2024-277 (joblib), PYSEC-2026-89 (markdown), PYSEC-2026-97
         # (nltk), PYSEC-2025-183 (pyjwt): pip-audit false positives. OSV
         # ranges declare last_affected versions (1.4.2, 3.8, 3.9.2, 2.10.1)
@@ -63,6 +63,7 @@ jobs:
         run: >
           uv run pip-audit
           --ignore-vuln CVE-2026-3219
+          --ignore-vuln PYSEC-2026-196
           --ignore-vuln PYSEC-2024-277
           --ignore-vuln PYSEC-2026-89
           --ignore-vuln PYSEC-2026-97
