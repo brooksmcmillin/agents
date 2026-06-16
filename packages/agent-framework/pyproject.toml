@@ -24,7 +24,7 @@ dependencies = [
     "python-dotenv>=1.2.2",
     "pydantic>=2.10.0",
     "pydantic-settings>=2.6.0",
-    "cryptography>=47.0.0",  # Fixes CVE-2026-39892 (buffer overflow on non-contiguous buffers)
+    "cryptography>=48.0.1",  # Fixes CVE-2026-39892 (buffer overflow on non-contiguous buffers)
     "beautifulsoup4>=4.12.0",
     "markdownify>=1.2.0",
     "aiohttp>=3.14.0",  # Updated from >=3.13.3 to fix CVEs; >=3.14.0 fixes CVE-2026-34993, CVE-2026-47265
