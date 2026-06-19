@@ -21,7 +21,7 @@ dependencies = [
     "markdownify>=1.2.2",
     "agent-framework",
     "fastapi>=0.137.2",
-    "slowapi>=0.1.9",
+    "slowapi>=0.1.10",
     "markdown>=3.10.2",
     "pypdf>=6.13.3",  # Updated from >=6.7.4 to fix CVE-2026-28804
 ]
