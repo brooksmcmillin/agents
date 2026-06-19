@@ -27,7 +27,7 @@ dependencies = [
     "cryptography>=48.0.1",  # Fixes CVE-2026-39892 (buffer overflow on non-contiguous buffers)
     "beautifulsoup4>=4.12.0",
     "markdownify>=1.2.0",
-    "aiohttp>=3.14.0",  # Updated from >=3.13.3 to fix CVEs; >=3.14.0 fixes CVE-2026-34993, CVE-2026-47265
+    "aiohttp>=3.14.1",  # Updated from >=3.13.3 to fix CVEs; >=3.14.0 fixes CVE-2026-34993, CVE-2026-47265
     "slack-bolt>=1.18.0",
     "slack-sdk>=3.27.0",
     # Database dependencies (shared by memory and RAG)
